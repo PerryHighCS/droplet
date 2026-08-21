@@ -56,6 +56,13 @@ Before changing code, read the relevant material:
 - `vendor/`: checked-in third-party browser assets; do not hand-edit them.
 - `packages/core/`: dependency-free modern source-range and opaque-projection
   foundation. It is ESM and tested independently with Node's test runner.
+- `packages/codemirror-editor/`: framework-independent CodeMirror 6 wrapper.
+  It owns the canonical modern text document and is tested independently with
+  Node's test runner and JSDOM. Its `droplet` export is the modern projection
+  adapter; keep the generic root export free of language and block policy.
+- `packages/javascript-adapter/`: modern Acorn-based JavaScript range parser
+  and source-transform adapter. It is independent of the legacy JavaScript
+  CoffeeScript mode and must preserve exact source slices.
 - `dist/`, `test/js/`, and generated example JavaScript: build output; do not
   manually edit or commit it unless a task explicitly requires a release artifact.
 
@@ -109,6 +116,9 @@ in the README are stale.
    the browser suite because the historical Puppeteer cannot install Chromium.
 2. For a focused edit, run the narrowest relevant Grunt target first, then the
    full suite if the change could affect other editor layers.
+   GitHub branch protection requires the stable `Legacy verification` and
+   `Modern verification` aggregate checks; add new CI jobs to the appropriate
+   aggregate job's `needs` list rather than adding a new required check.
 3. For changes to examples or visible interaction, start `npx grunt testserver`
    and verify the relevant page in `example/` on port 8001.
 4. If a browser-test failure is caused by the local environment (for example,

@@ -24,6 +24,10 @@ reviews:
     # Dependency changes must be reviewed with their manifest changes.
     - "package-lock.json"
     - "playwright/package-lock.json"
+    # Modern workspaces are production source. Explicit inclusion also
+    # overrides CodeRabbit's default exclusion of nested package lockfiles.
+    - "packages/**"
+    - "packages/**/package-lock.json"
   path_instructions:
     - path: "src/**/*.coffee"
       instructions: |

@@ -7,6 +7,7 @@ import {
   createOpaqueProjection,
   getNodeText,
   isOpaque,
+  normalizeSourceChanges,
   parseWithOpaqueRecovery
 } from '../src/index.js';
 
@@ -137,5 +138,25 @@ test('overlapping and out-of-bounds ranges are rejected', () => {
   assert.throws(
     () => applySourceChanges('abc', [{from: 0, to: 4, insert: ''}]),
     /within the source snapshot/
+  );
+});
+
+test('source changes are normalized before consumers dispatch them', () => {
+  const source = 'first();\nsecond();\n';
+  const changes = normalizeSourceChanges(source, [
+    {from: 0, to: 8, insert: ''},
+    {from: source.length, to: source.length, insert: 'first();'}
+  ]);
+
+  assert.deepEqual(changes, [
+    {from: 0, to: 8, insert: ''},
+    {from: source.length, to: source.length, insert: 'first();'}
+  ]);
+  assert.deepEqual(
+    normalizeSourceChanges(source, [
+      {from: source.length, to: source.length, insert: 'first();'},
+      {from: 0, to: 8, insert: ''}
+    ]),
+    changes
   );
 });

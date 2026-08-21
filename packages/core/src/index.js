@@ -105,18 +105,24 @@ export function canMoveOpaque(node) {
  * snapshot. CodeMirror integration will translate these into one transaction.
  */
 export function applySourceChanges(source, changes) {
-  assertSource(source);
-  const normalized = changes
-    .map((change) => normalizeSourceChange(source, change))
-    .sort(compareRanges);
-
-  assertNonOverlapping(normalized);
+  const normalized = normalizeSourceChanges(source, changes);
 
   return normalized.reduceRight(
     (nextSource, change) =>
       nextSource.slice(0, change.from) + change.insert + nextSource.slice(change.to),
     source
   );
+}
+
+/** Validates and orders minimal source changes for a single source snapshot. */
+export function normalizeSourceChanges(source, changes) {
+  assertSource(source);
+  if (!Array.isArray(changes)) throw new TypeError('Source changes must be an array');
+  const normalized = changes
+    .map((change) => normalizeSourceChange(source, change))
+    .sort(compareRanges);
+  assertNonOverlapping(normalized);
+  return normalized;
 }
 
 function normalizeOpaqueRegion(source, region, index) {

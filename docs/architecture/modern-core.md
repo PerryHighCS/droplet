@@ -103,6 +103,52 @@ changes against the current CodeMirror snapshot, and applies one CodeMirror
 transaction. CodeMirror consequently owns source state, selection mapping, and
 undo/redo. A block operation cannot create a second mutable document or history.
 
+## Generic CodeMirror editor
+
+`@droplet/codemirror-editor` is the framework-independent boundary around
+CodeMirror 6. Its `CodeMirrorEditor` owns exactly one `EditorView` and exposes
+source value, selection, focus, scroll, dispatch, update, and destroy methods.
+It is useful without a Droplet parser or renderer.
+
+`setValue(value)` creates an `externalValueAnnotation` transaction. Such an
+update is delivered through `onUpdate(update, {external: true})`, but does not
+call `onChange`; ordinary local document transactions call both callbacks with
+`external: false`. This keeps controlled consumers from feeding their own
+value update back into application state while retaining CodeMirror's single
+history and transaction stream.
+
+Language, theme, read-only state, and consumer-supplied extensions are each
+held in a CodeMirror `Compartment`. `update()` reconfigures those compartments
+without recreating the view, so later Droplet, collaboration, and framework
+extensions remain attached to the same canonical document.
+
+The package's `droplet` subpath adds the projection adapter. It reparses with
+`parseWithOpaqueRecovery` after every CodeMirror document change, renders
+structured statements, expressions, sockets, and opaque ranges with CodeMirror
+decorations in block mode, and filters direct changes that touch opaque internal
+source. Externally synchronized source and
+explicit block-operation transactions are allowed through that filter, so
+repairing source automatically replaces the opaque projection. A language
+adapter's `transform` result is range-validated and dispatched as one ordinary
+CodeMirror transaction, preserving the same undo history as text edits.
+Each rendered projection range carries its canonical source offsets; clicking
+it dispatches a CodeMirror selection for that range rather than introducing a
+parallel block selection model. Native drag/drop similarly emits only an
+operation intent: a statement dropped on a statement requests a statement move,
+and an expression or socket dropped on a socket requests a socket replacement.
+The language adapter validates the resulting source transformation.
+
+## Initial modern JavaScript adapter
+
+`@droplet/javascript-adapter` is the first language implementation for this
+boundary. It uses current Acorn independently of the legacy Acorn 1 runtime,
+projects JavaScript AST nodes onto their original source ranges, and exposes
+call arguments plus selected expression positions as sockets. Its supported
+transforms are `replace-socket`, `insert-statement`, and `move-statement`.
+They return only minimal source-range changes, validate that their resulting
+source still parses, and leave all surrounding source—including comments and
+lexical formatting—untouched.
+
 ## Opaque source and recovery
 
 Opaque nodes are read-only internally and retain exact source. A known opaque

@@ -19,6 +19,19 @@ runtime. Future Code.org changes are reviewed and selectively reimplemented as
 compatibility work. See [the modernization decision](docs/decisions/0001-full-modernization.md)
 and [the upstream review log](docs/upstream-codeorg.md).
 
+The first framework-independent editor package is
+[`packages/codemirror-editor`](packages/codemirror-editor/): it wraps one
+CodeMirror 6 document with controlled value synchronization and extension
+compartments. Its `@droplet/codemirror-editor/droplet` subpath adds the
+source-range Droplet projection adapter, including block-mode decorations and
+source-backed selection and drag/drop intents.
+
+The initial modern language path is
+[`packages/javascript-adapter`](packages/javascript-adapter/). It projects
+current-Acorn JavaScript ranges and supports source-preserving socket
+replacement, statement insertion, and statement movement through the CodeMirror
+Droplet adapter.
+
 How to Embed
 ------------
 Droplet is a browserify package, so you can include it with npm, requirejs, or as a browser global. To embed, call `new droplet.Editor()` on a div.

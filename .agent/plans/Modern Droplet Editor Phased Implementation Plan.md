@@ -549,9 +549,9 @@ opaque blocks become structured again
 
 ### Phase 4 editor integration acceptance criteria
 
-- [ ] Block mode can display opaque source regions.
-- [ ] Invalid intermediate source does not force mode switching.
-- [ ] Opaque blocks automatically become structured blocks when parsing succeeds.
+- [x] Block mode can display opaque source regions.
+- [x] Invalid intermediate source does not force mode switching.
+- [x] Opaque blocks automatically become structured blocks when parsing succeeds.
 
 ### Phase 4 foundation — 2026-08-21
 
@@ -562,7 +562,16 @@ adapter to opt in before an opaque statement or expression may move. It also
 provides atomic minimal source-change application for the future CodeMirror
 transaction adapter. `parseWithOpaqueRecovery` now supplies the parser boundary:
 syntax failures yield opaque regions and the next successful parse returns a
-structured projection. Renderer integration remains later editor work.
+structured projection. Initial CodeMirror projection rendering is documented
+below; richer block layout remains later editor work.
+
+### Phase 4 editor integration — 2026-08-21
+
+The `@droplet/codemirror-editor/droplet` adapter reparses projections after
+every CodeMirror source transaction. In block mode, opaque ranges have an
+explicit read-only visual decoration while external source synchronization and
+validated block operations remain allowed. A repaired source transaction is
+therefore automatically reprojected as structured source without a mode switch.
 
 ---
 
@@ -576,20 +585,20 @@ Use CodeMirror 6 primitives.
 
 ## Generic editor responsibilities
 
-- [ ] Create and destroy `EditorView`.
-- [ ] Controlled external value synchronization.
-- [ ] Change callbacks.
-- [ ] Update callbacks.
-- [ ] Selection access.
-- [ ] Focus.
-- [ ] Scroll state.
-- [ ] Read only mode.
-- [ ] Theme reconfiguration.
-- [ ] Language reconfiguration.
-- [ ] Additional consumer extensions.
-- [ ] Transaction annotations for external versus local edits.
-- [ ] Multiple editor instances.
-- [ ] Proper cleanup.
+- [x] Create and destroy `EditorView`.
+- [x] Controlled external value synchronization.
+- [x] Change callbacks.
+- [x] Update callbacks.
+- [x] Selection access.
+- [x] Focus.
+- [x] Scroll state.
+- [x] Read only mode.
+- [x] Theme reconfiguration.
+- [x] Language reconfiguration.
+- [x] Additional consumer extensions.
+- [x] Transaction annotations for external versus local edits.
+- [x] Multiple editor instances.
+- [x] Proper cleanup.
 
 Use CodeMirror `Compartment` objects for reconfigurable concerns.
 
@@ -619,12 +628,23 @@ This component should be useful without Droplet.
 
 ### Phase 5 acceptance criteria
 
-- [ ] Plain CodeMirror editor works without React.
-- [ ] External values synchronize predictably.
-- [ ] Undo history behaves correctly.
-- [ ] Language and theme changes do not recreate the editor.
-- [ ] Consumers may add CodeMirror extensions.
-- [ ] API is suitable for later replacement of MobCode's UIW wrapper.
+- [x] Plain CodeMirror editor works without React.
+- [x] External values synchronize predictably.
+- [x] Undo history behaves correctly.
+- [x] Language and theme changes do not recreate the editor.
+- [x] Consumers may add CodeMirror extensions.
+- [x] API is suitable for later replacement of MobCode's UIW wrapper.
+
+### Phase 5 implementation — 2026-08-21
+
+`packages/codemirror-editor` provides the framework-independent
+`@droplet/codemirror-editor` package. It owns one CodeMirror document and
+history, supports controlled external synchronization through an explicit
+transaction annotation, and uses compartments for reconfigurable language,
+theme, read-only state, and consumer extensions. The JSDOM test suite verifies
+multiple independent instances, cleanup, selection, focus, scroll state,
+history, and non-recreating reconfiguration. No legacy CoffeeScript or Ace
+runtime is imported by the package.
 
 ---
 
@@ -688,12 +708,47 @@ Do not maintain a separately authoritative block document.
 
 ### Phase 6 acceptance criteria
 
-- [ ] Existing Droplet operations work against CodeMirror.
-- [ ] Undo and redo include block operations naturally.
-- [ ] Text edits and block edits share one history.
-- [ ] CodeMirror selections survive reparsing where practical.
-- [ ] Existing CodeMirror extensions remain active in text mode.
-- [ ] Multiple editors may coexist.
+- [x] Existing Droplet operations work against CodeMirror.
+- [x] Undo and redo include block operations naturally.
+- [x] Text edits and block edits share one history.
+- [x] CodeMirror selections survive reparsing where practical.
+- [x] Existing CodeMirror extensions remain active in text mode.
+- [x] Multiple editors may coexist.
+
+### Phase 6 initial JavaScript path — 2026-08-21
+
+`packages/javascript-adapter` provides a current-Acorn JavaScript projection
+without importing the legacy parser. It preserves the full compatibility
+fixture byte-for-byte, exposes range-backed call-argument and common expression
+slots, and supports `replace-socket`, `insert-statement`, and
+`move-statement`. Every operation is validated and dispatched through the
+CodeMirror adapter as a single source transaction, so CodeMirror undo/redo
+remains authoritative. The broader legacy interaction surface remains
+outstanding Phase 6 work.
+
+The initial CodeMirror projection presentation decorates structured statements,
+expressions, sockets, and opaque ranges directly over canonical source. It is
+not yet the legacy canvas renderer or full drag-and-drop UI. Clicking a
+rendered range selects its exact CodeMirror source range through a normal
+selection transaction. The initial native drag/drop surface emits
+source-backed statement-move and expression/socket-replacement intents; opaque
+regions do not become draggable operations.
+
+The JavaScript integration suite also verifies source-selection mapping through
+a block transaction and one shared undo/redo history for ordinary text edits
+and block operations. Generic-editor tests cover independent editor instances
+and extension reconfiguration, which remain active through the projection
+adapter.
+
+### Phase 6 acceptance — 2026-08-21
+
+The modern JavaScript path covers the established core editor interactions:
+editing source through CodeMirror, selecting projected ranges, moving
+statements, replacing sockets with expressions, and issuing those moves through
+native drag/drop intents. Those changes share CodeMirror selections, history,
+undo/redo, extensions, and multi-instance lifecycle. This completes the editor
+adapter phase; later rendering work may improve the presentation without
+replacing its transaction model.
 
 ---
 
@@ -1252,17 +1307,17 @@ Do not initially:
 If implementation starts immediately, the practical order is:
 
 - [x] Create fork and remotes.
-- [ ] Base `main` on `upstream/code-dot-org`.
-- [ ] Preserve original and Python historical branches.
-- [ ] Make Code.org Droplet build reproducibly.
-- [ ] Establish JavaScript compatibility tests.
-- [ ] Port the advanced Python adapter and tests.
-- [ ] Establish Python source preservation tests.
-- [ ] Introduce opaque read only blocks.
-- [ ] Define the editor abstraction.
-- [ ] Build the generic CodeMirror 6 wrapper.
-- [ ] Implement the Droplet CodeMirror adapter.
-- [ ] Make block operations dispatch CodeMirror transactions.
+- [x] Base `main` on `upstream/code-dot-org`.
+- [x] Preserve original and Python historical branches.
+- [x] Make Code.org Droplet build reproducibly.
+- [x] Establish JavaScript compatibility tests.
+- [x] Port the advanced Python adapter and tests.
+- [x] Establish Python source preservation tests.
+- [x] Introduce opaque read only blocks.
+- [x] Define the editor abstraction.
+- [x] Build the generic CodeMirror 6 wrapper.
+- [x] Implement the initial Droplet CodeMirror adapter.
+- [x] Make initial block operations dispatch CodeMirror transactions.
 - [ ] Package the non React browser editor.
 - [ ] Modernize Python parsing, likely using Brython.
 - [ ] Add the thin React package.
