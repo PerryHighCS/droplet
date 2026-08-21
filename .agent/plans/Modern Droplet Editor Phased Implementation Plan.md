@@ -782,8 +782,8 @@ BrythonPythonParser
 
 ## Brython investigation and implementation
 
-- [ ] Verify current Brython AST locations.
-- [ ] Verify start and end offsets or line and column information.
+- [x] Verify current Brython AST locations.
+- [x] Verify start and end offsets or line and column information.
 - [ ] Verify handling of comments and lexical trivia.
 - [ ] Determine whether tokenization is needed alongside AST parsing.
 - [ ] Build a Brython AST to Droplet source node adapter.
