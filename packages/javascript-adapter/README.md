@@ -20,7 +20,8 @@ const editor = createDropletCodeMirrorEditor({
 });
 ```
 
-The currently supported block transform is `replace-socket`. Call arguments,
-variable initializers, assignment right-hand sides, binary/logical operands,
-and return values are projected as sockets when applicable. Statement insertion
-and movement are deliberately not implemented yet.
+Supported transforms are `replace-socket`, `insert-statement`, and
+`move-statement`. Call arguments, variable initializers, assignment right-hand
+sides, binary/logical operands, and return values are projected as sockets when
+applicable. Transformations are rejected if their exact range edits do not
+parse as JavaScript; otherwise the original lexical trivia is left untouched.

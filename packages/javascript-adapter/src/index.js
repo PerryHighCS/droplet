@@ -1,4 +1,5 @@
 import {parse} from 'acorn';
+import {applySourceChanges} from '@droplet/core';
 
 /**
  * Produces a source-range JavaScript projection without regenerating source.
@@ -34,15 +35,44 @@ export function parseJavaScript(source, options = {}) {
 
 /** Returns minimal source changes for supported JavaScript block intents. */
 export function transformJavaScript(operation, parsed) {
-  if (operation?.type !== 'replace-socket') {
-    throw new RangeError(`Unsupported JavaScript block operation: ${operation?.type}`);
+  assertParsedSource(parsed);
+  let changes;
+  switch (operation?.type) {
+    case 'replace-socket': {
+      assertOperationSource(operation.source, 'Socket replacement');
+      const socket = findNode(parsed.root, operation.target, 'socket');
+      if (!socket) throw new RangeError('Socket target is not present in the current projection');
+      changes = [{from: socket.from, to: socket.to, insert: operation.source}];
+      break;
+    }
+    case 'insert-statement': {
+      assertOperationSource(operation.source, 'Statement insertion');
+      assertInsertionPoint(parsed.source, operation.destination);
+      changes = [{from: operation.destination.from, to: operation.destination.to, insert: operation.source}];
+      break;
+    }
+    case 'move-statement': {
+      const statement = findNode(parsed.root, operation.source, 'statement');
+      if (!statement) throw new RangeError('Statement source is not present in the current projection');
+      assertInsertionPoint(parsed.source, operation.destination);
+      if (operation.destination.from > statement.from && operation.destination.from < statement.to) {
+        throw new RangeError('Cannot move a statement into itself');
+      }
+      const text = parsed.source.slice(statement.from, statement.to);
+      changes = [
+        {from: statement.from, to: statement.to, insert: ''},
+        {from: operation.destination.from, to: operation.destination.to, insert: text}
+      ];
+      break;
+    }
+    default:
+      throw new RangeError(`Unsupported JavaScript block operation: ${operation?.type}`);
   }
-  if (typeof operation.source !== 'string') {
-    throw new TypeError('Socket replacement source must be a string');
-  }
-  const socket = findNode(parsed?.root, operation.target, 'socket');
-  if (!socket) throw new RangeError('Socket target is not present in the current projection');
-  return [{from: socket.from, to: socket.to, insert: operation.source}];
+
+  // Do not emit a transformation that produces invalid JavaScript. This is
+  // validation only; parseJavaScript never becomes a source serializer.
+  parseJavaScript(applySourceChanges(parsed.source, changes));
+  return changes;
 }
 
 function projectNode(node, kind = nodeKind(node)) {
@@ -101,6 +131,23 @@ function findNode(node, range, kind) {
     if (found) return found;
   }
   return undefined;
+}
+
+function assertParsedSource(parsed) {
+  if (typeof parsed?.source !== 'string' || !parsed?.root) {
+    throw new TypeError('A current JavaScript projection is required');
+  }
+}
+
+function assertOperationSource(source, label) {
+  if (typeof source !== 'string') throw new TypeError(`${label} source must be a string`);
+}
+
+function assertInsertionPoint(source, destination) {
+  if (!Number.isInteger(destination?.from) || destination.from !== destination.to ||
+      destination.from < 0 || destination.from > source.length) {
+    throw new RangeError('Statement destination must be a zero-width source position');
+  }
 }
 
 function assertSource(source) {

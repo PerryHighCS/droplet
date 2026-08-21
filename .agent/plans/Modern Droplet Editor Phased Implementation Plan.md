@@ -720,11 +720,11 @@ Do not maintain a separately authoritative block document.
 `packages/javascript-adapter` provides a current-Acorn JavaScript projection
 without importing the legacy parser. It preserves the full compatibility
 fixture byte-for-byte, exposes range-backed call-argument and common expression
-sockets, and supports the first real block operation: `replace-socket`.
-The operation is validated and dispatched through the CodeMirror adapter as a
-single source transaction, so CodeMirror undo/redo remains authoritative.
-Statement movement, statement insertion, and the broader legacy interaction
-surface remain outstanding Phase 6 work.
+slots, and supports `replace-socket`, `insert-statement`, and
+`move-statement`. Every operation is validated and dispatched through the
+CodeMirror adapter as a single source transaction, so CodeMirror undo/redo
+remains authoritative. The broader legacy interaction surface remains
+outstanding Phase 6 work.
 
 ---
 

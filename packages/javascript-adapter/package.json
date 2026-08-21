@@ -14,6 +14,7 @@
     "acorn": "8.18.0"
   },
   "devDependencies": {
+    "@codemirror/commands": "6.11.0",
     "@droplet/codemirror-editor": "file:../codemirror-editor",
     "jsdom": "30.0.1"
   }

@@ -136,10 +136,11 @@ CodeMirror transaction, preserving the same undo history as text edits.
 `@droplet/javascript-adapter` is the first language implementation for this
 boundary. It uses current Acorn independently of the legacy Acorn 1 runtime,
 projects JavaScript AST nodes onto their original source ranges, and exposes
-call arguments plus selected expression positions as sockets. Its first
-supported transform is `replace-socket`; it returns only that socket's source
-range, leaving all surrounding source—including comments and lexical
-formatting—untouched. Statement movement and insertion remain later work.
+call arguments plus selected expression positions as sockets. Its supported
+transforms are `replace-socket`, `insert-statement`, and `move-statement`.
+They return only minimal source-range changes, validate that their resulting
+source still parses, and leave all surrounding source—including comments and
+lexical formatting—untouched.
 
 ## Opaque source and recovery
 

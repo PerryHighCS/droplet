@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 
-import {parseWithOpaqueRecovery} from '@droplet/core';
+import {applySourceChanges, parseWithOpaqueRecovery} from '@droplet/core';
 import {parseJavaScript, transformJavaScript} from '../src/index.js';
 
 test('projects the compatibility fixture without changing any source character', async () => {
@@ -39,6 +39,26 @@ test('syntax errors retain their source location for opaque recovery', () => {
   assert.equal(parsed.root.children[0].from, 0);
   assert.equal(parsed.root.children[0].to, source.length);
   assert.equal(parsed.issues[0].message.includes('Unexpected token'), true);
+});
+
+test('inserts and moves statements with source-range changes only', () => {
+  const source = 'first();\nsecond();\n';
+  const parsed = parseJavaScript(source);
+  const [first, second] = parsed.root.children;
+  const inserted = transformJavaScript({
+    type: 'insert-statement',
+    destination: {from: 0, to: 0},
+    source: 'before();\n'
+  }, parsed);
+  assert.equal(applySourceChanges(source, inserted), 'before();\nfirst();\nsecond();\n');
+
+  const moved = transformJavaScript({
+    type: 'move-statement',
+    source: {from: first.from, to: first.to},
+    destination: {from: source.length, to: source.length}
+  }, parsed);
+  assert.equal(applySourceChanges(source, moved), '\nsecond();\nfirst();');
+  assert.equal(source.slice(second.from, second.to), 'second();');
 });
 
 function findFirst(node, predicate) {

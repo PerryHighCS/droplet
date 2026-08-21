@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {JSDOM} from 'jsdom';
+import {undo} from '@codemirror/commands';
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
 
 import {parseJavaScript, transformJavaScript} from '../src/index.js';
@@ -29,6 +30,28 @@ test('a JavaScript socket operation becomes one source-preserving CodeMirror tra
 
   assert.equal(editor.getValue(), 'announce("total", score + 1); // preserve this comment\n');
   assert.equal(editor.getProjection().source, editor.getValue());
+  editor.destroy();
+});
+
+test('JavaScript statement movement uses the same CodeMirror undo history', () => {
+  const source = 'first();\nsecond();\n';
+  const parent = document.createElement('div');
+  document.body.append(parent);
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: source, blockMode: true,
+    parse: parseJavaScript, transform: transformJavaScript
+  });
+  const [first] = editor.getProjection().root.children;
+
+  editor.applyBlockOperation({
+    type: 'move-statement',
+    source: {from: first.from, to: first.to},
+    destination: {from: source.length, to: source.length}
+  });
+
+  assert.equal(editor.getValue(), '\nsecond();\nfirst();');
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), source);
   editor.destroy();
 });
 
