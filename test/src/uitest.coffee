@@ -112,6 +112,23 @@ dropLocation = (editor, document, location) ->
     dy: blockView.dropPoint.y + 5
   })
 
+dropPaletteBlockAt = (editor, selector, document, location) ->
+  simulate('mousedown', selector)
+  simulate('mousemove', '.droplet-drag-cover', {location: selector, dx: 5})
+
+  block = editor.getDocument(document).getFromTextLocation(location)
+  blockView = editor.session.view.getViewNodeFor block
+  simulate('mousemove', editor.dragCover, {
+    location: editor.dropletElement,
+    dx: blockView.dropPoint.x + 5 + editor.gutter.clientWidth,
+    dy: blockView.dropPoint.y + 5
+  })
+  simulate('mouseup', editor.dragCover, {
+    location: editor.dropletElement,
+    dx: blockView.dropPoint.x + 5 + editor.gutter.clientWidth,
+    dy: blockView.dropPoint.y + 5
+  })
+
 asyncTest 'Controller: palette block expansion', ->
   states = []
   document.getElementById('test-main').innerHTML = ''
@@ -146,23 +163,19 @@ asyncTest 'Controller: palette block expansion', ->
     ), (->
       equal(editor.getValue().trim(), 'pen red')
     ), (->
-      simulate('mousedown', '[data-id=ftest]')
-      simulate('mousemove', '.droplet-drag-cover',
-        { location: '[data-id=ftest]', dx: 5 })
-      simulate('mousemove', '.droplet-drag-cover',
-        { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 40 })
-      simulate('mouseup', '.droplet-drag-cover',
-        { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 40 })
+      dropPaletteBlockAt(editor, '[data-id=ftest]', 0, {
+        row: 0
+        col: 0
+        type: 'block'
+      })
     ), (->
       equal(editor.getValue().trim(), 'pen red\na3 = b')
     ), (->
-      simulate('mousedown', '[data-id=ftest]')
-      simulate('mousemove', '.droplet-drag-cover',
-        { location: '[data-id=ftest]', dx: 5 })
-      simulate('mousemove', '.droplet-drag-cover',
-        { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 70 })
-      simulate('mouseup', '.droplet-drag-cover',
-        { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 70 })
+      dropPaletteBlockAt(editor, '[data-id=ftest]', 0, {
+        row: 1
+        col: 0
+        type: 'block'
+      })
     ), (->
       equal(editor.getValue().trim(), 'pen red\na3 = b\na6 = b')
       start()
