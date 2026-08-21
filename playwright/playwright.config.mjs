@@ -9,7 +9,7 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   webServer: {
-    command: 'npx grunt buildtests && node playwright/serve.mjs',
+    command: 'npx grunt build buildtests && node playwright/serve.mjs',
     cwd: '..',
     url: 'http://127.0.0.1:8942/test/test.html',
     reuseExistingServer: !process.env.CI,

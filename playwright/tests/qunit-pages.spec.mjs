@@ -18,3 +18,37 @@ for (const pageName of qunitPages) {
     });
   });
 }
+
+test('demo preserves JavaScript source while toggling text and blocks', async ({ page }) => {
+  const source = [
+    'var total = 1 + 2;',
+    'if (total > 2) {',
+    '  announce("large");',
+    '}'
+  ].join('\n');
+
+  await page.addInitScript(({ initialSource }) => {
+    localStorage.setItem('blocks', 'no');
+    localStorage.setItem('config', '({"mode":"javascript","palette":[]})');
+    localStorage.setItem('text', initialSource);
+  }, { initialSource: source });
+
+  await page.goto('/example/example.html');
+  await expect.poll(() => page.evaluate(() => Boolean(window.editor))).toBe(true);
+  await expect(page.locator('#toggle')).toBeVisible();
+
+  const firstToggle = page.evaluate(() => new Promise((resolve) => {
+    window.editor.once('toggledone', resolve);
+  }));
+  await page.locator('#toggle').click();
+  await firstToggle;
+  await expect.poll(() => page.evaluate(() => window.editor.session.currentlyUsingBlocks)).toBe(true);
+
+  const secondToggle = page.evaluate(() => new Promise((resolve) => {
+    window.editor.once('toggledone', resolve);
+  }));
+  await page.locator('#toggle').click();
+  await secondToggle;
+  await expect.poll(() => page.evaluate(() => window.editor.session.currentlyUsingBlocks)).toBe(false);
+  await expect.poll(() => page.evaluate(() => window.editor.getValue())).toBe(source);
+});

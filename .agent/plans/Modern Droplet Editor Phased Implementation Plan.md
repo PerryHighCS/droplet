@@ -184,7 +184,7 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
 - [x] Produce an unminified development distribution.
 - [x] Run whatever existing unit tests still function.
 - [x] Run the existing browser examples.
-- [ ] Verify block to text and text to block switching.
+- [x] Verify block to text and text to block switching.
 
 ### Baseline findings — 2026-08-21
 
@@ -205,8 +205,7 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
 - On Node 14, `npm test` builds the distribution and all QUnit bundles, then
   reaches the QUnit runner but cannot launch `/usr/bin/chromium-browser`. The
   container has no system browser, and Puppeteer 5.5.0 cannot download one for
-  ARM64; browser and interaction validation remain pending on a compatible
-  browser-enabled environment.
+  ARM64, so that historical runner cannot provide browser validation.
 - `npx grunt testserver` starts successfully with normal container port access;
   `example/example.html` is served at `http://localhost:8001`. Functional
   browser verification cannot use the historical Puppeteer dependency because
@@ -214,7 +213,8 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
 - The isolated `playwright/` workspace uses Node 24 and Playwright Chromium on
   ARM64 without modifying the legacy lockfile. `npm run test:browser` rebuilds
   the QUnit bundles and passes all six existing browser pages (`ctest`,
-  `cstest`, `htmltest`, `jstest`, `test`, and `uitest`).
+  `cstest`, `htmltest`, `jstest`, `test`, and `uitest`) plus the browser-demo
+  source-preservation test.
 
 ## Reference behavior
 
@@ -240,13 +240,18 @@ Create a small compatibility corpus for JavaScript.
 - [ ] Editing sockets.
 - [ ] Undo.
 - [ ] Redo.
-- [ ] Toggle text to blocks to text.
+- [x] Toggle text to blocks to text.
 
 Store expected source before and after each operation.
 
 `test/data/javascript-compatibility.js` is the initial exact-source fixture for
 the checked parser cases. `test/src/parserTests.coffee` asserts a byte-for-byte
 parse/stringify round trip under the Code.org JavaScript mode.
+
+`playwright/tests/qunit-pages.spec.mjs` also loads the browser demo with a
+representative JavaScript program, toggles text → blocks → text through its
+visible control, waits for each `toggledone` event, and verifies exact source
+preservation.
 
 ## Code.org reference harness
 
@@ -261,7 +266,7 @@ This becomes the reference implementation during modernization.
 ### Phase 1 acceptance criteria
 
 - [x] Current Code.org lineage builds reproducibly.
-- [ ] A representative JavaScript program can be edited in blocks and text.
+- [x] A representative JavaScript program can be edited in blocks and text.
 - [x] Existing behavior is documented by automated tests where practical.
 - [x] We have a reference environment for comparing later behavior.
 
