@@ -39,6 +39,15 @@ jobs:
       - run: npm --prefix playwright exec -- playwright install --with-deps chromium
       - run: npx grunt mochaTest
       - run: npm run test:browser
+      - name: Upload Playwright failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-diagnostics
+          path: |
+            playwright/test-results
+            playwright/playwright-report
+          if-no-files-found: ignore
 
   modern-core:
     name: Modern core

@@ -16,3 +16,5 @@ test/*.js
 test/*.map
 playwright/playwright-report
 playwright/test-results
+playwright-report
+test-results
