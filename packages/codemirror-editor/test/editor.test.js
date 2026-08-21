@@ -29,6 +29,15 @@ test('creates independent editor views and cleans them up', () => {
   assert.equal(secondParent.childElementCount, 0);
 });
 
+test('rejects a non-string initial editor value', () => {
+  const parent = document.createElement('div');
+
+  assert.throws(
+    () => createCodeMirrorEditor({parent, value: 42}),
+    /Editor value must be a string/
+  );
+});
+
 test('external values are annotated and local edits notify controlled consumers', () => {
   const parent = document.createElement('div');
   document.body.append(parent);

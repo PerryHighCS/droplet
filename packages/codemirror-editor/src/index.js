@@ -23,13 +23,15 @@ export class CodeMirrorEditor {
     if (!options?.parent) {
       throw new TypeError('A parent element is required');
     }
+    const value = options.value ?? '';
+    assertString(value, 'Editor value');
 
     this.#onChange = options.onChange;
     this.#onUpdate = options.onUpdate;
     this.view = new EditorView({
       parent: options.parent,
       state: EditorState.create({
-        doc: options.value ?? '',
+        doc: value,
         extensions: [
           history(),
           this.#language.of(asExtensions(options.language)),

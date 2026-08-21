@@ -3,7 +3,7 @@ import {applySourceChanges, normalizeSourceChanges} from '@droplet/core';
 
 /**
  * Produces a source-range JavaScript projection without regenerating source.
- * The supported first block operation is replacement of an expression socket.
+ * Its transforms replace sockets and insert or move statements.
  */
 export function parseJavaScript(source, options = {}) {
   assertSource(source);
