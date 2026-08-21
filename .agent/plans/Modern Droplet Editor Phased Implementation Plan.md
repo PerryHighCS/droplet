@@ -709,11 +709,11 @@ Do not maintain a separately authoritative block document.
 ### Phase 6 acceptance criteria
 
 - [ ] Existing Droplet operations work against CodeMirror.
-- [ ] Undo and redo include block operations naturally.
-- [ ] Text edits and block edits share one history.
-- [ ] CodeMirror selections survive reparsing where practical.
-- [ ] Existing CodeMirror extensions remain active in text mode.
-- [ ] Multiple editors may coexist.
+- [x] Undo and redo include block operations naturally.
+- [x] Text edits and block edits share one history.
+- [x] CodeMirror selections survive reparsing where practical.
+- [x] Existing CodeMirror extensions remain active in text mode.
+- [x] Multiple editors may coexist.
 
 ### Phase 6 initial JavaScript path — 2026-08-21
 
@@ -731,6 +731,12 @@ expressions, sockets, and opaque ranges directly over canonical source. It is
 not yet the legacy canvas renderer or full drag-and-drop UI. Clicking a
 rendered range selects its exact CodeMirror source range through a normal
 selection transaction.
+
+The JavaScript integration suite also verifies source-selection mapping through
+a block transaction and one shared undo/redo history for ordinary text edits
+and block operations. Generic-editor tests cover independent editor instances
+and extension reconfiguration, which remain active through the projection
+adapter.
 
 ---
 

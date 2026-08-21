@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {JSDOM} from 'jsdom';
-import {undo} from '@codemirror/commands';
+import {redo, undo} from '@codemirror/commands';
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
 
 import {parseJavaScript, transformJavaScript} from '../src/index.js';
@@ -50,6 +50,53 @@ test('JavaScript statement movement uses the same CodeMirror undo history', () =
   });
 
   assert.equal(editor.getValue(), '\nsecond();\nfirst();');
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), source);
+  editor.destroy();
+});
+
+test('a selection maps through a JavaScript block operation and reparse', () => {
+  const source = 'announce("total", total);\n';
+  const parent = document.createElement('div');
+  document.body.append(parent);
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: source, blockMode: true,
+    parse: parseJavaScript, transform: transformJavaScript
+  });
+  const socket = findSocket(editor.getProjection(), source, 'total');
+  editor.editor.setSelection({anchor: socket.from, head: socket.to});
+
+  editor.applyBlockOperation({
+    type: 'replace-socket',
+    target: {from: socket.from, to: socket.to},
+    source: 'score + 1'
+  });
+
+  const selection = editor.editor.getSelection();
+  assert.equal(editor.getValue().slice(selection.anchor, selection.head), 'score + 1');
+  editor.destroy();
+});
+
+test('text and block edits share one CodeMirror history', () => {
+  const source = 'announce("total", total);\n';
+  const parent = document.createElement('div');
+  document.body.append(parent);
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: source, blockMode: true,
+    parse: parseJavaScript, transform: transformJavaScript
+  });
+  editor.editor.dispatch({changes: {from: source.length, insert: '// text edit\n'}, userEvent: 'input.type'});
+  const socket = findSocket(editor.getProjection(), editor.getValue(), 'total');
+  editor.applyBlockOperation({
+    type: 'replace-socket',
+    target: {from: socket.from, to: socket.to}, source: 'score + 1'
+  });
+
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), `${source}// text edit\n`);
+  assert.equal(redo(editor.editor.view), true);
+  assert.equal(editor.getValue(), 'announce("total", score + 1);\n// text edit\n');
+  assert.equal(undo(editor.editor.view), true);
   assert.equal(undo(editor.editor.view), true);
   assert.equal(editor.getValue(), source);
   editor.destroy();
