@@ -75,6 +75,13 @@ export interface LanguageAdapter {
 or is temporarily invalid, it returns an opaque node covering that exact range
 plus a `ParseIssue`; it must not reject block mode for the whole document.
 
+`@droplet/core` provides `parseWithOpaqueRecovery(source, parseStructured)` for
+this boundary. It converts a parser failure into an opaque projection using the
+error's optional `from`, `to`, and `opaqueKind` metadata, falling back to an
+immovable opaque region covering the full snapshot. The next successful parse
+returns its structured result directly, which is how opaque nodes recover after
+a local or remote text transaction.
+
 `transform` returns minimal, non-overlapping source changes. It may rewrite
 only the ranges directly required by the requested block operation, such as a
 socket replacement or statement move. It must not pretty-print the document or

@@ -543,11 +543,11 @@ opaque blocks become structured again
 
 ### Phase 4 acceptance criteria
 
-- [ ] Block mode can display every source document.
-- [ ] Unknown syntax does not destroy source.
-- [ ] Invalid intermediate source does not force mode switching.
-- [ ] Raw blocks preserve exact source.
-- [ ] Raw blocks automatically recover when parsing succeeds.
+- [x] Block mode can display every source document.
+- [x] Unknown syntax does not destroy source.
+- [x] Invalid intermediate source does not force mode switching.
+- [x] Raw blocks preserve exact source.
+- [x] Raw blocks automatically recover when parsing succeeds.
 
 ### Phase 4 foundation — 2026-08-21
 
@@ -556,7 +556,9 @@ expression, and unknown-region nodes. The model retains only ranges over the
 canonical source snapshot, makes internal editing read-only, and requires an
 adapter to opt in before an opaque statement or expression may move. It also
 provides atomic minimal source-change application for the future CodeMirror
-transaction adapter. Parser and renderer integration remain Phase 4 work.
+transaction adapter. `parseWithOpaqueRecovery` now supplies the parser boundary:
+syntax failures yield opaque regions and the next successful parse returns a
+structured projection. Renderer integration remains later editor work.
 
 ---
 

@@ -31,6 +31,50 @@ export function createOpaqueProjection(source, regions = []) {
   };
 }
 
+/**
+ * Runs a language parser without allowing syntax failures to make block mode
+ * unavailable. A parser may attach `from`, `to`, and `opaqueKind` to its
+ * thrown error; otherwise the entire snapshot is represented as an unknown
+ * opaque region.
+ */
+export function parseWithOpaqueRecovery(source, parseStructured) {
+  assertSource(source);
+  if (typeof parseStructured !== 'function') {
+    throw new TypeError('A structured parser function is required');
+  }
+
+  try {
+    const parsed = parseStructured(source);
+    if (parsed?.source !== source) {
+      throw new TypeError('Structured parsers must retain the input source snapshot');
+    }
+    return parsed;
+  } catch (error) {
+    if (error?.message === 'Structured parsers must retain the input source snapshot') {
+      throw error;
+    }
+
+    const from = isValidOffset(source, error?.from) ? error.from : 0;
+    const to = isValidOffset(source, error?.to) && error.to >= from
+      ? error.to
+      : source.length;
+    const kind = OPAQUE_KINDS.has(error?.opaqueKind)
+      ? error.opaqueKind
+      : 'opaque-region';
+
+    return createOpaqueProjection(source, [{
+      kind,
+      from,
+      to,
+      movable: error?.movable === true,
+      issue: {
+        message: error?.message ?? 'Unable to parse source',
+        severity: error?.severity ?? 'error'
+      }
+    }]);
+  }
+}
+
 /** Returns the exact source represented by a projection node. */
 export function getNodeText(parsed, node) {
   assertSource(parsed?.source);
@@ -118,6 +162,10 @@ function assertRange(source, range) {
       range.from < 0 || range.to < range.from || range.to > source.length) {
     throw new RangeError('Range must be within the source snapshot');
   }
+}
+
+function isValidOffset(source, offset) {
+  return Number.isInteger(offset) && offset >= 0 && offset <= source.length;
 }
 
 function assertNonOverlapping(ranges) {
