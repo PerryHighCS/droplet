@@ -8,6 +8,7 @@ docs/*
 !docs/decisions/*.md
 !docs/architecture/
 !docs/architecture/*.md
+!docs/upstream-codeorg.md
 js
 example/*.js
 example/*.map

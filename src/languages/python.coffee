@@ -11,7 +11,7 @@ skulpt = require '../../vendor/skulpt'
 
 PYTHON_KEYWORDS = [
   'and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif',
-  'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in',
+  'debugger', 'else', 'except', 'exec', 'finally', 'for', 'from', 'global', 'if', 'import', 'in',
   'is', 'lambda', 'not', 'or', 'pass', 'print', 'raise', 'return', 'try',
   'while', 'with', 'yield'
 ]
@@ -125,6 +125,8 @@ COLOR_RULES = [
 SHAPE_RULES = []
 
 config = {RULES, COLOR_RULES, SHAPE_RULES, PAREN_RULES: {}}
+
+config.COLOR_CALLBACK = getColor
 
 config.SHOULD_SOCKET = (opts, node) ->
   node.data.text not in Object.keys(opts.functions ? {}) or getArgNum(node) isnt null

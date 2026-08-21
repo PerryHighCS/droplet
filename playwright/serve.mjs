@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { dirname, extname, resolve, sep } from 'node:path';
+import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,7 +29,9 @@ createServer(async (request, response) => {
     response.writeHead(200, {
       'Content-Type': mimeTypes[extname(filename)] || 'application/octet-stream'
     });
-    createReadStream(filename).pipe(response);
+    pipeline(createReadStream(filename), response, (error) => {
+      if (error && !response.destroyed) response.destroy(error);
+    });
   } catch {
     response.writeHead(404).end('Not found');
   }

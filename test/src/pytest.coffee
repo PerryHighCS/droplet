@@ -84,4 +84,16 @@ asyncTest 'Historical Python print and for blocks remain structured', ->
   ok(forDocument.serialize().indexOf('color="control"') >= 0,
     'For loop is a control block')
   ok(forDocument.serialize().indexOf('<indent') >= 0, 'For loop retains its indent block')
+  execDocument = python.parse('exec code\n')
+  debuggerDocument = python.parse('debugger\n')
+  strictEqual(execDocument.stringify(), 'exec code\n', 'Historical exec round-trips')
+  strictEqual(debuggerDocument.stringify(), 'debugger\n', 'Historical debugger round-trips')
+  start()
+
+asyncTest 'Python function blocks use configured function colors', ->
+  python = new Python({functions: {announce: {color: 'teal'}}})
+  document = python.parse('announce("ready")\n')
+
+  ok(document.serialize().indexOf('color="teal"') >= 0,
+    'Configured function color is applied to the function block')
   start()

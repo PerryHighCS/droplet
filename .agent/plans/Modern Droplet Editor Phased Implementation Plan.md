@@ -61,14 +61,14 @@ The Python branch remains a reference lineage rather than being merged wholesale
 - [x] Clone the new fork locally.
 
 ```bash
-git clone git@github.com:YOUR_ORG/droplet.git
+git clone git@github.com:PerryHighCS/droplet.git
 cd droplet
 ```
 
 - [x] Rename the fork remote to `origin` if necessary.
 
 ```bash
-git remote rename origin origin
+git remote rename <old-remote> origin
 ```
 
 - [x] Add the original Droplet repository as `upstream`.
@@ -232,8 +232,8 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
   it cannot install its ARM64 browser binary.
 - The isolated `playwright/` workspace uses Node 24 and Playwright Chromium on
   ARM64 without modifying the legacy lockfile. `npm run test:browser` rebuilds
-  the QUnit bundles and passes all six existing browser pages (`ctest`,
-  `cstest`, `htmltest`, `jstest`, `test`, and `uitest`) plus the browser-demo
+  the QUnit bundles and passes all seven browser pages (`ctest`, `cstest`,
+  `htmltest`, `jstest`, `pytest`, `test`, and `uitest`) plus the browser-demo
   source-preservation test.
 
 ## Reference behavior
@@ -541,13 +541,17 @@ valid syntax returns
 opaque blocks become structured again
 ```
 
-### Phase 4 acceptance criteria
+### Phase 4 foundation acceptance criteria
 
-- [x] Block mode can display every source document.
-- [x] Unknown syntax does not destroy source.
-- [x] Invalid intermediate source does not force mode switching.
-- [x] Raw blocks preserve exact source.
-- [x] Raw blocks automatically recover when parsing succeeds.
+- [x] The core can model every source document with structured or opaque ranges.
+- [x] Unknown and invalid source remain source-preserving opaque projections.
+- [x] Opaque regions preserve exact source and recover on the next successful parse.
+
+### Phase 4 editor integration acceptance criteria
+
+- [ ] Block mode can display opaque source regions.
+- [ ] Invalid intermediate source does not force mode switching.
+- [ ] Opaque blocks automatically become structured blocks when parsing succeeds.
 
 ### Phase 4 foundation — 2026-08-21
 

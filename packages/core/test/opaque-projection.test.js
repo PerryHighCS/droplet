@@ -92,6 +92,22 @@ test('parser failures become opaque nodes and recover on the next successful par
   assert.equal(structured.source, valid);
 });
 
+test('an incomplete parser error range recovers the full source snapshot', () => {
+  const source = 'if score >';
+  const parse = () => {
+    const error = new Error('Expected an expression');
+    error.to = source.length;
+    throw error;
+  };
+
+  const parsed = parseWithOpaqueRecovery(source, parse);
+  const [node] = parsed.root.children;
+
+  assert.equal(node.from, 0);
+  assert.equal(node.to, source.length);
+  assert.equal(getNodeText(parsed, node), source);
+});
+
 test('a broken parser cannot silently normalize source', () => {
   assert.throws(
     () => parseWithOpaqueRecovery('x = 1\n', () => ({source: 'x=1\n'})),

@@ -54,10 +54,12 @@ export function parseWithOpaqueRecovery(source, parseStructured) {
       throw error;
     }
 
-    const from = isValidOffset(source, error?.from) ? error.from : 0;
-    const to = isValidOffset(source, error?.to) && error.to >= from
-      ? error.to
-      : source.length;
+    const hasValidRange =
+      isValidOffset(source, error?.from) &&
+      isValidOffset(source, error?.to) &&
+      error.to >= error.from;
+    const from = hasValidRange ? error.from : 0;
+    const to = hasValidRange ? error.to : source.length;
     const kind = OPAQUE_KINDS.has(error?.opaqueKind)
       ? error.opaqueKind
       : 'opaque-region';

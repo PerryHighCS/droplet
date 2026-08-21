@@ -92,6 +92,8 @@ Droplet uses Grunt and npm to build. Run:
 ```shell
 git pull https://github.com/dabbler0/droplet.git
 cd droplet
+nvm install 14.21.3
+nvm use 14.21.3
 PUPPETEER_SKIP_DOWNLOAD=true npm ci
 npx grunt dist
 ```
@@ -111,10 +113,11 @@ Run `npx grunt mochaTest` for the parser/model unit suite and
 
 ### Current legacy baseline
 
-The Code.org baseline builds completely with Node 14.21.3 (npm 6.14.18). The
-repository's `.nvmrc` records the older minimum baseline, Node 8.15.0. Modern
-Node versions can build the JavaScript bundle, but the legacy CSS minifier is
-not compatible with Node 24.
+The Code.org baseline builds completely with Node 14.21.3 (npm 6.14.18). Use
+that runtime for `npm ci`, Grunt distribution builds, and the legacy test
+baseline. The repository's `.nvmrc` records the older minimum baseline, Node
+8.15.0. Modern Node versions can build the JavaScript bundle, but the legacy
+CSS minifier is not compatible with Node 24.
 
 Browser tests are run separately with Playwright and the devcontainer's modern
 Node runtime. In the devcontainer, run:
