@@ -1,0 +1,1174 @@
+# Modern Droplet Editor
+
+## Project Goal
+
+Create a modern, maintained Droplet editor that:
+
+1. Preserves the original Droplet philosophy that source text is authoritative.
+2. Uses Code.org's actively maintained Droplet lineage as the primary upstream.
+3. Incorporates the more complete historical Python work from Droplet PR #187.
+4. Supports modern Python while preserving exact source representation wherever practical.
+5. Allows users to switch to block mode even when some source cannot be structurally represented.
+6. Represents unsupported or temporarily invalid source as read only opaque source blocks.
+7. Uses CodeMirror 6 as the modern text editing engine.
+8. Provides usable framework independent browser packages.
+9. Provides a thin React package suitable for ActiveBits and MobCode.
+10. Keeps execution separate from editing.
+11. Makes it practical to incorporate future Code.org Droplet fixes.
+
+---
+
+# Phase 0: Establish Repository Lineage
+
+The new repository should preserve both important Droplet development lines.
+
+Primary upstream:
+
+`droplet-editor/droplet:code-dot-org`
+
+Historical Python source:
+
+`droplet-editor/droplet` PR #187, branch `text-paste`, commit `ce34e2d05580b729c0420153013681f7ba504f68`
+
+The Code.org branch becomes the starting point because it contains the modern JavaScript behavior and Code.org's post 2016 maintenance.
+
+The Python branch remains a reference lineage rather than being merged wholesale.
+
+## Repository setup
+
+- [x] Fork `droplet-editor/droplet` into the desired GitHub organization or account.
+
+- [x] Clone the new fork locally.
+
+```bash
+git clone git@github.com:YOUR_ORG/droplet.git
+cd droplet
+```
+
+- [x] Rename the fork remote to `origin` if necessary.
+
+```bash
+git remote rename origin origin
+```
+
+- [x] Add the original Droplet repository as `upstream`.
+
+```bash
+git remote add upstream https://github.com/droplet-editor/droplet.git
+```
+
+- [ ] Fetch all upstream branches and tags.
+
+```bash
+git fetch upstream --tags
+```
+
+- [ ] Verify the important upstream branches.
+
+```bash
+git branch -r
+```
+
+Expected important references:
+
+```text
+upstream/master
+upstream/code-dot-org
+```
+
+- [ ] Create a local archival branch representing original Droplet master.
+
+```bash
+git branch archive/original-master upstream/master
+```
+
+- [ ] Create a local tracking branch for Code.org's maintained Droplet branch.
+
+```bash
+git switch -c upstream-codeorg upstream/code-dot-org
+```
+
+- [ ] Push the Code.org tracking branch to the fork.
+
+```bash
+git push -u origin upstream-codeorg
+```
+
+- [ ] Create the new project `main` from Code.org's branch.
+
+```bash
+git switch -c main upstream/code-dot-org
+git push -u origin main
+```
+
+- [ ] Preserve the historical Python branch locally.
+
+```bash
+git branch archive/python-text-paste ce34e2d05580b729c0420153013681f7ba504f68
+```
+
+- [ ] Push the Python archive branch.
+
+```bash
+git push origin archive/python-text-paste
+```
+
+- [ ] Push the original master archive if desired.
+
+```bash
+git push origin archive/original-master
+```
+
+## Recommended remote structure
+
+```text
+origin
+    our maintained fork
+
+upstream
+    droplet-editor/droplet
+```
+
+Recommended long lived branches:
+
+```text
+main
+    our maintained editor
+
+upstream-codeorg
+    clean mirror or integration point for upstream/code-dot-org
+
+archive/original-master
+    historical original Droplet
+
+archive/python-text-paste
+    historical advanced Python implementation
+```
+
+## Upstream synchronization policy
+
+Future Code.org changes should be inspected from:
+
+```bash
+git fetch upstream
+git log main..upstream/code-dot-org
+```
+
+Changes should normally be merged or cherry picked deliberately into `main`.
+
+Do not modify `upstream-codeorg` except when updating it to mirror `upstream/code-dot-org`.
+
+### Phase 0 acceptance criteria
+
+- [x] Repository exists under our ownership.
+- [ ] Git history retains the original Droplet ancestry.
+- [ ] `main` begins from Code.org's maintained branch.
+- [ ] Original master remains easily inspectable.
+- [ ] Python `text-paste` work remains easily inspectable.
+- [ ] Future Code.org changes can be compared against `main`.
+
+---
+
+# Phase 1: Establish a Reproducible Legacy Baseline
+
+Before modernization, get the Code.org source working as closely as possible to its current behavior.
+
+Do not change Ace, CoffeeScript, the parser architecture, or rendering architecture yet.
+
+## Build
+
+- [ ] Document the existing build requirements.
+- [ ] Attempt the existing build using the historical expected Node environment.
+- [ ] Record all failures with current Node.
+- [ ] Produce the existing JavaScript distribution.
+- [ ] Produce an unminified development distribution.
+- [ ] Run whatever existing unit tests still function.
+- [ ] Run the existing browser examples.
+- [ ] Verify block to text and text to block switching.
+
+## Reference behavior
+
+Create a small compatibility corpus for JavaScript.
+
+- [ ] Variable assignment.
+- [ ] Arithmetic expressions.
+- [ ] Function calls.
+- [ ] Nested function calls.
+- [ ] `if`.
+- [ ] `if / else`.
+- [ ] `for`.
+- [ ] `while`.
+- [ ] Function declaration.
+- [ ] Arrays.
+- [ ] Object expressions.
+- [ ] Comments.
+- [ ] Blank lines.
+- [ ] Inline comments.
+- [ ] String quoting.
+- [ ] Dragging statements.
+- [ ] Dragging expressions.
+- [ ] Editing sockets.
+- [ ] Undo.
+- [ ] Redo.
+- [ ] Toggle text to blocks to text.
+
+Store expected source before and after each operation.
+
+## Code.org reference harness
+
+Where practical, establish a browser page capable of loading:
+
+```text
+Code.org lineage Droplet + Ace
+```
+
+This becomes the reference implementation during modernization.
+
+### Phase 1 acceptance criteria
+
+- [ ] Current Code.org lineage builds reproducibly.
+- [ ] A representative JavaScript program can be edited in blocks and text.
+- [ ] Existing behavior is documented by automated tests where practical.
+- [ ] We have a reference environment for comparing later behavior.
+
+---
+
+# Phase 2: Recover the Advanced Python Implementation
+
+Bring the useful Python work from PR #187 into a branch based on modern Code.org Droplet.
+
+Do not merge the entire `text-paste` branch.
+
+## Create the Python integration branch
+
+```bash
+git switch main
+git switch -c feature/python-recovery
+```
+
+## Recover relevant historical assets
+
+Evaluate and selectively port:
+
+- [ ] `src/languages/python.coffee`
+- [ ] `test/src/pytest.coffee`
+- [ ] `example/example-python.coffee`
+- [ ] Python example HTML.
+- [ ] Any Python specific parser changes actually required by the adapter.
+- [ ] Any relevant `treewalk.coffee` behavior not already incorporated by later Droplet changes.
+
+Avoid bringing unrelated C parser changes, Grunt experiments, generated grammar data, or unrelated historical work.
+
+## Establish initial Python corpus
+
+Begin with instructional Python.
+
+- [ ] Assignment.
+- [ ] Integer and floating point literals.
+- [ ] Single quoted strings.
+- [ ] Double quoted strings.
+- [ ] Arithmetic.
+- [ ] Comparisons.
+- [ ] Boolean expressions.
+- [ ] Function calls.
+- [ ] Nested function calls.
+- [ ] `print()`.
+- [ ] `input()`.
+- [ ] `if`.
+- [ ] `if / else`.
+- [ ] `if / elif / else`.
+- [ ] `for i in range(...)`.
+- [ ] Iteration over strings.
+- [ ] `while`.
+- [ ] Function definitions.
+- [ ] Parameters.
+- [ ] `return`.
+- [ ] Lists.
+- [ ] Indexing.
+- [ ] String indexing.
+- [ ] Comments.
+- [ ] Inline comments.
+- [ ] Blank lines.
+- [ ] Imports.
+
+At this phase Python 2 era syntax may remain temporarily in historical tests. New project tests should use Python 3 syntax whenever possible.
+
+### Phase 2 acceptance criteria
+
+- [ ] The advanced Python adapter runs on top of the Code.org Droplet engine.
+- [ ] Basic Python text converts to meaningful blocks.
+- [ ] Block manipulation returns valid source for the supported subset.
+- [ ] Historical Python behavior is captured before larger changes begin.
+
+---
+
+# Phase 3: Define the Modern Core Architecture
+
+Before replacing Ace or Skulpt, define the interfaces the modern implementation will use.
+
+The central principle is:
+
+**Source text is authoritative. Blocks are a projection over exact source ranges.**
+
+## Separate responsibilities
+
+Define explicit boundaries for:
+
+```text
+language parser
+source model
+block projection
+block renderer
+text editor integration
+framework integration
+```
+
+## Source representation
+
+Nodes should primarily reference source rather than regenerate it.
+
+Conceptual model:
+
+```ts
+interface SourceRange {
+  from: number
+  to: number
+}
+
+interface SourceNode extends SourceRange {
+  kind: string
+  children: SourceNode[]
+}
+```
+
+Additional metadata may describe:
+
+```text
+statement
+expression
+socket
+indent suite
+comment
+opaque source
+```
+
+## Exact source preservation requirements
+
+Viewing code as blocks must not normalize:
+
+- [ ] Single versus double quotes.
+- [ ] Triple single versus triple double quotes.
+- [ ] Escape sequences.
+- [ ] Inline comments.
+- [ ] Standalone comments.
+- [ ] Blank lines.
+- [ ] Spaces around operators.
+- [ ] Parentheses.
+- [ ] Existing indentation.
+- [ ] Line continuation style where supported.
+- [ ] Student formatting that does not prevent structural editing.
+
+AST to source regeneration should not occur merely because the user switched modes.
+
+### Phase 3 acceptance criteria
+
+- [ ] Parser API is documented.
+- [ ] Exact source ranges are a first class concept.
+- [ ] Renderer no longer needs to treat AST serialization as canonical source.
+- [ ] Tests explicitly protect lexical formatting.
+
+---
+
+# Phase 4: Add Opaque Read Only Source Blocks
+
+Block mode should always remain available.
+
+Unsupported or temporarily invalid source becomes an opaque block rather than preventing block mode.
+
+## Opaque block types
+
+Support at least:
+
+```text
+opaque statement
+opaque expression
+opaque source region
+```
+
+Possible behavior:
+
+```text
+Opaque statement
+    exact source preserved
+    internal contents read only
+    may move as a statement when structural context is known
+
+Opaque expression
+    exact source preserved
+    internal contents read only
+    may move into compatible expression sockets when safe
+
+Opaque unknown region
+    exact source preserved
+    read only
+    movement disabled unless context is known
+```
+
+## Invalid source behavior
+
+Example:
+
+```python
+if score >
+```
+
+should not disable block mode.
+
+Instead:
+
+```text
+read only source block
+"if score >"
+```
+
+When the text later becomes:
+
+```python
+if score > 10:
+    print(score)
+```
+
+the block projection automatically becomes structured again.
+
+## Collaboration implications
+
+Remote text editing may temporarily invalidate local block structure.
+
+Expected pipeline:
+
+```text
+remote text transaction
+        ↓
+CodeMirror document changes
+        ↓
+Droplet reparses affected ranges
+        ↓
+structured regions remain structured
+invalid regions become opaque blocks
+        ↓
+valid syntax returns
+        ↓
+opaque blocks become structured again
+```
+
+### Phase 4 acceptance criteria
+
+- [ ] Block mode can display every source document.
+- [ ] Unknown syntax does not destroy source.
+- [ ] Invalid intermediate source does not force mode switching.
+- [ ] Raw blocks preserve exact source.
+- [ ] Raw blocks automatically recover when parsing succeeds.
+
+---
+
+# Phase 5: Build the Generic CodeMirror 6 Editor Layer
+
+Create a framework independent CodeMirror integration.
+
+Do not build Droplet directly against `@uiw/react-codemirror`.
+
+Use CodeMirror 6 primitives.
+
+## Generic editor responsibilities
+
+- [ ] Create and destroy `EditorView`.
+- [ ] Controlled external value synchronization.
+- [ ] Change callbacks.
+- [ ] Update callbacks.
+- [ ] Selection access.
+- [ ] Focus.
+- [ ] Scroll state.
+- [ ] Read only mode.
+- [ ] Theme reconfiguration.
+- [ ] Language reconfiguration.
+- [ ] Additional consumer extensions.
+- [ ] Transaction annotations for external versus local edits.
+- [ ] Multiple editor instances.
+- [ ] Proper cleanup.
+
+Use CodeMirror `Compartment` objects for reconfigurable concerns.
+
+Examples:
+
+```ts
+const languageCompartment = new Compartment()
+const themeCompartment = new Compartment()
+const readOnlyCompartment = new Compartment()
+```
+
+## Package target
+
+Possible package:
+
+```text
+@droplet/editor-core
+```
+
+or:
+
+```text
+@droplet/codemirror-editor
+```
+
+This component should be useful without Droplet.
+
+### Phase 5 acceptance criteria
+
+- [ ] Plain CodeMirror editor works without React.
+- [ ] External values synchronize predictably.
+- [ ] Undo history behaves correctly.
+- [ ] Language and theme changes do not recreate the editor.
+- [ ] Consumers may add CodeMirror extensions.
+- [ ] API is suitable for later replacement of MobCode's UIW wrapper.
+
+---
+
+# Phase 6: Create the Droplet CodeMirror Adapter
+
+Replace Droplet's direct dependency on Ace with an explicit editor interface.
+
+## Text editor abstraction
+
+Identify the smallest interface Droplet truly needs.
+
+Likely operations:
+
+```text
+getValue
+setValue
+dispatch source transaction
+get selection
+set selection
+focus
+get scroll position
+set scroll position
+coordinate conversion
+document change events
+resize or request measurement
+```
+
+## Initial adapters
+
+Provide:
+
+```text
+Ace adapter
+    reference compatibility
+
+CodeMirror 6 adapter
+    modern implementation
+```
+
+Ace may eventually become optional or archival.
+
+## Critical transaction rule
+
+Every block edit must ultimately become a CodeMirror document transaction.
+
+```text
+drag block
+     ↓
+calculate source transformation
+     ↓
+CodeMirror transaction
+     ↓
+document changes
+     ↓
+reparse
+     ↓
+rerender blocks
+```
+
+Do not maintain a separately authoritative block document.
+
+### Phase 6 acceptance criteria
+
+- [ ] Existing Droplet operations work against CodeMirror.
+- [ ] Undo and redo include block operations naturally.
+- [ ] Text edits and block edits share one history.
+- [ ] CodeMirror selections survive reparsing where practical.
+- [ ] Existing CodeMirror extensions remain active in text mode.
+- [ ] Multiple editors may coexist.
+
+---
+
+# Phase 7: Modernize Python Parsing
+
+Once historical Python behavior works, replace its Python 2 assumptions.
+
+## Preserve the parser boundary
+
+The editor should not know whether Python syntax came from Skulpt or Brython.
+
+Conceptual interface:
+
+```ts
+interface LanguageParser {
+  parse(source: string): ParseResult
+}
+```
+
+Initially:
+
+```text
+LegacySkulptPythonParser
+```
+
+Later:
+
+```text
+BrythonPythonParser
+```
+
+## Brython investigation and implementation
+
+- [ ] Verify current Brython AST locations.
+- [ ] Verify start and end offsets or line and column information.
+- [ ] Verify handling of comments and lexical trivia.
+- [ ] Determine whether tokenization is needed alongside AST parsing.
+- [ ] Build a Brython AST to Droplet source node adapter.
+- [ ] Compare structures against historical Skulpt behavior.
+- [ ] Maintain exact original source slices.
+
+## Modern Python corpus
+
+Expand tests to include:
+
+- [ ] Python 3 `print()`.
+- [ ] Modern `input()`.
+- [ ] F strings.
+- [ ] Triple quoted strings.
+- [ ] Multiline strings.
+- [ ] Nested expressions.
+- [ ] List literals.
+- [ ] Dictionaries.
+- [ ] Tuples.
+- [ ] Slicing.
+- [ ] Keyword arguments.
+- [ ] Default parameters.
+- [ ] `for`.
+- [ ] `while`.
+- [ ] `break`.
+- [ ] `continue`.
+- [ ] `if / elif / else`.
+- [ ] Functions.
+- [ ] Imports.
+- [ ] List comprehensions.
+- [ ] Classes, initially possibly opaque if not structurally supported.
+- [ ] `match`, initially possibly opaque.
+- [ ] Type annotations, initially possibly opaque.
+
+Support should grow progressively. Unsupported syntax remains usable through opaque source blocks.
+
+### Phase 7 acceptance criteria
+
+- [ ] Basic instructional Python no longer depends on Python 2 grammar.
+- [ ] Modern Python constructs parse where supported.
+- [ ] Unsupported constructs remain visible as opaque blocks.
+- [ ] Quote style remains exact.
+- [ ] Triple quoted strings survive block mode unchanged.
+
+---
+
+# Phase 8: Define Indentation and Trivia Semantics
+
+Python makes whitespace preservation a correctness requirement.
+
+## Existing indentation
+
+Never automatically normalize the entire file.
+
+Preserve:
+
+```text
+spaces
+tabs
+mixed indentation
+blank lines
+```
+
+unless an explicit block operation requires a source change.
+
+## Newly generated indentation
+
+When Droplet creates a new suite or moves a statement:
+
+1. Infer indentation from the surrounding suite.
+2. Prefer existing file convention.
+3. Preserve moved statement indentation when valid.
+4. Reindent only the lines required by the move.
+5. Never silently convert the entire file from tabs to spaces or spaces to tabs.
+
+## Empty suites
+
+Newly created empty Python suites should use:
+
+```python
+pass
+```
+
+until another statement is inserted.
+
+## Comments
+
+Preserve:
+
+```python
+x = 5  # inline comment
+```
+
+and:
+
+```python
+# standalone comment
+x = 5
+```
+
+Standalone comments may eventually become draggable comment blocks.
+
+Inline comments should normally remain associated with their containing statement.
+
+### Phase 8 acceptance criteria
+
+- [ ] Tabs and spaces are not globally normalized.
+- [ ] New indentation follows local convention.
+- [ ] Blank lines survive block toggling.
+- [ ] Inline comments survive edits.
+- [ ] Standalone comments survive edits.
+- [ ] Empty suites remain valid Python.
+
+---
+
+# Phase 9: Package the Editor for Non React Use
+
+The primary editor must be usable without React.
+
+Recommended conceptual packages:
+
+```text
+packages/
+
+  core
+      parser independent source and block model
+
+  javascript
+      Code.org derived JavaScript adapter
+
+  python
+      Python adapter
+
+  renderer
+      SVG or DOM block renderer
+
+  codemirror
+      CodeMirror integration
+
+  editor
+      complete browser editor without React
+
+  react
+      thin React integration
+```
+
+Final package names can be chosen later.
+
+## Browser API
+
+Target usage:
+
+```ts
+import {DropletEditor} from '@droplet/editor'
+import {python} from '@droplet/python'
+
+const editor = new DropletEditor(element, {
+  language: python,
+  value: source,
+})
+
+editor.onChange((value) => {
+  console.log(value)
+})
+```
+
+## Core editor features
+
+- [ ] `value`.
+- [ ] Language.
+- [ ] Filename.
+- [ ] Text or block mode.
+- [ ] Read only.
+- [ ] Palette.
+- [ ] Function metadata.
+- [ ] Change events.
+- [ ] Update events.
+- [ ] Focus.
+- [ ] Selection.
+- [ ] Undo.
+- [ ] Redo.
+- [ ] Multiple instances.
+- [ ] Extension hooks.
+
+### Phase 9 acceptance criteria
+
+- [ ] A plain HTML application can instantiate Droplet.
+- [ ] React is not required by core packages.
+- [ ] JavaScript and Python can be loaded independently where practical.
+- [ ] Core editor API is documented.
+
+---
+
+# Phase 10: Build the React Package
+
+React should wrap the framework independent editor rather than contain editor logic.
+
+Possible API:
+
+```tsx
+<DropletEditor
+  value={source}
+  filename="main.py"
+  mode="blocks"
+  readOnly={false}
+  extensions={extensions}
+  onChange={setSource}
+  onUpdate={handleUpdate}
+/>
+```
+
+## React responsibilities
+
+- [ ] Mount editor.
+- [ ] Destroy editor.
+- [ ] Synchronize controlled value.
+- [ ] Update props through editor configuration.
+- [ ] Forward CodeMirror updates.
+- [ ] Support refs for imperative actions.
+- [ ] Avoid unnecessary editor recreation.
+
+## Possible imperative ref
+
+```ts
+interface DropletEditorRef {
+  focus(): void
+  getValue(): string
+  setMode(mode: 'text' | 'blocks'): void
+  toggleMode(): void
+  undo(): void
+  redo(): void
+}
+```
+
+### Phase 10 acceptance criteria
+
+- [ ] React package contains minimal editor logic.
+- [ ] It works with React 19.
+- [ ] Controlled state behaves correctly.
+- [ ] Multiple instances work.
+- [ ] Consumers can supply CodeMirror extensions.
+
+---
+
+# Phase 11: ActiveBits and MobCode Integration
+
+Treat ActiveBits and MobCode as consumers, not as dependencies of Droplet.
+
+MobCode's current editor contract should strongly inform compatibility.
+
+Target conceptual replacement:
+
+```tsx
+<DropletEditor
+  value={value}
+  filename={filename}
+  readOnly={readOnly}
+  theme={theme}
+  extensions={[remotePresenceExtension]}
+  onChange={onChange}
+  onUpdate={onUpdate}
+/>
+```
+
+## Preserve MobCode responsibilities
+
+Droplet should not own:
+
+- [ ] Workspace files.
+- [ ] Runner selection.
+- [ ] Brython terminal execution.
+- [ ] Session IDs.
+- [ ] Import restrictions.
+- [ ] Popup handling.
+- [ ] Activity state.
+- [ ] Remote session transport.
+
+## Droplet responsibilities
+
+- [ ] Editing.
+- [ ] Text and block projection.
+- [ ] Source preservation.
+- [ ] CodeMirror integration.
+- [ ] Block transformations.
+
+## MobCode compatibility
+
+- [ ] Existing remote presence CodeMirror extension works.
+- [ ] Existing `ViewUpdate` handling works.
+- [ ] Existing controlled source state works.
+- [ ] Existing Brython runner receives unchanged file contents.
+- [ ] Text and block edits both trigger the same source update path.
+
+### Phase 11 acceptance criteria
+
+- [ ] MobCode can replace its current editor with Droplet without changing runner architecture.
+- [ ] MobCode remote cursors continue functioning in text mode.
+- [ ] Block changes propagate through normal source updates.
+- [ ] No ActiveBits specific dependency exists inside Droplet core.
+
+---
+
+# Phase 12: Collaborative Block Projection
+
+This is not required for initial release, but architecture should permit it.
+
+Scenario:
+
+```text
+Teacher editing text
+Student viewing blocks
+```
+
+Remote text transactions update the shared CodeMirror document.
+
+Droplet reparses locally.
+
+Valid syntax remains structured.
+
+Incomplete syntax temporarily becomes opaque blocks.
+
+Future enhancements may map remote selections to blocks or sockets.
+
+## Deferred collaboration work
+
+- [ ] Render remote cursor on corresponding block.
+- [ ] Render remote text selection as block or socket highlight.
+- [ ] Display remote editing activity on opaque blocks.
+- [ ] Preserve source offset mapping through block operations.
+
+---
+
+# Phase 13: Build and Source Modernization
+
+Only after behavior is protected by tests should the implementation language and build system be modernized.
+
+## Build tooling
+
+- [ ] Replace Grunt.
+- [ ] Replace Browserify.
+- [ ] Add modern package workspace.
+- [ ] Add modern test runner.
+- [ ] Add Playwright browser integration tests and retire the PhantomJS QUnit runner.
+- [ ] Produce ESM packages.
+- [ ] Provide source maps.
+- [ ] Add automated releases if desired.
+
+## CoffeeScript migration
+
+Do not rewrite CoffeeScript and architecture simultaneously.
+
+Recommended approach:
+
+1. Get tests passing.
+2. Convert individual modules mechanically.
+3. Preserve behavior.
+4. Add types.
+5. Refactor afterward.
+
+Possible progression:
+
+```text
+CoffeeScript
+    ↓
+JavaScript
+    ↓
+TypeScript
+```
+
+or direct carefully tested conversion to TypeScript where practical.
+
+### Phase 13 acceptance criteria
+
+- [ ] No obsolete build runtime is needed.
+- [ ] Packages build on current Node LTS.
+- [ ] Test suite runs in CI.
+- [ ] Generated packages are modern ESM.
+- [ ] CoffeeScript can eventually be removed.
+
+---
+
+# Phase 14: Long Term Code.org Compatibility
+
+Code.org remains an important upstream reference.
+
+## Ongoing process
+
+Periodically:
+
+```bash
+git fetch upstream
+git log main..upstream/code-dot-org
+```
+
+Review each new Droplet change.
+
+Classify it as:
+
+```text
+core fix
+JavaScript parser fix
+Ace specific integration
+Code.org application specific behavior
+irrelevant generated output
+```
+
+Port relevant fixes into `main`.
+
+## Compatibility documentation
+
+Maintain:
+
+```text
+docs/upstream-codeorg.md
+```
+
+Document:
+
+- [ ] Last reviewed Code.org commit.
+- [ ] Ported commits.
+- [ ] Rejected commits and reasons.
+- [ ] Known behavioral divergence.
+- [ ] JavaScript compatibility status.
+
+---
+
+# Cross Phase Testing Strategy
+
+Every major transformation should be tested against source preservation.
+
+## Round trip tests
+
+For supported constructs:
+
+```text
+source
+    ↓
+parse
+    ↓
+block projection
+    ↓
+stringify without edits
+    ↓
+byte equivalent source where practical
+```
+
+## Block operation tests
+
+```text
+source
+    ↓
+blocks
+    ↓
+perform one block operation
+    ↓
+expected source
+```
+
+## Preservation tests
+
+Explicit tests for:
+
+- [ ] `'single quotes'`
+- [ ] `"double quotes"`
+- [ ] `'''triple single'''`
+- [ ] `"""triple double"""`
+- [ ] Escaped quotes.
+- [ ] Multiline strings.
+- [ ] Blank lines.
+- [ ] Inline comments.
+- [ ] Standalone comments.
+- [ ] Four space indentation.
+- [ ] Two space indentation.
+- [ ] Tab indentation.
+- [ ] Mixed indentation behavior.
+- [ ] Parentheses.
+- [ ] Student spacing.
+
+## Opaque source tests
+
+- [ ] Unknown statement.
+- [ ] Unknown expression.
+- [ ] Half typed expression.
+- [ ] Half typed control statement.
+- [ ] Modern unsupported syntax.
+- [ ] Remote edit temporarily invalidating source.
+- [ ] Recovery from opaque to structured block.
+
+---
+
+# Initial Milestone Definition
+
+The first genuinely useful milestone should not be “modern Droplet complete.”
+
+It should be:
+
+> A browser based non React Droplet editor running on the Code.org lineage that uses CodeMirror 6, supports Code.org compatible JavaScript, supports the recovered Python feature set, preserves source formatting, and can represent unsupported source as read only opaque blocks.
+
+That milestone gives us something immediately useful while leaving Python modernization, React integration, and deeper collaboration improvements incremental.
+
+# Explicitly Deferred Until the Baseline Works
+
+Do not initially:
+
+- [ ] Rewrite the entire codebase in TypeScript.
+- [ ] Replace the block renderer with React.
+- [ ] Support every Python grammar feature.
+- [ ] Implement execution inside Droplet.
+- [ ] Implement ActiveBits specific state.
+- [ ] Implement remote networking.
+- [ ] Reformat student source.
+- [ ] Attempt AST based source regeneration.
+- [ ] Remove Ace before establishing the compatibility reference.
+- [ ] Merge the entire historical `text-paste` branch.
+- [ ] Copy generated Droplet code out of the Code.org monorepo as source.
+
+# Recommended First Working Sequence
+
+If implementation starts immediately, the practical order is:
+
+- [x] Create fork and remotes.
+- [ ] Base `main` on `upstream/code-dot-org`.
+- [ ] Preserve original and Python historical branches.
+- [ ] Make Code.org Droplet build reproducibly.
+- [ ] Establish JavaScript compatibility tests.
+- [ ] Port the advanced Python adapter and tests.
+- [ ] Establish Python source preservation tests.
+- [ ] Introduce opaque read only blocks.
+- [ ] Define the editor abstraction.
+- [ ] Build the generic CodeMirror 6 wrapper.
+- [ ] Implement the Droplet CodeMirror adapter.
+- [ ] Make block operations dispatch CodeMirror transactions.
+- [ ] Package the non React browser editor.
+- [ ] Modernize Python parsing, likely using Brython.
+- [ ] Add the thin React package.
+- [ ] Integrate into MobCode.
+- [ ] Retire UIW from MobCode if the new generic editor wrapper proves to be a clean replacement.
+- [ ] Modernize the remaining legacy build and CoffeeScript incrementally.
