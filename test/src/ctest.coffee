@@ -221,9 +221,9 @@ dropLocation = (editor, document, location) ->
 executeAsyncSequence = (sequence, i = 0) ->
   if i < sequence.length
     sequence[i]()
-    setTimeout (->
-      executeAsyncSequence sequence, i + 1
-    ), 0
+    requestAnimationFrame ->
+      requestAnimationFrame ->
+        executeAsyncSequence sequence, i + 1
 
 asyncTest 'Controller: ANTLR paren wrap rules', ->
   window.editor = editor = new droplet.Editor(document.getElementById('test-main'), {

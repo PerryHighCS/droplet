@@ -465,9 +465,9 @@ performDragOperation = (editor, drag, cb) ->
 executeAsyncSequence = (sequence, i = 0) ->
   if i < sequence.length
     sequence[i]()
-    setTimeout (->
-      executeAsyncSequence sequence, i + 1
-    ), 0
+    requestAnimationFrame ->
+      requestAnimationFrame ->
+        executeAsyncSequence sequence, i + 1
 
 asyncTest 'Controller: remembered sockets', ->
   document.getElementById('test-main').innerHTML = ''
