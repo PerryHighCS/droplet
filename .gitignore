@@ -6,6 +6,8 @@ docs
 docs/*
 !docs/decisions/
 !docs/decisions/*.md
+!docs/architecture/
+!docs/architecture/*.md
 js
 example/*.js
 example/*.map
