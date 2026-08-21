@@ -112,11 +112,11 @@ dropLocation = (editor, document, location) ->
     dy: blockView.dropPoint.y + 5
   })
 
-dropPaletteBlockAt = (editor, selector, document, location) ->
+dropPaletteBlockAt = (editor, selector, documentIndex, location) ->
   simulate('mousedown', selector)
   simulate('mousemove', '.droplet-drag-cover', {location: selector, dx: 5})
 
-  block = editor.getDocument(document).getFromTextLocation(location)
+  block = editor.getDocument(documentIndex).getFromTextLocation(location)
   blockView = editor.session.view.getViewNodeFor block
   simulate('mousemove', editor.dragCover, {
     location: editor.dropletElement,

@@ -108,8 +108,8 @@ directories for recompilation. It listens on port **8001**: visit
 `http://localhost:8001/example/example.html` for a simple running environment
 or `http://localhost:8001/example/test.html` for the view debugger.
 
-Run `npx grunt mochaTest` for the parser/model unit suite and
-`npm run test:browser` for the QUnit browser suite.
+Run `npx grunt mochaTest` for the parser/model unit suite. Switch to Node 24
+before running `npm run test:browser` for the QUnit browser suite.
 
 ### Current legacy baseline
 
@@ -123,6 +123,8 @@ Browser tests are run separately with Playwright and the devcontainer's modern
 Node runtime. In the devcontainer, run:
 
 ```shell
+nvm install 24
+nvm use 24
 npm run test:browser
 ```
 
