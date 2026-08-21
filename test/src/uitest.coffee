@@ -201,12 +201,15 @@ asyncTest 'Controller: reparse and undo reparse', ->
     editor.undo()
 
     setTimeout (->
-      simulate('mousedown', '.droplet-main-canvas', {dx: 120, dy: 20})
-      simulate('mouseup', '.droplet-main-canvas', {dx: 120, dy: 20})
-      equal(editor.getCursor().stringify(), '1', 'Successfully undid reparse')
-    ), 0
+      equal(editor.getValue().trim(), 'var hello = 1;', 'Successfully undid reparse')
 
-    start()
+      editor.redo()
+
+      setTimeout (->
+        equal(editor.getValue().trim(), 'var hello = 2 + 3;', 'Successfully redid reparse')
+        start()
+      ), 0
+    ), 0
   ), 0)
 
 asyncTest 'Controller: reparse fallback', ->

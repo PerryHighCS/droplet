@@ -235,11 +235,11 @@ Create a small compatibility corpus for JavaScript.
 - [x] Blank lines.
 - [x] Inline comments.
 - [x] String quoting.
-- [ ] Dragging statements.
-- [ ] Dragging expressions.
-- [ ] Editing sockets.
-- [ ] Undo.
-- [ ] Redo.
+- [x] Dragging statements.
+- [x] Dragging expressions.
+- [x] Editing sockets.
+- [x] Undo.
+- [x] Redo.
 - [x] Toggle text to blocks to text.
 
 Store expected source before and after each operation.
@@ -253,6 +253,14 @@ representative JavaScript program, toggles text → blocks → text through its
 visible control, waits for each `toggledone` event, and verifies exact source
 preservation. Its fixture includes the legacy editor's canonical trailing
 newline: `Editor#getValue()` adds one for non-empty documents.
+
+The `uitest` browser page supplies the interaction cases, all run in the
+Playwright Chromium gate: `palette block expansion` inserts and repositions
+statement blocks while asserting the resulting source; `Can replace a block
+where we found it` drags a JavaScript expression into a socket and asserts the
+exact changed program; and `reparse and undo reparse` edits a JavaScript socket
+then verifies the source after reparse, undo, and redo. This makes the source
+before and after each covered interaction part of the reproducible baseline.
 
 ## Code.org reference harness
 
