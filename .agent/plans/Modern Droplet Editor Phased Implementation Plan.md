@@ -874,6 +874,10 @@ tokens can address the JavaScript source snapshot directly; indentation must
 instead be read from the original leading line slice. This prevents tabs from
 being silently converted or assigned the wrong source range.
 
+`@droplet/python-adapter` exposes `collectPythonTrivia` for exact standalone
+and inline comment ranges plus raw indentation slices. Structural comment
+association and indentation-changing operations remain future work.
+
 ## Newly generated indentation
 
 When Droplet creates a new suite or moves a statement:
