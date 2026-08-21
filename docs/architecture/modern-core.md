@@ -103,6 +103,25 @@ changes against the current CodeMirror snapshot, and applies one CodeMirror
 transaction. CodeMirror consequently owns source state, selection mapping, and
 undo/redo. A block operation cannot create a second mutable document or history.
 
+## Generic CodeMirror editor
+
+`@droplet/codemirror-editor` is the framework-independent boundary around
+CodeMirror 6. Its `CodeMirrorEditor` owns exactly one `EditorView` and exposes
+source value, selection, focus, scroll, dispatch, update, and destroy methods.
+It is useful without a Droplet parser or renderer.
+
+`setValue(value)` creates an `externalValueAnnotation` transaction. Such an
+update is delivered through `onUpdate(update, {external: true})`, but does not
+call `onChange`; ordinary local document transactions call both callbacks with
+`external: false`. This keeps controlled consumers from feeding their own
+value update back into application state while retaining CodeMirror's single
+history and transaction stream.
+
+Language, theme, read-only state, and consumer-supplied extensions are each
+held in a CodeMirror `Compartment`. `update()` reconfigures those compartments
+without recreating the view, so later Droplet, collaboration, and framework
+extensions remain attached to the same canonical document.
+
 ## Opaque source and recovery
 
 Opaque nodes are read-only internally and retain exact source. A known opaque

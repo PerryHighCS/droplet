@@ -576,20 +576,20 @@ Use CodeMirror 6 primitives.
 
 ## Generic editor responsibilities
 
-- [ ] Create and destroy `EditorView`.
-- [ ] Controlled external value synchronization.
-- [ ] Change callbacks.
-- [ ] Update callbacks.
-- [ ] Selection access.
-- [ ] Focus.
-- [ ] Scroll state.
-- [ ] Read only mode.
-- [ ] Theme reconfiguration.
-- [ ] Language reconfiguration.
-- [ ] Additional consumer extensions.
-- [ ] Transaction annotations for external versus local edits.
-- [ ] Multiple editor instances.
-- [ ] Proper cleanup.
+- [x] Create and destroy `EditorView`.
+- [x] Controlled external value synchronization.
+- [x] Change callbacks.
+- [x] Update callbacks.
+- [x] Selection access.
+- [x] Focus.
+- [x] Scroll state.
+- [x] Read only mode.
+- [x] Theme reconfiguration.
+- [x] Language reconfiguration.
+- [x] Additional consumer extensions.
+- [x] Transaction annotations for external versus local edits.
+- [x] Multiple editor instances.
+- [x] Proper cleanup.
 
 Use CodeMirror `Compartment` objects for reconfigurable concerns.
 
@@ -619,12 +619,23 @@ This component should be useful without Droplet.
 
 ### Phase 5 acceptance criteria
 
-- [ ] Plain CodeMirror editor works without React.
-- [ ] External values synchronize predictably.
-- [ ] Undo history behaves correctly.
-- [ ] Language and theme changes do not recreate the editor.
-- [ ] Consumers may add CodeMirror extensions.
-- [ ] API is suitable for later replacement of MobCode's UIW wrapper.
+- [x] Plain CodeMirror editor works without React.
+- [x] External values synchronize predictably.
+- [x] Undo history behaves correctly.
+- [x] Language and theme changes do not recreate the editor.
+- [x] Consumers may add CodeMirror extensions.
+- [x] API is suitable for later replacement of MobCode's UIW wrapper.
+
+### Phase 5 implementation — 2026-08-21
+
+`packages/codemirror-editor` provides the framework-independent
+`@droplet/codemirror-editor` package. It owns one CodeMirror document and
+history, supports controlled external synchronization through an explicit
+transaction annotation, and uses compartments for reconfigurable language,
+theme, read-only state, and consumer extensions. The JSDOM test suite verifies
+multiple independent instances, cleanup, selection, focus, scroll state,
+history, and non-recreating reconfiguration. No legacy CoffeeScript or Ace
+runtime is imported by the package.
 
 ---
 

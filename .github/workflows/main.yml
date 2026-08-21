@@ -58,3 +58,16 @@ jobs:
         with:
           node-version: 24.x
       - run: npm --prefix packages/core test
+
+  codemirror-editor:
+    name: CodeMirror editor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: packages/codemirror-editor/package-lock.json
+      - run: npm --prefix packages/codemirror-editor ci
+      - run: npm --prefix packages/codemirror-editor test

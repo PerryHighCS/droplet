@@ -19,6 +19,11 @@ runtime. Future Code.org changes are reviewed and selectively reimplemented as
 compatibility work. See [the modernization decision](docs/decisions/0001-full-modernization.md)
 and [the upstream review log](docs/upstream-codeorg.md).
 
+The first framework-independent editor package is
+[`packages/codemirror-editor`](packages/codemirror-editor/): it wraps one
+CodeMirror 6 document with controlled value synchronization and extension
+compartments. It does not yet render Droplet blocks; that adapter is Phase 6.
+
 How to Embed
 ------------
 Droplet is a browserify package, so you can include it with npm, requirejs, or as a browser global. To embed, call `new droplet.Editor()` on a div.

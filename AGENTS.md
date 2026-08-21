@@ -56,6 +56,9 @@ Before changing code, read the relevant material:
 - `vendor/`: checked-in third-party browser assets; do not hand-edit them.
 - `packages/core/`: dependency-free modern source-range and opaque-projection
   foundation. It is ESM and tested independently with Node's test runner.
+- `packages/codemirror-editor/`: framework-independent CodeMirror 6 wrapper.
+  It owns the canonical modern text document and is tested independently with
+  Node's test runner and JSDOM.
 - `dist/`, `test/js/`, and generated example JavaScript: build output; do not
   manually edit or commit it unless a task explicitly requires a release artifact.
 
