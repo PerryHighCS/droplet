@@ -549,9 +549,9 @@ opaque blocks become structured again
 
 ### Phase 4 editor integration acceptance criteria
 
-- [ ] Block mode can display opaque source regions.
-- [ ] Invalid intermediate source does not force mode switching.
-- [ ] Opaque blocks automatically become structured blocks when parsing succeeds.
+- [x] Block mode can display opaque source regions.
+- [x] Invalid intermediate source does not force mode switching.
+- [x] Opaque blocks automatically become structured blocks when parsing succeeds.
 
 ### Phase 4 foundation — 2026-08-21
 
@@ -562,7 +562,16 @@ adapter to opt in before an opaque statement or expression may move. It also
 provides atomic minimal source-change application for the future CodeMirror
 transaction adapter. `parseWithOpaqueRecovery` now supplies the parser boundary:
 syntax failures yield opaque regions and the next successful parse returns a
-structured projection. Renderer integration remains later editor work.
+structured projection. Initial CodeMirror projection rendering is documented
+below; richer block layout remains later editor work.
+
+### Phase 4 editor integration — 2026-08-21
+
+The `@droplet/codemirror-editor/droplet` adapter reparses projections after
+every CodeMirror source transaction. In block mode, opaque ranges have an
+explicit read-only visual decoration while external source synchronization and
+validated block operations remain allowed. A repaired source transaction is
+therefore automatically reprojected as structured source without a mode switch.
 
 ---
 
@@ -1263,17 +1272,17 @@ Do not initially:
 If implementation starts immediately, the practical order is:
 
 - [x] Create fork and remotes.
-- [ ] Base `main` on `upstream/code-dot-org`.
-- [ ] Preserve original and Python historical branches.
-- [ ] Make Code.org Droplet build reproducibly.
-- [ ] Establish JavaScript compatibility tests.
-- [ ] Port the advanced Python adapter and tests.
-- [ ] Establish Python source preservation tests.
-- [ ] Introduce opaque read only blocks.
-- [ ] Define the editor abstraction.
-- [ ] Build the generic CodeMirror 6 wrapper.
-- [ ] Implement the Droplet CodeMirror adapter.
-- [ ] Make block operations dispatch CodeMirror transactions.
+- [x] Base `main` on `upstream/code-dot-org`.
+- [x] Preserve original and Python historical branches.
+- [x] Make Code.org Droplet build reproducibly.
+- [x] Establish JavaScript compatibility tests.
+- [x] Port the advanced Python adapter and tests.
+- [x] Establish Python source preservation tests.
+- [x] Introduce opaque read only blocks.
+- [x] Define the editor abstraction.
+- [x] Build the generic CodeMirror 6 wrapper.
+- [x] Implement the initial Droplet CodeMirror adapter.
+- [x] Make initial block operations dispatch CodeMirror transactions.
 - [ ] Package the non React browser editor.
 - [ ] Modernize Python parsing, likely using Brython.
 - [ ] Add the thin React package.

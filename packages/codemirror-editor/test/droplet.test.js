@@ -1,0 +1,147 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {undo} from '@codemirror/commands';
+import {EditorView} from '@codemirror/view';
+import {JSDOM} from 'jsdom';
+
+import {createDropletCodeMirrorEditor} from '../src/droplet.js';
+
+installDom();
+
+test('block mode displays opaque source, prevents internal edits, and recovers after an external repair', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent,
+    value: 'if score >',
+    blockMode: true,
+    parse: parseExample
+  });
+
+  assert.equal(editor.getProjection().root.children[0].kind, 'opaque-statement');
+  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
+  editor.editor.dispatch({changes: {from: 5, insert: 'new '}});
+  assert.equal(editor.getValue(), 'if score >');
+
+  editor.setValue('if score > 10:\n    print(score)\n');
+  assert.equal(editor.getProjection().root.children[0].kind, 'statement');
+  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 0);
+  editor.destroy();
+});
+
+test('text editing can become opaque without forcing a mode change', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({parent, value: 'score = 1\n', parse: parseExample});
+
+  editor.editor.dispatch({changes: {from: 0, to: editor.getValue().length, insert: 'if score >'}});
+  assert.equal(editor.isUsingBlocks(), false);
+  assert.equal(editor.getProjection().root.children[0].kind, 'opaque-statement');
+  editor.setBlockMode(true);
+  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
+  editor.destroy();
+});
+
+test('block operations use one CodeMirror source transaction and its existing undo history', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent,
+    value: 'score = 1\n',
+    blockMode: true,
+    parse: parseExample,
+    transform: (operation, parsed) => {
+      assert.equal(parsed.source, 'score = 1\n');
+      assert.deepEqual(operation, {type: 'replace-score'});
+      return [{from: 8, to: 9, insert: '2 + 3'}];
+    }
+  });
+
+  editor.applyBlockOperation({type: 'replace-score'});
+  assert.equal(editor.getValue(), 'score = 2 + 3\n');
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), 'score = 1\n');
+  editor.destroy();
+});
+
+test('consumer extension updates retain opaque projection behavior', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent,
+    value: 'if score >',
+    blockMode: true,
+    parse: parseExample
+  });
+
+  editor.update({extensions: EditorView.lineWrapping});
+  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
+  editor.editor.dispatch({changes: {from: 5, insert: 'new '}});
+  assert.equal(editor.getValue(), 'if score >');
+  editor.destroy();
+});
+
+test('opaque children of structured nodes are also displayed and protected', () => {
+  const parent = appendParent();
+  const source = 'score = ???\n';
+  const editor = createDropletCodeMirrorEditor({
+    parent,
+    value: source,
+    blockMode: true,
+    parse: (value) => ({
+      source: value,
+      root: {
+        id: 'document', kind: 'document', from: 0, to: value.length, editable: false,
+        children: [{
+          id: 'statement', kind: 'statement', from: 0, to: value.length, editable: true,
+          children: [{
+            id: 'opaque-expression', kind: 'opaque-expression', from: 8, to: 11,
+            editable: false, children: []
+          }]
+        }]
+      },
+      issues: []
+    })
+  });
+
+  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
+  editor.editor.dispatch({changes: {from: 9, insert: '!'}});
+  assert.equal(editor.getValue(), source);
+  editor.destroy();
+});
+
+function parseExample(source) {
+  if (source === 'if score >') {
+    const error = new Error('Expected an expression');
+    error.from = 0;
+    error.to = source.length;
+    error.opaqueKind = 'opaque-statement';
+    throw error;
+  }
+  return {
+    source,
+    root: {
+      id: `document:0:${source.length}`,
+      kind: 'document', from: 0, to: source.length, editable: false,
+      children: [{id: 'statement:0', kind: 'statement', from: 0, to: source.length, editable: true, children: []}]
+    },
+    issues: []
+  };
+}
+
+function appendParent() {
+  const parent = document.createElement('div');
+  document.body.append(parent);
+  return parent;
+}
+
+function installDom() {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {pretendToBeVisual: true});
+  const {window} = dom;
+  globalThis.window = window;
+  globalThis.document = window.document;
+  Object.defineProperty(globalThis, 'navigator', {configurable: true, value: window.navigator});
+  globalThis.MutationObserver = window.MutationObserver;
+  globalThis.HTMLElement = window.HTMLElement;
+  globalThis.Window = window.Window;
+  globalThis.getComputedStyle = window.getComputedStyle;
+  globalThis.requestAnimationFrame = window.requestAnimationFrame.bind(window);
+  globalThis.cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+}

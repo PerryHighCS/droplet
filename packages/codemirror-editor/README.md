@@ -27,3 +27,28 @@ editor.destroy();
 extensions through CodeMirror compartments without recreating the view.
 `onUpdate(update, {external})` receives every CodeMirror update, while
 `onChange(value, update)` receives local document edits only.
+
+## Droplet projection adapter
+
+The `@droplet/codemirror-editor/droplet` subpath adds
+`createDropletCodeMirrorEditor`. Supply a structured language parser and,
+optionally, a block-operation transformer. It reparses after every CodeMirror
+document transaction, displays opaque parser failures in block mode, and keeps
+their internal text read-only. External source updates remain permitted, so a
+repaired program automatically returns to a structured projection.
+
+```js
+import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
+
+const editor = createDropletCodeMirrorEditor({
+  parent: document.querySelector('#editor'),
+  value: 'if score >',
+  blockMode: true,
+  parse: parseStructuredLanguage,
+  transform: transformBlockOperation
+});
+```
+
+`applyBlockOperation(operation)` validates the adapter's minimal source changes
+and dispatches them as one CodeMirror transaction, preserving ordinary undo and
+redo behavior.

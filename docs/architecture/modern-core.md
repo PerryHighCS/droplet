@@ -122,6 +122,15 @@ held in a CodeMirror `Compartment`. `update()` reconfigures those compartments
 without recreating the view, so later Droplet, collaboration, and framework
 extensions remain attached to the same canonical document.
 
+The package's `droplet` subpath adds the projection adapter. It reparses with
+`parseWithOpaqueRecovery` after every CodeMirror document change, renders
+opaque ranges with a CodeMirror decoration in block mode, and filters direct
+changes that touch their internal source. Externally synchronized source and
+explicit block-operation transactions are allowed through that filter, so
+repairing source automatically replaces the opaque projection. A language
+adapter's `transform` result is range-validated and dispatched as one ordinary
+CodeMirror transaction, preserving the same undo history as text edits.
+
 ## Opaque source and recovery
 
 Opaque nodes are read-only internally and retain exact source. A known opaque

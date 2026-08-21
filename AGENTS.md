@@ -58,7 +58,8 @@ Before changing code, read the relevant material:
   foundation. It is ESM and tested independently with Node's test runner.
 - `packages/codemirror-editor/`: framework-independent CodeMirror 6 wrapper.
   It owns the canonical modern text document and is tested independently with
-  Node's test runner and JSDOM.
+  Node's test runner and JSDOM. Its `droplet` export is the modern projection
+  adapter; keep the generic root export free of language and block policy.
 - `dist/`, `test/js/`, and generated example JavaScript: build output; do not
   manually edit or commit it unless a task explicitly requires a release artifact.
 
