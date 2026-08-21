@@ -16,9 +16,12 @@ adopted, intentionally diverges, or is rejected.
 ## Review process
 
 ```bash
-git fetch upstream
-git log main..upstream/code-dot-org
+scripts/fetch-codeorg-updates.sh
 ```
+
+The script adds a normal `codeorg` Git remote when needed, fetches
+`code-dot-org`, and lists commits that are not yet in `main`. Set
+`DROPLET_CODEORG_REMOTE` to use a differently named existing remote.
 
 Classify each change as a core behavior fix, JavaScript parser fix, Ace-specific
 integration, Code.org application behavior, or irrelevant generated output.
