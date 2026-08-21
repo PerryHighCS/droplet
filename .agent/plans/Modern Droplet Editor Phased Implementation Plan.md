@@ -784,11 +784,24 @@ BrythonPythonParser
 
 - [x] Verify current Brython AST locations.
 - [x] Verify start and end offsets or line and column information.
-- [ ] Verify handling of comments and lexical trivia.
-- [ ] Determine whether tokenization is needed alongside AST parsing.
-- [ ] Build a Brython AST to Droplet source node adapter.
+- [x] Verify handling of comments and lexical trivia.
+- [x] Determine whether tokenization is needed alongside AST parsing.
+- [x] Build a Brython AST to Droplet source node adapter.
 - [ ] Compare structures against historical Skulpt behavior.
-- [ ] Maintain exact original source slices.
+- [x] Maintain exact original source slices.
+
+### Brython findings — 2026-08-21
+
+- Brython 3.14.3 exposes start and end line/column locations on AST nodes in
+  Chromium. Its columns match JavaScript string offsets, including surrogate
+  pairs, so source ranges can address CodeMirror documents directly.
+- Comments are intentionally absent from the AST. The initial adapter retains
+  the complete original source and only projects AST ranges; a tokenizer is
+  required before a structural operation can associate or move comments and
+  other lexical trivia.
+- `@droplet/python-adapter` wraps Brython's `pythonToAST` callback, maps its
+  source ranges to modern projection nodes, and recovers syntax errors as an
+  opaque source projection.
 
 ## Modern Python corpus
 

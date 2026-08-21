@@ -16,7 +16,23 @@ test('maps Brython line and column locations to exact source ranges', () => {
   });
 });
 
-test('converts Brython syntax failures into opaque-source metadata', () => {
-  assert.throws(() => parsePython('if score >', () => { throw new Error('invalid syntax'); }),
-    (error) => error.from === 0 && error.to === 10 && error.opaqueKind === 'opaque-statement');
+test('converts Brython syntax failures into an opaque source projection', () => {
+  const parsed = parsePython('if score >', () => { throw new Error('invalid syntax'); });
+  assert.deepEqual(parsed.root.children[0], {
+    id: 'opaque-statement:0:10:0', kind: 'opaque-statement', from: 0, to: 10,
+    editable: false, children: [], metadata: {movable: false}
+  });
+  assert.deepEqual(parsed.issues, [{
+    from: 0, to: 10, message: 'invalid syntax', severity: 'error'
+  }]);
+});
+
+test('falls back to the containing source boundary for invalid AST locations', () => {
+  const source = 'pass\n';
+  const ast = {type: 'Module', body: [{type: 'Pass', lineno: 9, col_offset: 0, end_lineno: 9, end_col_offset: 4}]};
+  const parsed = parsePython(source, () => ast);
+  assert.deepEqual(parsed.root.children[0], {
+    id: 'statement:Pass:0:5', kind: 'statement', from: 0, to: 5, editable: true,
+    children: [], metadata: {type: 'Pass'}
+  });
 });

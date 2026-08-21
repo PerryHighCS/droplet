@@ -32,6 +32,11 @@ current-Acorn JavaScript ranges and supports source-preserving socket
 replacement, statement insertion, and statement movement through the CodeMirror
 Droplet adapter.
 
+[`packages/python-adapter`](packages/python-adapter/) is the initial modern
+Python parsing path. It maps Brython browser-AST source ranges while retaining
+the original source snapshot; syntax failures are represented as opaque source
+ranges. Comment-aware structural edits remain future work.
+
 How to Embed
 ------------
 Droplet is a browserify package, so you can include it with npm, requirejs, or as a browser global. To embed, call `new droplet.Editor()` on a div.

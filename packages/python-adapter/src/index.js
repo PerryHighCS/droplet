@@ -1,3 +1,5 @@
+import {parseWithOpaqueRecovery} from '@droplet/core';
+
 /** Creates a source-range Python parser from Brython's browser AST API. */
 export function createBrythonPythonParser(pythonToAST) {
   if (typeof pythonToAST !== 'function') throw new TypeError('Brython pythonToAST is required');
@@ -7,17 +9,19 @@ export function createBrythonPythonParser(pythonToAST) {
 export function parsePython(source, pythonToAST) {
   if (typeof source !== 'string') throw new TypeError('Source must be a string');
   if (typeof pythonToAST !== 'function') throw new TypeError('Brython pythonToAST is required');
-  let ast;
-  try {
-    ast = pythonToAST(source, 'droplet.py', 'file');
-  } catch (error) {
-    error.from = 0;
-    error.to = source.length;
-    error.opaqueKind = 'opaque-statement';
-    throw error;
-  }
-  const lines = lineStarts(source);
-  return {source, root: project(ast, source, lines, 'document'), issues: []};
+  return parseWithOpaqueRecovery(source, () => {
+    let ast;
+    try {
+      ast = pythonToAST(source, 'droplet.py', 'file');
+    } catch (error) {
+      error.from = 0;
+      error.to = source.length;
+      error.opaqueKind = 'opaque-statement';
+      throw error;
+    }
+    const lines = lineStarts(source);
+    return {source, root: project(ast, source, lines, 'document'), issues: []};
+  });
 }
 
 function project(node, source, lines, kind = kindFor(node)) {
@@ -55,4 +59,8 @@ const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_off
 const socketKeys = new Set(['value', 'args', 'targets', 'test', 'iter', 'left', 'right']);
 function typeOf(node) { return node?.type ?? node?.$name ?? node?.constructor?.$name ?? node?.constructor?.name ?? 'Unknown'; }
 function lineStarts(source) { const starts = [0]; for (let i = 0; i < source.length; i += 1) if (source[i] === '\n') starts.push(i + 1); return starts; }
-function offset(line, column, starts, length, fallback) { if (!Number.isInteger(line) || !Number.isInteger(column)) return fallback; return Math.min(starts[line - 1] + column, length); }
+function offset(line, column, starts, length, fallback) {
+  if (!Number.isInteger(line) || !Number.isInteger(column)) return fallback;
+  const lineStart = starts[line - 1];
+  return Number.isInteger(lineStart) ? Math.min(lineStart + column, length) : fallback;
+}
