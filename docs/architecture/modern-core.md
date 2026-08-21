@@ -131,6 +131,16 @@ repairing source automatically replaces the opaque projection. A language
 adapter's `transform` result is range-validated and dispatched as one ordinary
 CodeMirror transaction, preserving the same undo history as text edits.
 
+## Initial modern JavaScript adapter
+
+`@droplet/javascript-adapter` is the first language implementation for this
+boundary. It uses current Acorn independently of the legacy Acorn 1 runtime,
+projects JavaScript AST nodes onto their original source ranges, and exposes
+call arguments plus selected expression positions as sockets. Its first
+supported transform is `replace-socket`; it returns only that socket's source
+range, leaving all surrounding source—including comments and lexical
+formatting—untouched. Statement movement and insertion remain later work.
+
 ## Opaque source and recovery
 
 Opaque nodes are read-only internally and retain exact source. A known opaque

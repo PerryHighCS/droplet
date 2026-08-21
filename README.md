@@ -24,6 +24,12 @@ The first framework-independent editor package is
 CodeMirror 6 document with controlled value synchronization and extension
 compartments. It does not yet render Droplet blocks; that adapter is Phase 6.
 
+The initial modern language path is
+[`packages/javascript-adapter`](packages/javascript-adapter/). It projects
+current-Acorn JavaScript ranges and supports source-preserving socket
+replacement through the CodeMirror Droplet adapter; broader block operations
+remain in progress.
+
 How to Embed
 ------------
 Droplet is a browserify package, so you can include it with npm, requirejs, or as a browser global. To embed, call `new droplet.Editor()` on a div.

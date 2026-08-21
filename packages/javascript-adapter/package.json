@@ -1,0 +1,20 @@
+{
+  "name": "@droplet/javascript-adapter",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@droplet/core": "file:../core",
+    "acorn": "8.18.0"
+  },
+  "devDependencies": {
+    "@droplet/codemirror-editor": "file:../codemirror-editor",
+    "jsdom": "30.0.1"
+  }
+}

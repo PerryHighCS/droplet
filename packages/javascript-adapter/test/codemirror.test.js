@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {JSDOM} from 'jsdom';
+import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
+
+import {parseJavaScript, transformJavaScript} from '../src/index.js';
+
+installDom();
+
+test('a JavaScript socket operation becomes one source-preserving CodeMirror transaction', () => {
+  const source = 'announce("total", total); // preserve this comment\n';
+  const parent = document.createElement('div');
+  document.body.append(parent);
+  const editor = createDropletCodeMirrorEditor({
+    parent,
+    value: source,
+    blockMode: true,
+    parse: parseJavaScript,
+    transform: transformJavaScript
+  });
+  const socket = findSocket(editor.getProjection(), source, 'total');
+
+  editor.applyBlockOperation({
+    type: 'replace-socket',
+    target: {from: socket.from, to: socket.to},
+    source: 'score + 1'
+  });
+
+  assert.equal(editor.getValue(), 'announce("total", score + 1); // preserve this comment\n');
+  assert.equal(editor.getProjection().source, editor.getValue());
+  editor.destroy();
+});
+
+function findSocket(parsed, source, text) {
+  const stack = [parsed.root];
+  while (stack.length) {
+    const node = stack.pop();
+    if (node.kind === 'socket' && source.slice(node.from, node.to) === text) return node;
+    stack.push(...node.children);
+  }
+  throw new Error(`Socket with source ${text} was not found`);
+}
+
+function installDom() {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {pretendToBeVisual: true});
+  const {window} = dom;
+  globalThis.window = window;
+  globalThis.document = window.document;
+  Object.defineProperty(globalThis, 'navigator', {configurable: true, value: window.navigator});
+  globalThis.MutationObserver = window.MutationObserver;
+  globalThis.HTMLElement = window.HTMLElement;
+  globalThis.Window = window.Window;
+  globalThis.getComputedStyle = window.getComputedStyle;
+  globalThis.requestAnimationFrame = window.requestAnimationFrame.bind(window);
+  globalThis.cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+}

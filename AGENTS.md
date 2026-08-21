@@ -60,6 +60,9 @@ Before changing code, read the relevant material:
   It owns the canonical modern text document and is tested independently with
   Node's test runner and JSDOM. Its `droplet` export is the modern projection
   adapter; keep the generic root export free of language and block policy.
+- `packages/javascript-adapter/`: modern Acorn-based JavaScript range parser
+  and source-transform adapter. It is independent of the legacy JavaScript
+  CoffeeScript mode and must preserve exact source slices.
 - `dist/`, `test/js/`, and generated example JavaScript: build output; do not
   manually edit or commit it unless a task explicitly requires a release artifact.
 

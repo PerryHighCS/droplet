@@ -71,3 +71,16 @@ jobs:
           cache-dependency-path: packages/codemirror-editor/package-lock.json
       - run: npm --prefix packages/codemirror-editor ci
       - run: npm --prefix packages/codemirror-editor test
+
+  javascript-adapter:
+    name: Modern JavaScript adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: packages/javascript-adapter/package-lock.json
+      - run: npm --prefix packages/javascript-adapter ci
+      - run: npm --prefix packages/javascript-adapter test
