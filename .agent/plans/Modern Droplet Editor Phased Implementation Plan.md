@@ -178,7 +178,7 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
 ## Build
 
 - [x] Document the existing build requirements.
-- [ ] Attempt the existing build using the historical expected Node environment.
+- [x] Attempt the existing build using the historical expected Node environment.
 - [x] Record all failures with current Node.
 - [x] Produce the existing JavaScript distribution.
 - [x] Produce an unminified development distribution.
@@ -189,7 +189,11 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
 ### Baseline findings — 2026-08-21
 
 - The Code.org package metadata declares Node `>=8.15` and npm `>=3.10.8`;
-  its `package-lock.json` uses lockfile version 1.
+  its `package-lock.json` uses lockfile version 1. Its `.nvmrc` pins Node
+  8.15.0, while the later GitHub Actions workflow uses Node 14.x.
+- Node 14.21.3/npm 6.14.18 successfully runs `npx grunt dist`, producing the
+  complete JavaScript and CSS distribution. This is the established legacy
+  baseline runtime.
 - On the devcontainer's Node 24.15.0/npm 11.12.1, a normal `npm ci` fails in
   Puppeteer 5.5.0 because that version has no Chromium binary for ARM64.
   `npm ci --ignore-scripts` installs the locked JavaScript dependencies for
@@ -198,6 +202,11 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
   `dist/droplet-full.min.js`, but fails while minifying CSS because the legacy
   minifier calls the removed Node API `util.isRegExp`.
 - `npx grunt mochaTest` passes all 21 parser/model tests on Node 24.
+- On Node 14, `npm test` builds the distribution and all QUnit bundles, then
+  reaches the QUnit runner but cannot launch `/usr/bin/chromium-browser`. The
+  container has no system browser, and Puppeteer 5.5.0 cannot download one for
+  ARM64; browser and interaction validation remain pending on a compatible
+  browser-enabled environment.
 - `npx grunt testserver` starts successfully with normal container port access;
   `example/example.html` is served at `http://localhost:8001`. Functional
   browser verification remains pending because the historical Puppeteer test
@@ -243,9 +252,9 @@ This becomes the reference implementation during modernization.
 
 ### Phase 1 acceptance criteria
 
-- [ ] Current Code.org lineage builds reproducibly.
+- [x] Current Code.org lineage builds reproducibly.
 - [ ] A representative JavaScript program can be edited in blocks and text.
-- [ ] Existing behavior is documented by automated tests where practical.
+- [x] Existing behavior is documented by automated tests where practical.
 - [ ] We have a reference environment for comparing later behavior.
 
 ---
