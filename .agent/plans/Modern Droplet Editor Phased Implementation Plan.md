@@ -866,6 +866,14 @@ blank lines
 
 unless an explicit block operation requires a source change.
 
+### Brython tokenizer findings — 2026-08-21
+
+Brython's tokenizer retains comment ranges, but its `INDENT` token has an empty
+string and measures a tab as eight visual columns. AST ranges and ordinary
+tokens can address the JavaScript source snapshot directly; indentation must
+instead be read from the original leading line slice. This prevents tabs from
+being silently converted or assigned the wrong source range.
+
 ## Newly generated indentation
 
 When Droplet creates a new suite or moves a statement:

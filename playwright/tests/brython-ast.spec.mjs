@@ -131,3 +131,22 @@ test('modern match syntax remains source-preserving whether Brython projects it 
     });
   }
 });
+
+test('Brython tokenizer retains comments and reports visual indentation ranges', async ({page}) => {
+  await page.goto('/test/ctest.html');
+  await page.addScriptTag({url: '/playwright/node_modules/brython/brython.js'});
+  const source = '# heading\nif value:\n\tresult = value  # inline\n';
+  const tokens = await page.evaluate((python) => {
+    window.brython();
+    return [...window.__BRYTHON__.tokenizer(python, 'probe.py', 'file')]
+      .map(({type, string, lineno, col_offset, end_lineno, end_col_offset}) => ({
+        type, string, lineno, col_offset, end_lineno, end_col_offset
+      }));
+  }, source);
+
+  expect(tokens).toEqual(expect.arrayContaining([
+    expect.objectContaining({string: '# heading', lineno: 1, col_offset: 0, end_col_offset: 9}),
+    expect.objectContaining({string: '', type: 5, lineno: 3, col_offset: 0, end_col_offset: 8}),
+    expect.objectContaining({string: '# inline', lineno: 3, col_offset: 17, end_col_offset: 25})
+  ]));
+});
