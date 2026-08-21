@@ -54,6 +54,8 @@ Before changing code, read the relevant material:
 - `css/`: source stylesheet.
 - `antlr/`: checked-in grammar sources and generated parser artifacts.
 - `vendor/`: checked-in third-party browser assets; do not hand-edit them.
+- `packages/core/`: dependency-free modern source-range and opaque-projection
+  foundation. It is ESM and tested independently with Node's test runner.
 - `dist/`, `test/js/`, and generated example JavaScript: build output; do not
   manually edit or commit it unless a task explicitly requires a release artifact.
 
@@ -92,6 +94,7 @@ creation; otherwise run `PUPPETEER_SKIP_DOWNLOAD=true npm ci` and
 | Run all QUnit and Mocha tests | `npx grunt test` |
 | Run one QUnit page, plus Mocha tests | `npx grunt test:<name>` (for example, `npx grunt test:ctest`) |
 | Run browser tests on supported ARM64 Chromium | `npm run test:browser` |
+| Run modern core tests | `npm --prefix packages/core test` |
 | Run the development server and watch bundle changes | `npx grunt testserver` |
 
 `testserver` listens on port **8001**. The QUnit server used during tests listens

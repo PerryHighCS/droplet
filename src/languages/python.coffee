@@ -124,7 +124,7 @@ COLOR_RULES = [
 
 SHAPE_RULES = []
 
-config = {RULES, COLOR_RULES, SHAPE_RULES}
+config = {RULES, COLOR_RULES, SHAPE_RULES, PAREN_RULES: {}}
 
 config.SHOULD_SOCKET = (opts, node) ->
   node.data.text not in Object.keys(opts.functions ? {}) or getArgNum(node) isnt null

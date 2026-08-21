@@ -549,6 +549,15 @@ opaque blocks become structured again
 - [ ] Raw blocks preserve exact source.
 - [ ] Raw blocks automatically recover when parsing succeeds.
 
+### Phase 4 foundation — 2026-08-21
+
+`packages/core` now provides source-range-validated opaque statement,
+expression, and unknown-region nodes. The model retains only ranges over the
+canonical source snapshot, makes internal editing read-only, and requires an
+adapter to opt in before an opaque statement or expression may move. It also
+provides atomic minimal source-change application for the future CodeMirror
+transaction adapter. Parser and renderer integration remain Phase 4 work.
+
 ---
 
 # Phase 5: Build the Generic CodeMirror 6 Editor Layer
