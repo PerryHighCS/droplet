@@ -787,7 +787,7 @@ BrythonPythonParser
 - [x] Verify handling of comments and lexical trivia.
 - [x] Determine whether tokenization is needed alongside AST parsing.
 - [x] Build a Brython AST to Droplet source node adapter.
-- [ ] Compare structures against historical Skulpt behavior.
+- [x] Compare structures against historical Skulpt behavior.
 - [x] Maintain exact original source slices.
 
 ### Brython findings — 2026-08-21
@@ -802,34 +802,38 @@ BrythonPythonParser
 - `@droplet/python-adapter` wraps Brython's `pythonToAST` callback, maps its
   source ranges to modern projection nodes, and recovers syntax errors as an
   opaque source projection.
+- The historical Skulpt implementation projected parser tokens into its legacy
+  markup model (including Python 2 `print`); the modern adapter instead uses
+  semantic AST ranges. Compatibility work should compare source-preserving
+  observable block behavior, not those incompatible internal trees.
 
 ## Modern Python corpus
 
 Expand tests to include:
 
-- [ ] Python 3 `print()`.
-- [ ] Modern `input()`.
-- [ ] F strings.
-- [ ] Triple quoted strings.
-- [ ] Multiline strings.
-- [ ] Nested expressions.
-- [ ] List literals.
-- [ ] Dictionaries.
-- [ ] Tuples.
-- [ ] Slicing.
-- [ ] Keyword arguments.
-- [ ] Default parameters.
-- [ ] `for`.
-- [ ] `while`.
-- [ ] `break`.
-- [ ] `continue`.
-- [ ] `if / elif / else`.
-- [ ] Functions.
-- [ ] Imports.
-- [ ] List comprehensions.
-- [ ] Classes, initially possibly opaque if not structurally supported.
-- [ ] `match`, initially possibly opaque.
-- [ ] Type annotations, initially possibly opaque.
+- [x] Python 3 `print()`.
+- [x] Modern `input()`.
+- [x] F strings.
+- [x] Triple quoted strings.
+- [x] Multiline strings.
+- [x] Nested expressions.
+- [x] List literals.
+- [x] Dictionaries.
+- [x] Tuples.
+- [x] Slicing.
+- [x] Keyword arguments.
+- [x] Default parameters.
+- [x] `for`.
+- [x] `while`.
+- [x] `break`.
+- [x] `continue`.
+- [x] `if / elif / else`.
+- [x] Functions.
+- [x] Imports.
+- [x] List comprehensions.
+- [x] Classes, initially possibly opaque if not structurally supported.
+- [x] `match`, initially possibly opaque.
+- [x] Type annotations, initially possibly opaque.
 
 Support should grow progressively. Unsupported syntax remains usable through opaque source blocks.
 

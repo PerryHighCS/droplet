@@ -56,7 +56,7 @@ function childNodes(node) {
 }
 
 const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_offset']);
-const socketKeys = new Set(['value', 'args', 'targets', 'test', 'iter', 'left', 'right']);
+const socketKeys = new Set(['value', 'args', 'target', 'targets', 'test', 'iter', 'left', 'right']);
 function typeOf(node) { return node?.type ?? node?.$name ?? node?.constructor?.$name ?? node?.constructor?.name ?? 'Unknown'; }
 function lineStarts(source) { const starts = [0]; for (let i = 0; i < source.length; i += 1) if (source[i] === '\n') starts.push(i + 1); return starts; }
 function offset(line, column, starts, length, fallback) {
