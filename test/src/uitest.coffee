@@ -112,6 +112,23 @@ dropLocation = (editor, document, location) ->
     dy: blockView.dropPoint.y + 5
   })
 
+dropPaletteBlockAt = (editor, selector, documentIndex, location) ->
+  simulate('mousedown', selector)
+  simulate('mousemove', '.droplet-drag-cover', {location: selector, dx: 5})
+
+  block = editor.getDocument(documentIndex).getFromTextLocation(location)
+  blockView = editor.session.view.getViewNodeFor block
+  simulate('mousemove', editor.dragCover, {
+    location: editor.dropletElement,
+    dx: blockView.dropPoint.x + 5 + editor.gutter.clientWidth,
+    dy: blockView.dropPoint.y + 5
+  })
+  simulate('mouseup', editor.dragCover, {
+    location: editor.dropletElement,
+    dx: blockView.dropPoint.x + 5 + editor.gutter.clientWidth,
+    dy: blockView.dropPoint.y + 5
+  })
+
 asyncTest 'Controller: palette block expansion', ->
   states = []
   document.getElementById('test-main').innerHTML = ''
@@ -134,31 +151,36 @@ asyncTest 'Controller: palette block expansion', ->
     }]
   })
 
-  simulate('mousedown', '[data-id=ptest]')
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '[data-id=ptest]', dx: 5 })
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div' })
-  simulate('mouseup', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div' })
-  equal(editor.getValue().trim(), 'pen red')
-  simulate('mousedown', '[data-id=ftest]')
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '[data-id=ftest]', dx: 5 })
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 40 })
-  simulate('mouseup', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 40 })
-  equal(editor.getValue().trim(), 'pen red\na3 = b')
-  simulate('mousedown', '[data-id=ftest]')
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '[data-id=ftest]', dx: 5 })
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 70 })
-  simulate('mouseup', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 70 })
-  equal(editor.getValue().trim(), 'pen red\na3 = b\na6 = b')
-  start()
+  executeAsyncSequence [
+    (->
+      simulate('mousedown', '[data-id=ptest]')
+      simulate('mousemove', '.droplet-drag-cover',
+        { location: '[data-id=ptest]', dx: 5 })
+      simulate('mousemove', '.droplet-drag-cover',
+        { location: '.droplet-wrapper-div' })
+      simulate('mouseup', '.droplet-drag-cover',
+        { location: '.droplet-wrapper-div' })
+    ), (->
+      equal(editor.getValue().trim(), 'pen red')
+    ), (->
+      dropPaletteBlockAt(editor, '[data-id=ftest]', 0, {
+        row: 0
+        col: 0
+        type: 'block'
+      })
+    ), (->
+      equal(editor.getValue().trim(), 'pen red\na3 = b')
+    ), (->
+      dropPaletteBlockAt(editor, '[data-id=ftest]', 0, {
+        row: 1
+        col: 0
+        type: 'block'
+      })
+    ), (->
+      equal(editor.getValue().trim(), 'pen red\na3 = b\na6 = b')
+      start()
+    )
+  ]
 
 asyncTest 'Controller: reparse and undo reparse', ->
   states = []
@@ -201,12 +223,15 @@ asyncTest 'Controller: reparse and undo reparse', ->
     editor.undo()
 
     setTimeout (->
-      simulate('mousedown', '.droplet-main-canvas', {dx: 120, dy: 20})
-      simulate('mouseup', '.droplet-main-canvas', {dx: 120, dy: 20})
-      equal(editor.getCursor().stringify(), '1', 'Successfully undid reparse')
-    ), 0
+      equal(editor.getValue().trim(), 'var hello = 1;', 'Successfully undid reparse')
 
-    start()
+      editor.redo()
+
+      setTimeout (->
+        equal(editor.getValue().trim(), 'var hello = 2 + 3;', 'Successfully redid reparse')
+        start()
+      ), 0
+    ), 0
   ), 0)
 
 asyncTest 'Controller: reparse fallback', ->
@@ -461,10 +486,10 @@ performDragOperation = (editor, drag, cb) ->
 
 executeAsyncSequence = (sequence, i = 0) ->
   if i < sequence.length
-    sequence[i]()
-    setTimeout (->
-      executeAsyncSequence sequence, i + 1
-    ), 0
+    requestAnimationFrame ->
+      requestAnimationFrame ->
+        sequence[i]()
+        executeAsyncSequence sequence, i + 1
 
 asyncTest 'Controller: remembered sockets', ->
   document.getElementById('test-main').innerHTML = ''

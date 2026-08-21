@@ -5,6 +5,20 @@ Droplet Editor
 
 Droplet seeks to re-envision "block programming" as "text editing". It is useful as a transitional tool for beginners using languages like Scratch, and is a go-to text editor for everyone on mobile devices (where keyboards don't work so well).
 
+## Modernization status
+
+The checked-in CoffeeScript/Ace editor is retained as an independently runnable
+Code.org-derived compatibility reference. Its Grunt/Browserify build and QUnit
+browser tests continue to describe legacy behavior.
+
+The production direction is a separate modern editor based on CodeMirror 6,
+source-range transformations, framework-independent ESM packages, and a thin
+React wrapper. The modern editor will use the legacy tests and fixtures as a
+behavior specification, but will not import or mount the legacy editor at
+runtime. Future Code.org changes are reviewed and selectively reimplemented as
+compatibility work. See [the modernization decision](docs/decisions/0001-full-modernization.md)
+and [the upstream review log](docs/upstream-codeorg.md).
+
 How to Embed
 ------------
 Droplet is a browserify package, so you can include it with npm, requirejs, or as a browser global. To embed, call `new droplet.Editor()` on a div.
@@ -78,18 +92,54 @@ Droplet uses Grunt and npm to build. Run:
 ```shell
 git pull https://github.com/dabbler0/droplet.git
 cd droplet
-npm install
-grunt all
+nvm install 14.21.3
+nvm use 14.21.3
+PUPPETEER_SKIP_DOWNLOAD=true npm ci
+npx grunt dist
 ```
 
 When developing, run:
 ```shell
-grunt testserver
+npm run dev
 ```
 
-This will run the development server and watch the `src/` and `example/` directories for recompilation. Visit `localhost:8000/example/example.html` for a simple running environment. A view debugger is available at `localhost:8000/example/test.html`.
+This runs the development server and watches the `src/` and `example/`
+directories for recompilation. It listens on port **8001**: visit
+`http://localhost:8001/example/example.html` for a simple running environment
+or `http://localhost:8001/example/test.html` for the view debugger.
 
-Run `grunt all` to run the tests.
+Run `npx grunt mochaTest` for the parser/model unit suite. Switch to Node 24
+before running `npm run test:browser` for the QUnit browser suite.
+
+### Current legacy baseline
+
+The Code.org baseline builds completely with Node 14.21.3 (npm 6.14.18). Use
+that runtime for `npm ci`, Grunt distribution builds, and the legacy test
+baseline. The repository's `.nvmrc` records the older minimum baseline, Node
+8.15.0. Modern Node versions can build the JavaScript bundle, but the legacy
+CSS minifier is not compatible with Node 24.
+
+Browser tests are run separately with Playwright and the devcontainer's modern
+Node runtime. In the devcontainer, run:
+
+```shell
+nvm install 24
+nvm use 24
+npm run test:browser
+```
+
+Outside the devcontainer, install the browser-test workspace and Chromium once:
+
+```shell
+nvm install 24
+nvm use 24
+npm --prefix playwright ci
+npm --prefix playwright exec -- playwright install --with-deps chromium
+```
+
+The Playwright suite rebuilds the existing QUnit bundles, serves the test pages,
+and runs them in headless Chromium. This avoids the historical Puppeteer 5
+dependency, which cannot download Chromium on ARM64.
 
 Adding a Language
 -----------------

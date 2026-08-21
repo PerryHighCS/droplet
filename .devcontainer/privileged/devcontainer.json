@@ -1,0 +1,50 @@
+{
+  "name": "Droplet Editor (Privileged Dev Container)",
+  "dockerComposeFile": [
+    "../docker-compose.yml",
+    "../docker-compose.privileged.yml"
+  ],
+  "service": "app",
+  "workspaceFolder": "/workspaces/Droplet",
+  "features": {
+    "ghcr.io/devcontainers-extra/features/ripgrep:1": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh ${containerWorkspaceFolder}",
+  "postStartCommand": "bash .devcontainer/post-start-bootstrap.sh \"${containerWorkspaceFolder}\" --privileged",
+  "forwardPorts": [
+    8001,
+    8942
+  ],
+  "portsAttributes": {
+    "8001": {
+      "label": "Droplet development server",
+      "onAutoForward": "openBrowser",
+      "protocol": "http",
+      "requireLocalPort": false
+    },
+    "8942": {
+      "label": "Droplet QUnit test server",
+      "onAutoForward": "silent",
+      "protocol": "http",
+      "requireLocalPort": false
+    }
+  },
+  "otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.env.linux": {
+          "HOST": "0.0.0.0"
+        }
+      }
+    }
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true
+}

@@ -35,7 +35,9 @@
     "test": "test"
   },
   "scripts": {
-    "test": "grunt all"
+    "test": "grunt all",
+    "dev": "grunt testserver",
+    "test:browser": "npm --prefix playwright test"
   },
   "repository": {
     "type": "git",

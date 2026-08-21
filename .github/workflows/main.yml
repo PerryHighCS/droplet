@@ -1,16 +1,60 @@
-name: Build
+name: Verify
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  legacy-build:
+    name: Legacy distribution (Node 14)
     runs-on: ubuntu-latest
-
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
-      - uses: actions/checkout@v2
-      - name: Use Node.js
-        uses: actions/setup-node@v2
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: '14.x'
+          node-version: 14.x
+          cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npx grunt dist
+
+  legacy-and-browser:
+    name: Legacy parser and browser suite (Node 24)
+    runs-on: ubuntu-latest
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix playwright ci
+      - run: npm --prefix playwright exec -- playwright install --with-deps chromium
+      - run: npx grunt mochaTest
+      - run: npm run test:browser
+      - name: Upload Playwright failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-failure-diagnostics
+          path: |
+            playwright/test-results
+            playwright/playwright-report
+          if-no-files-found: ignore
+
+  modern-core:
+    name: Modern core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+      - run: npm --prefix packages/core test
