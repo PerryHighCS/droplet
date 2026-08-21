@@ -10,6 +10,12 @@ const qunitPages = [
   'uitest.html'
 ];
 
+test('static server does not expose dotted paths', async ({ request }) => {
+  const response = await request.get('/.git/config');
+
+  expect(response.status()).toBe(404);
+});
+
 for (const pageName of qunitPages) {
   test(`QUnit: ${pageName}`, async ({ page }) => {
     await page.goto(`/test/${pageName}`);

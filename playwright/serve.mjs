@@ -15,6 +15,12 @@ const mimeTypes = {
 
 createServer(async (request, response) => {
   const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
+
+  if (pathname.includes('/.')) {
+    response.writeHead(404).end('Not found');
+    return;
+  }
+
   const filename = resolve(workspaceRoot, `.${pathname}`);
 
   if (filename !== workspaceRoot && !filename.startsWith(`${workspaceRoot}${sep}`)) {
