@@ -730,7 +730,9 @@ The initial CodeMirror projection presentation decorates structured statements,
 expressions, sockets, and opaque ranges directly over canonical source. It is
 not yet the legacy canvas renderer or full drag-and-drop UI. Clicking a
 rendered range selects its exact CodeMirror source range through a normal
-selection transaction.
+selection transaction. The initial native drag/drop surface emits
+source-backed statement-move and expression/socket-replacement intents; opaque
+regions do not become draggable operations.
 
 The JavaScript integration suite also verifies source-selection mapping through
 a block transaction and one shared undo/redo history for ordinary text edits

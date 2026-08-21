@@ -39,6 +39,10 @@ read-only. External source updates remain permitted, so a repaired program
 automatically returns to a structured projection.
 
 Clicking a rendered range selects its exact source range in CodeMirror.
+Dragging one rendered statement onto another produces a `move-statement`
+intent; dropping an expression or socket onto a socket produces a
+`replace-socket` intent. The language adapter remains responsible for deciding
+whether that exact source transformation is valid.
 
 ```js
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';

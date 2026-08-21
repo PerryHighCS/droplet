@@ -5,7 +5,10 @@ import {undo} from '@codemirror/commands';
 import {EditorView} from '@codemirror/view';
 import {JSDOM} from 'jsdom';
 
-import {createDropletCodeMirrorEditor} from '../src/droplet.js';
+import {
+  createDropletCodeMirrorEditor,
+  projectionOperationFromDrop
+} from '../src/droplet.js';
 
 installDom();
 
@@ -63,6 +66,33 @@ test('clicking a rendered projection selects its exact source range', () => {
   statement.dispatchEvent(new window.MouseEvent('mousedown', {bubbles: true, button: 0}));
   assert.deepEqual(editor.editor.getSelection(), {anchor: 0, head: 'score = 1\n'.length});
   editor.destroy();
+});
+
+test('rendered block drops become source operations without a second document', () => {
+  assert.deepEqual(
+    projectionOperationFromDrop(
+      {kind: 'statement', from: 0, to: 8},
+      {kind: 'statement', from: 9, to: 18},
+      'first();\nsecond();\n'
+    ),
+    {type: 'move-statement', source: {from: 0, to: 8}, destination: {from: 9, to: 9}}
+  );
+  assert.deepEqual(
+    projectionOperationFromDrop(
+      {kind: 'expression', from: 10, to: 15},
+      {kind: 'socket', from: 20, to: 25},
+      '0123456789value12345target'
+    ),
+    {type: 'replace-socket', target: {from: 20, to: 25}, source: 'value'}
+  );
+  assert.equal(
+    projectionOperationFromDrop(
+      {kind: 'opaque-statement', from: 0, to: 4},
+      {kind: 'statement', from: 5, to: 9},
+      'bad\ngood'
+    ),
+    undefined
+  );
 });
 
 test('block operations use one CodeMirror source transaction and its existing undo history', () => {

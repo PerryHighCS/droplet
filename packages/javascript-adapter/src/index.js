@@ -55,9 +55,7 @@ export function transformJavaScript(operation, parsed) {
       const statement = findNode(parsed.root, operation.source, 'statement');
       if (!statement) throw new RangeError('Statement source is not present in the current projection');
       assertInsertionPoint(parsed.source, operation.destination);
-      if (operation.destination.from > statement.from && operation.destination.from < statement.to) {
-        throw new RangeError('Cannot move a statement into itself');
-      }
+      if (operation.destination.from >= statement.from && operation.destination.from <= statement.to) return [];
       const text = parsed.source.slice(statement.from, statement.to);
       changes = [
         {from: statement.from, to: statement.to, insert: ''},

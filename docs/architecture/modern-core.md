@@ -133,7 +133,10 @@ adapter's `transform` result is range-validated and dispatched as one ordinary
 CodeMirror transaction, preserving the same undo history as text edits.
 Each rendered projection range carries its canonical source offsets; clicking
 it dispatches a CodeMirror selection for that range rather than introducing a
-parallel block selection model.
+parallel block selection model. Native drag/drop similarly emits only an
+operation intent: a statement dropped on a statement requests a statement move,
+and an expression or socket dropped on a socket requests a socket replacement.
+The language adapter validates the resulting source transformation.
 
 ## Initial modern JavaScript adapter
 

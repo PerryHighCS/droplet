@@ -19,6 +19,7 @@ export class DropletCodeMirrorEditor {
   #blockMode;
   #setProjection;
   #projectionField;
+  #interaction;
 
   constructor(options) {
     if (typeof options?.parse !== 'function') {
@@ -34,6 +35,7 @@ export class DropletCodeMirrorEditor {
     this.#projection = this.#parseSource(options.value ?? '');
     this.#setProjection = StateEffect.define();
     this.#projectionField = createProjectionField(this.#setProjection, this.#projection);
+    this.#interaction = createProjectionInteraction((operation) => this.applyBlockOperation(operation));
 
     this.editor = createCodeMirrorEditor({
       parent: options.parent,
@@ -41,7 +43,7 @@ export class DropletCodeMirrorEditor {
       language: options.language,
       theme: options.theme,
       readOnly: options.readOnly,
-      extensions: [this.#projectionField, projectionInteraction, opaqueTheme, options.extensions ?? []],
+      extensions: [this.#projectionField, this.#interaction, opaqueTheme, options.extensions ?? []],
       onChange: options.onChange,
       onUpdate: (update, metadata) => {
         if (update.docChanged) this.#reparse();
@@ -110,7 +112,7 @@ export class DropletCodeMirrorEditor {
     if (Object.hasOwn(options, 'extensions')) {
       editorOptions.extensions = [
         this.#projectionField,
-        projectionInteraction,
+        this.#interaction,
         opaqueTheme,
         options.extensions ?? []
       ];
@@ -178,7 +180,9 @@ function projectionDecorations(projection) {
         : `droplet-block droplet-block-${node.kind}`,
       attributes: {
         'data-droplet-from': String(node.from),
-        'data-droplet-to': String(node.to)
+        'data-droplet-to': String(node.to),
+        'data-droplet-kind': node.kind,
+        draggable: 'true'
       }
     }).range(node.from, node.to));
   return Decoration.set(ranges, true);
@@ -214,18 +218,90 @@ function isPermittedChange(transaction) {
     transaction.annotation(blockOperationAnnotation) === true;
 }
 
-const projectionInteraction = EditorView.domEventHandlers({
-  mousedown(event, view) {
-    if (event.button !== 0) return false;
-    const block = event.target?.closest?.('[data-droplet-from][data-droplet-to]');
-    if (!block) return false;
-    const anchor = Number(block.dataset.dropletFrom);
-    const head = Number(block.dataset.dropletTo);
-    if (!Number.isInteger(anchor) || !Number.isInteger(head)) return false;
-    view.dispatch({selection: {anchor, head}});
-    return true;
+function createProjectionInteraction(onOperation) {
+  return EditorView.domEventHandlers({
+    mousedown(event, view) {
+      if (event.button !== 0) return false;
+      const range = projectionRangeFromElement(event.target);
+      if (!range) return false;
+      view.dispatch({selection: {anchor: range.from, head: range.to}});
+      return true;
+    },
+    dragstart(event) {
+      const range = projectionRangeFromElement(event.target);
+      if (!range || !event.dataTransfer) return false;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('application/x-droplet-projection', JSON.stringify(range));
+      return true;
+    },
+    dragover(event) {
+      if (!hasProjectionData(event.dataTransfer)) return false;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      return true;
+    },
+    drop(event, view) {
+      const target = projectionRangeFromElement(event.target);
+      const source = readDraggedRange(event.dataTransfer);
+      if (!source || !target) return false;
+      const operation = projectionOperationFromDrop(source, target, view.state.doc.toString());
+      if (!operation) return false;
+      event.preventDefault();
+      onOperation(operation);
+      return true;
+    }
+  });
+}
+
+/** Derives a source operation from a supported rendered block drop. */
+export function projectionOperationFromDrop(source, target, document) {
+  if (sameRange(source, target)) return undefined;
+  if (source.kind === 'statement' && target.kind === 'statement') {
+    return {
+      type: 'move-statement',
+      source: {from: source.from, to: source.to},
+      destination: {from: target.from, to: target.from}
+    };
   }
-});
+  if ((source.kind === 'expression' || source.kind === 'socket') && target.kind === 'socket') {
+    return {
+      type: 'replace-socket',
+      target: {from: target.from, to: target.to},
+      source: document.slice(source.from, source.to)
+    };
+  }
+  return undefined;
+}
+
+function projectionRangeFromElement(element) {
+  const block = element?.closest?.('[data-droplet-from][data-droplet-to][data-droplet-kind]');
+  if (!block) return undefined;
+  const from = Number(block.dataset.dropletFrom);
+  const to = Number(block.dataset.dropletTo);
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from > to) return undefined;
+  return {from, to, kind: block.dataset.dropletKind};
+}
+
+function readDraggedRange(dataTransfer) {
+  try {
+    const value = JSON.parse(dataTransfer?.getData('application/x-droplet-projection') ?? '');
+    if (!Number.isInteger(value?.from) || !Number.isInteger(value?.to) ||
+        value.from > value.to || typeof value.kind !== 'string') return undefined;
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasProjectionData(dataTransfer) {
+  const types = dataTransfer?.types;
+  return types?.includes?.('application/x-droplet-projection') === true ||
+    types?.contains?.('application/x-droplet-projection') === true;
+}
+
+function sameRange(left, right) {
+  return left.from === right.from && left.to === right.to;
+}
 
 const opaqueTheme = EditorView.baseTheme({
   '.droplet-block-statement': {
