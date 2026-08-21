@@ -53,6 +53,18 @@ test('block mode visibly decorates structured statements', () => {
   editor.destroy();
 });
 
+test('clicking a rendered projection selects its exact source range', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'score = 1\n', blockMode: true, parse: parseExample
+  });
+  const statement = parent.querySelector('.droplet-block-statement');
+
+  statement.dispatchEvent(new window.MouseEvent('mousedown', {bubbles: true, button: 0}));
+  assert.deepEqual(editor.editor.getSelection(), {anchor: 0, head: 'score = 1\n'.length});
+  editor.destroy();
+});
+
 test('block operations use one CodeMirror source transaction and its existing undo history', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({

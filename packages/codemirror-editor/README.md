@@ -38,6 +38,8 @@ and opaque parser failures in block mode, and keeps opaque internal text
 read-only. External source updates remain permitted, so a repaired program
 automatically returns to a structured projection.
 
+Clicking a rendered range selects its exact source range in CodeMirror.
+
 ```js
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
 

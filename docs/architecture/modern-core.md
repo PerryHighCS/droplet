@@ -131,6 +131,9 @@ explicit block-operation transactions are allowed through that filter, so
 repairing source automatically replaces the opaque projection. A language
 adapter's `transform` result is range-validated and dispatched as one ordinary
 CodeMirror transaction, preserving the same undo history as text edits.
+Each rendered projection range carries its canonical source offsets; clicking
+it dispatches a CodeMirror selection for that range rather than introducing a
+parallel block selection model.
 
 ## Initial modern JavaScript adapter
 

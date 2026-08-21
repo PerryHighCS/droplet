@@ -41,7 +41,7 @@ export class DropletCodeMirrorEditor {
       language: options.language,
       theme: options.theme,
       readOnly: options.readOnly,
-      extensions: [this.#projectionField, opaqueTheme, options.extensions ?? []],
+      extensions: [this.#projectionField, projectionInteraction, opaqueTheme, options.extensions ?? []],
       onChange: options.onChange,
       onUpdate: (update, metadata) => {
         if (update.docChanged) this.#reparse();
@@ -110,6 +110,7 @@ export class DropletCodeMirrorEditor {
     if (Object.hasOwn(options, 'extensions')) {
       editorOptions.extensions = [
         this.#projectionField,
+        projectionInteraction,
         opaqueTheme,
         options.extensions ?? []
       ];
@@ -174,7 +175,11 @@ function projectionDecorations(projection) {
     .map((node) => Decoration.mark({
       class: isOpaque(node)
         ? `droplet-block droplet-opaque droplet-block-${node.kind}`
-        : `droplet-block droplet-block-${node.kind}`
+        : `droplet-block droplet-block-${node.kind}`,
+      attributes: {
+        'data-droplet-from': String(node.from),
+        'data-droplet-to': String(node.to)
+      }
     }).range(node.from, node.to));
   return Decoration.set(ranges, true);
 }
@@ -208,6 +213,19 @@ function isPermittedChange(transaction) {
   return transaction.annotation(externalValueAnnotation) === true ||
     transaction.annotation(blockOperationAnnotation) === true;
 }
+
+const projectionInteraction = EditorView.domEventHandlers({
+  mousedown(event, view) {
+    if (event.button !== 0) return false;
+    const block = event.target?.closest?.('[data-droplet-from][data-droplet-to]');
+    if (!block) return false;
+    const anchor = Number(block.dataset.dropletFrom);
+    const head = Number(block.dataset.dropletTo);
+    if (!Number.isInteger(anchor) || !Number.isInteger(head)) return false;
+    view.dispatch({selection: {anchor, head}});
+    return true;
+  }
+});
 
 const opaqueTheme = EditorView.baseTheme({
   '.droplet-block-statement': {

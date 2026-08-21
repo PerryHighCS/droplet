@@ -728,7 +728,9 @@ outstanding Phase 6 work.
 
 The initial CodeMirror projection presentation decorates structured statements,
 expressions, sockets, and opaque ranges directly over canonical source. It is
-not yet the legacy canvas renderer or full drag-and-drop UI.
+not yet the legacy canvas renderer or full drag-and-drop UI. Clicking a
+rendered range selects its exact CodeMirror source range through a normal
+selection transaction.
 
 ---
 
