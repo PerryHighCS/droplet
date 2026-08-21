@@ -78,8 +78,8 @@ Droplet uses Grunt and npm to build. Run:
 ```shell
 git pull https://github.com/dabbler0/droplet.git
 cd droplet
-npm install
-grunt all
+PUPPETEER_SKIP_DOWNLOAD=true npm ci
+npx grunt dist
 ```
 
 When developing, run:
@@ -89,7 +89,33 @@ grunt testserver
 
 This will run the development server and watch the `src/` and `example/` directories for recompilation. Visit `localhost:8000/example/example.html` for a simple running environment. A view debugger is available at `localhost:8000/example/test.html`.
 
-Run `grunt all` to run the tests.
+Run `npx grunt mochaTest` for the parser/model unit suite and
+`npm run test:browser` for the QUnit browser suite.
+
+### Current legacy baseline
+
+The Code.org baseline builds completely with Node 14.21.3 (npm 6.14.18). The
+repository's `.nvmrc` records the older minimum baseline, Node 8.15.0. Modern
+Node versions can build the JavaScript bundle, but the legacy CSS minifier is
+not compatible with Node 24.
+
+Browser tests are run separately with Playwright and the devcontainer's modern
+Node runtime. In the devcontainer, run:
+
+```shell
+npm run test:browser
+```
+
+Outside the devcontainer, install the browser-test workspace and Chromium once:
+
+```shell
+npm --prefix playwright ci
+npm --prefix playwright exec -- playwright install --with-deps chromium
+```
+
+The Playwright suite rebuilds the existing QUnit bundles, serves the test pages,
+and runs them in headless Chromium. This avoids the historical Puppeteer 5
+dependency, which cannot download Chromium on ARM64.
 
 Adding a Language
 -----------------

@@ -56,7 +56,8 @@ Before changing code, read the relevant material:
 ## Commands
 
 Run commands from the repository root. The devcontainer installs dependencies on
-creation; otherwise run `npm install`.
+creation; otherwise run `PUPPETEER_SKIP_DOWNLOAD=true npm ci` and
+`npm --prefix playwright ci` before browser testing on ARM64.
 
 | Purpose | Command |
 | --- | --- |
@@ -66,6 +67,7 @@ creation; otherwise run `npm install`.
 | Build browser test bundles | `npx grunt buildtests` |
 | Run all QUnit and Mocha tests | `npx grunt test` |
 | Run one QUnit page, plus Mocha tests | `npx grunt test:<name>` (for example, `npx grunt test:ctest`) |
+| Run browser tests on supported ARM64 Chromium | `npm run test:browser` |
 | Run the development server and watch bundle changes | `npx grunt testserver` |
 
 `testserver` listens on port **8001**. The QUnit server used during tests listens
@@ -74,7 +76,9 @@ in the README are stale.
 
 ## Verification
 
-1. For source, CSS, language, or build changes, run `npm test` when practical.
+1. For source, CSS, language, or build changes, run `npm test` using the
+   Node 14 baseline when practical. On ARM64, run `npm run test:browser` for
+   the browser suite because the historical Puppeteer cannot install Chromium.
 2. For a focused edit, run the narrowest relevant Grunt target first, then the
    full suite if the change could affect other editor layers.
 3. For changes to examples or visible interaction, start `npx grunt testserver`

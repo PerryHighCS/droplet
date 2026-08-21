@@ -183,7 +183,7 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
 - [x] Produce the existing JavaScript distribution.
 - [x] Produce an unminified development distribution.
 - [x] Run whatever existing unit tests still function.
-- [ ] Run the existing browser examples.
+- [x] Run the existing browser examples.
 - [ ] Verify block to text and text to block switching.
 
 ### Baseline findings — 2026-08-21
@@ -209,8 +209,12 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
   browser-enabled environment.
 - `npx grunt testserver` starts successfully with normal container port access;
   `example/example.html` is served at `http://localhost:8001`. Functional
-  browser verification remains pending because the historical Puppeteer test
-  dependency cannot install its ARM64 browser binary.
+  browser verification cannot use the historical Puppeteer dependency because
+  it cannot install its ARM64 browser binary.
+- The isolated `playwright/` workspace uses Node 24 and Playwright Chromium on
+  ARM64 without modifying the legacy lockfile. `npm run test:browser` rebuilds
+  the QUnit bundles and passes all six existing browser pages (`ctest`,
+  `cstest`, `htmltest`, `jstest`, `test`, and `uitest`).
 
 ## Reference behavior
 
@@ -259,7 +263,7 @@ This becomes the reference implementation during modernization.
 - [x] Current Code.org lineage builds reproducibly.
 - [ ] A representative JavaScript program can be edited in blocks and text.
 - [x] Existing behavior is documented by automated tests where practical.
-- [ ] We have a reference environment for comparing later behavior.
+- [x] We have a reference environment for comparing later behavior.
 
 ---
 
