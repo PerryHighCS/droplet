@@ -136,17 +136,35 @@ test('Brython tokenizer retains comments and reports visual indentation ranges',
   await page.goto('/test/ctest.html');
   await page.addScriptTag({url: '/playwright/node_modules/brython/brython.js'});
   const source = '# heading\nif value:\n\tresult = value  # inline\n';
-  const tokens = await page.evaluate((python) => {
+  const result = await page.evaluate(async (python) => {
     window.brython();
-    return [...window.__BRYTHON__.tokenizer(python, 'probe.py', 'file')]
+    const importMap = document.createElement('script');
+    importMap.type = 'importmap';
+    importMap.textContent = JSON.stringify({imports: {
+      '@droplet/core': '/packages/core/src/index.js'
+    }});
+    document.head.append(importMap);
+    const {collectPythonTrivia} = await import('/packages/python-adapter/src/index.js');
+    return {
+      tokens: [...window.__BRYTHON__.tokenizer(python, 'probe.py', 'file')]
       .map(({type, string, lineno, col_offset, end_lineno, end_col_offset}) => ({
         type, string, lineno, col_offset, end_lineno, end_col_offset
-      }));
+      })),
+      trivia: collectPythonTrivia(python, window.__BRYTHON__.tokenizer)
+    };
   }, source);
 
+  const {tokens, trivia} = result;
   expect(tokens).toEqual(expect.arrayContaining([
     expect.objectContaining({string: '# heading', lineno: 1, col_offset: 0, end_col_offset: 9}),
     expect.objectContaining({string: '', type: 5, lineno: 3, col_offset: 0, end_col_offset: 8}),
     expect.objectContaining({string: '# inline', lineno: 3, col_offset: 17, end_col_offset: 25})
   ]));
+  expect(trivia).toEqual({
+    comments: [
+      {kind: 'comment', from: 0, to: 9, inline: false},
+      {kind: 'comment', from: 37, to: 45, inline: true}
+    ],
+    indentation: [{kind: 'indentation', from: 20, to: 21, text: '\t'}]
+  });
 });

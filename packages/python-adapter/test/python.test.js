@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {parsePython} from '../src/index.js';
+import {collectPythonTrivia, parsePython} from '../src/index.js';
 
 test('maps Brython line and column locations to exact source ranges', () => {
   const source = 'value = outer(1)\n';
@@ -34,5 +34,22 @@ test('falls back to the containing source boundary for invalid AST locations', (
   assert.deepEqual(parsed.root.children[0], {
     id: 'statement:Pass:0:5', kind: 'statement', from: 0, to: 5, editable: true,
     children: [], metadata: {type: 'Pass'}
+  });
+});
+
+test('uses raw source indentation while retaining inline and standalone comments', () => {
+  const source = '# heading\nif value:\n\tresult = value  # inline\n';
+  const tokens = [
+    {type: 65, string: '# heading', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 9},
+    {type: 5, string: '', lineno: 3, col_offset: 0, end_lineno: 3, end_col_offset: 8},
+    {type: 65, string: '# inline', lineno: 3, col_offset: 17, end_lineno: 3, end_col_offset: 25}
+  ];
+
+  assert.deepEqual(collectPythonTrivia(source, () => tokens), {
+    comments: [
+      {kind: 'comment', from: 0, to: 9, inline: false},
+      {kind: 'comment', from: 37, to: 45, inline: true}
+    ],
+    indentation: [{kind: 'indentation', from: 20, to: 21, text: '\t'}]
   });
 });

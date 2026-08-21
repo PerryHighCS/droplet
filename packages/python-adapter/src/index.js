@@ -24,6 +24,33 @@ export function parsePython(source, pythonToAST) {
   });
 }
 
+/**
+ * Collects lexical trivia without allowing Brython's visual tab columns to
+ * rewrite source offsets. The tokenizer callback is normally
+ * `window.__BRYTHON__.tokenizer`.
+ */
+export function collectPythonTrivia(source, tokenize, {indentTokenType = 5} = {}) {
+  if (typeof source !== 'string') throw new TypeError('Source must be a string');
+  if (typeof tokenize !== 'function') throw new TypeError('Brython tokenizer is required');
+
+  const starts = lineStarts(source);
+  const comments = [];
+  const indentation = [];
+  for (const token of tokenize(source, 'droplet.py', 'file')) {
+    if (typeof token?.string === 'string' && token.string.startsWith('#')) {
+      const from = offset(token.lineno, token.col_offset, starts, source.length, 0);
+      const to = offset(token.end_lineno, token.end_col_offset, starts, source.length, source.length);
+      comments.push({kind: 'comment', from, to, inline: token.col_offset > 0});
+    }
+    if (token?.type === indentTokenType && Number.isInteger(token.lineno)) {
+      const lineStart = starts[token.lineno - 1];
+      const text = leadingWhitespace(source, lineStart);
+      if (text.length) indentation.push({kind: 'indentation', from: lineStart, to: lineStart + text.length, text});
+    }
+  }
+  return {comments, indentation};
+}
+
 function project(node, source, lines, kind = kindFor(node)) {
   const from = offset(node.lineno, node.col_offset, lines, source.length, 0);
   const to = offset(node.end_lineno, node.end_col_offset, lines, source.length, source.length);
@@ -59,8 +86,9 @@ const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_off
 const socketKeys = new Set(['value', 'args', 'target', 'targets', 'test', 'iter', 'left', 'right']);
 function typeOf(node) { return node?.type ?? node?.$name ?? node?.constructor?.$name ?? node?.constructor?.name ?? 'Unknown'; }
 function lineStarts(source) { const starts = [0]; for (let i = 0; i < source.length; i += 1) if (source[i] === '\n') starts.push(i + 1); return starts; }
+function leadingWhitespace(source, from) { return /^[\t ]*/.exec(source.slice(from))?.[0] ?? ''; }
 function offset(line, column, starts, length, fallback) {
-  if (!Number.isInteger(line) || !Number.isInteger(column)) return fallback;
+  if (!Number.isInteger(line) || !Number.isInteger(column) || column < 0) return fallback;
   const lineStart = starts[line - 1];
   return Number.isInteger(lineStart) ? Math.min(lineStart + column, length) : fallback;
 }
