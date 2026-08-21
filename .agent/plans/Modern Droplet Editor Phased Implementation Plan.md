@@ -251,7 +251,8 @@ parse/stringify round trip under the Code.org JavaScript mode.
 `playwright/tests/qunit-pages.spec.mjs` also loads the browser demo with a
 representative JavaScript program, toggles text → blocks → text through its
 visible control, waits for each `toggledone` event, and verifies exact source
-preservation.
+preservation. Its fixture includes the legacy editor's canonical trailing
+newline: `Editor#getValue()` adds one for non-empty documents.
 
 ## Code.org reference harness
 

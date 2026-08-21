@@ -25,7 +25,7 @@ test('demo preserves JavaScript source while toggling text and blocks', async ({
     'if (total > 2) {',
     '  announce("large");',
     '}'
-  ].join('\n');
+  ].join('\n') + '\n';
 
   await page.addInitScript(({ initialSource }) => {
     localStorage.setItem('blocks', 'no');
