@@ -2,8 +2,10 @@ assert = require 'assert'
 fs = require 'fs'
 
 Coffee = require '../../src/languages/coffee.coffee'
+JavaScript = require '../../src/languages/javascript.coffee'
 
 coffee = new Coffee()
+javascript = new JavaScript()
 
 describe 'Parser unity', (done) ->
   testString = (str) ->
@@ -46,3 +48,11 @@ describe 'Parser unity', (done) ->
 
   testFile 'test/data/nodes.coffee'
   testFile 'test/data/allTests.coffee'
+
+describe 'JavaScript parser compatibility', ->
+  it 'round-trips the Phase 1 compatibility corpus exactly', ->
+    file = fs.readFileSync('test/data/javascript-compatibility.js').toString()
+
+    unparsed = javascript.parse(file, wrapAtRoot: true).stringify(javascript)
+
+    assert.equal unparsed, file

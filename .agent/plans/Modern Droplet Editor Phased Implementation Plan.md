@@ -216,21 +216,21 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
 
 Create a small compatibility corpus for JavaScript.
 
-- [ ] Variable assignment.
-- [ ] Arithmetic expressions.
-- [ ] Function calls.
-- [ ] Nested function calls.
-- [ ] `if`.
-- [ ] `if / else`.
-- [ ] `for`.
-- [ ] `while`.
-- [ ] Function declaration.
-- [ ] Arrays.
-- [ ] Object expressions.
-- [ ] Comments.
-- [ ] Blank lines.
-- [ ] Inline comments.
-- [ ] String quoting.
+- [x] Variable assignment.
+- [x] Arithmetic expressions.
+- [x] Function calls.
+- [x] Nested function calls.
+- [x] `if`.
+- [x] `if / else`.
+- [x] `for`.
+- [x] `while`.
+- [x] Function declaration.
+- [x] Arrays.
+- [x] Object expressions.
+- [x] Comments.
+- [x] Blank lines.
+- [x] Inline comments.
+- [x] String quoting.
 - [ ] Dragging statements.
 - [ ] Dragging expressions.
 - [ ] Editing sockets.
@@ -239,6 +239,10 @@ Create a small compatibility corpus for JavaScript.
 - [ ] Toggle text to blocks to text.
 
 Store expected source before and after each operation.
+
+`test/data/javascript-compatibility.js` is the initial exact-source fixture for
+the checked parser cases. `test/src/parserTests.coffee` asserts a byte-for-byte
+parse/stringify round trip under the Code.org JavaScript mode.
 
 ## Code.org reference harness
 
