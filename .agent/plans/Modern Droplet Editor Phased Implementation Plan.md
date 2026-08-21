@@ -1134,10 +1134,10 @@ docs/upstream-codeorg.md
 
 Document:
 
-- [ ] Last reviewed Code.org commit.
+- [x] Last reviewed Code.org commit.
 - [ ] Ported commits.
 - [ ] Rejected commits and reasons.
-- [ ] Known behavioral divergence.
+- [x] Known behavioral divergence.
 - [ ] JavaScript compatibility status.
 
 ---

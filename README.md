@@ -5,6 +5,20 @@ Droplet Editor
 
 Droplet seeks to re-envision "block programming" as "text editing". It is useful as a transitional tool for beginners using languages like Scratch, and is a go-to text editor for everyone on mobile devices (where keyboards don't work so well).
 
+## Modernization status
+
+The checked-in CoffeeScript/Ace editor is retained as an independently runnable
+Code.org-derived compatibility reference. Its Grunt/Browserify build and QUnit
+browser tests continue to describe legacy behavior.
+
+The production direction is a separate modern editor based on CodeMirror 6,
+source-range transformations, framework-independent ESM packages, and a thin
+React wrapper. The modern editor will use the legacy tests and fixtures as a
+behavior specification, but will not import or mount the legacy editor at
+runtime. Future Code.org changes are reviewed and selectively reimplemented as
+compatibility work. See [the modernization decision](docs/decisions/0001-full-modernization.md)
+and [the upstream review log](docs/upstream-codeorg.md).
+
 How to Embed
 ------------
 Droplet is a browserify package, so you can include it with npm, requirejs, or as a browser global. To embed, call `new droplet.Editor()` on a div.
