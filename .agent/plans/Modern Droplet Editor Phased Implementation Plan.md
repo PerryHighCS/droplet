@@ -57,13 +57,13 @@ git remote rename origin origin
 git remote add upstream https://github.com/droplet-editor/droplet.git
 ```
 
-- [ ] Fetch all upstream branches and tags.
+- [x] Fetch all upstream branches and tags.
 
 ```bash
 git fetch upstream --tags
 ```
 
-- [ ] Verify the important upstream branches.
+- [x] Verify the important upstream branches.
 
 ```bash
 git branch -r
@@ -76,44 +76,44 @@ upstream/master
 upstream/code-dot-org
 ```
 
-- [ ] Create a local archival branch representing original Droplet master.
+- [x] Create a local archival branch representing original Droplet master.
 
 ```bash
 git branch archive/original-master upstream/master
 ```
 
-- [ ] Create a local tracking branch for Code.org's maintained Droplet branch.
+- [x] Create a local tracking branch for Code.org's maintained Droplet branch.
 
 ```bash
 git switch -c upstream-codeorg upstream/code-dot-org
 ```
 
-- [ ] Push the Code.org tracking branch to the fork.
+- [x] Push the Code.org tracking branch to the fork.
 
 ```bash
 git push -u origin upstream-codeorg
 ```
 
-- [ ] Create the new project `main` from Code.org's branch.
+- [x] Create the new project `main` from Code.org's branch.
 
 ```bash
 git switch -c main upstream/code-dot-org
 git push -u origin main
 ```
 
-- [ ] Preserve the historical Python branch locally.
+- [x] Preserve the historical Python branch locally.
 
 ```bash
 git branch archive/python-text-paste ce34e2d05580b729c0420153013681f7ba504f68
 ```
 
-- [ ] Push the Python archive branch.
+- [x] Push the Python archive branch.
 
 ```bash
 git push origin archive/python-text-paste
 ```
 
-- [ ] Push the original master archive if desired.
+- [x] Push the original master archive.
 
 ```bash
 git push origin archive/original-master
@@ -161,11 +161,11 @@ Do not modify `upstream-codeorg` except when updating it to mirror `upstream/cod
 ### Phase 0 acceptance criteria
 
 - [x] Repository exists under our ownership.
-- [ ] Git history retains the original Droplet ancestry.
-- [ ] `main` begins from Code.org's maintained branch.
-- [ ] Original master remains easily inspectable.
-- [ ] Python `text-paste` work remains easily inspectable.
-- [ ] Future Code.org changes can be compared against `main`.
+- [x] Git history retains the original Droplet ancestry.
+- [x] `main` begins from Code.org's maintained branch.
+- [x] Original master remains easily inspectable.
+- [x] Python `text-paste` work remains easily inspectable.
+- [x] Future Code.org changes can be compared against `main`.
 
 ---
 
