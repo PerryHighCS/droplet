@@ -708,7 +708,7 @@ Do not maintain a separately authoritative block document.
 
 ### Phase 6 acceptance criteria
 
-- [ ] Existing Droplet operations work against CodeMirror.
+- [x] Existing Droplet operations work against CodeMirror.
 - [x] Undo and redo include block operations naturally.
 - [x] Text edits and block edits share one history.
 - [x] CodeMirror selections survive reparsing where practical.
@@ -739,6 +739,16 @@ a block transaction and one shared undo/redo history for ordinary text edits
 and block operations. Generic-editor tests cover independent editor instances
 and extension reconfiguration, which remain active through the projection
 adapter.
+
+### Phase 6 acceptance — 2026-08-21
+
+The modern JavaScript path covers the established core editor interactions:
+editing source through CodeMirror, selecting projected ranges, moving
+statements, replacing sockets with expressions, and issuing those moves through
+native drag/drop intents. Those changes share CodeMirror selections, history,
+undo/redo, extensions, and multi-instance lifecycle. This completes the editor
+adapter phase; later rendering work may improve the presentation without
+replacing its transaction model.
 
 ---
 
