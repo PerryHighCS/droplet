@@ -41,6 +41,18 @@ test('text editing can become opaque without forcing a mode change', () => {
   editor.destroy();
 });
 
+test('block mode visibly decorates structured statements', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'score = 1\n', blockMode: true, parse: parseExample
+  });
+
+  assert.equal(parent.querySelectorAll('.droplet-block-statement').length, 1);
+  editor.setBlockMode(false);
+  assert.equal(parent.querySelectorAll('.droplet-block-statement').length, 0);
+  editor.destroy();
+});
+
 test('block operations use one CodeMirror source transaction and its existing undo history', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({

@@ -33,9 +33,10 @@ extensions through CodeMirror compartments without recreating the view.
 The `@droplet/codemirror-editor/droplet` subpath adds
 `createDropletCodeMirrorEditor`. Supply a structured language parser and,
 optionally, a block-operation transformer. It reparses after every CodeMirror
-document transaction, displays opaque parser failures in block mode, and keeps
-their internal text read-only. External source updates remain permitted, so a
-repaired program automatically returns to a structured projection.
+document transaction, decorates structured statements, expressions, sockets,
+and opaque parser failures in block mode, and keeps opaque internal text
+read-only. External source updates remain permitted, so a repaired program
+automatically returns to a structured projection.
 
 ```js
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';

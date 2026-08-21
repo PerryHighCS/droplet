@@ -726,6 +726,10 @@ CodeMirror adapter as a single source transaction, so CodeMirror undo/redo
 remains authoritative. The broader legacy interaction surface remains
 outstanding Phase 6 work.
 
+The initial CodeMirror projection presentation decorates structured statements,
+expressions, sockets, and opaque ranges directly over canonical source. It is
+not yet the legacy canvas renderer or full drag-and-drop UI.
+
 ---
 
 # Phase 7: Modernize Python Parsing

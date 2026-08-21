@@ -155,7 +155,7 @@ function createProjectionField(setProjection, initialProjection) {
     },
     provide: (stateField) => [
       EditorView.decorations.from(stateField, ({projection, blockMode}) =>
-        blockMode ? opaqueDecorations(projection) : Decoration.none),
+        blockMode ? projectionDecorations(projection) : Decoration.none),
       EditorState.transactionFilter.of((transaction) => {
         const {projection, blockMode} = transaction.startState.field(stateField);
         if (!blockMode || !transaction.docChanged || isPermittedChange(transaction)) {
@@ -168,11 +168,13 @@ function createProjectionField(setProjection, initialProjection) {
   return field;
 }
 
-function opaqueDecorations(projection) {
-  const ranges = collectOpaqueNodes(projection.root)
-    .filter((node) => node.from < node.to)
+function projectionDecorations(projection) {
+  const ranges = collectProjectionNodes(projection.root)
+    .filter((node) => node.kind !== 'document' && node.from < node.to)
     .map((node) => Decoration.mark({
-      class: `droplet-opaque droplet-${node.kind}`
+      class: isOpaque(node)
+        ? `droplet-block droplet-opaque droplet-block-${node.kind}`
+        : `droplet-block droplet-block-${node.kind}`
     }).range(node.from, node.to));
   return Decoration.set(ranges, true);
 }
@@ -193,6 +195,10 @@ function collectOpaqueNodes(node) {
   ];
 }
 
+function collectProjectionNodes(node) {
+  return [node, ...(node.children ?? []).flatMap(collectProjectionNodes)];
+}
+
 function intersects(node, from, to) {
   if (from === to) return from >= node.from && from < node.to;
   return from < node.to && to > node.from;
@@ -204,6 +210,19 @@ function isPermittedChange(transaction) {
 }
 
 const opaqueTheme = EditorView.baseTheme({
+  '.droplet-block-statement': {
+    backgroundColor: '#eaf3ff',
+    borderRadius: '4px'
+  },
+  '.droplet-block-expression': {
+    backgroundColor: '#f3edff',
+    borderRadius: '3px'
+  },
+  '.droplet-block-socket': {
+    backgroundColor: '#fff',
+    boxShadow: 'inset 0 0 0 1px #9ab5d6',
+    borderRadius: '3px'
+  },
   '.droplet-opaque': {
     backgroundColor: '#fff3cd',
     borderBottom: '1px dashed #8a6d3b'

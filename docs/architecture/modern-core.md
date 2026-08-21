@@ -124,8 +124,9 @@ extensions remain attached to the same canonical document.
 
 The package's `droplet` subpath adds the projection adapter. It reparses with
 `parseWithOpaqueRecovery` after every CodeMirror document change, renders
-opaque ranges with a CodeMirror decoration in block mode, and filters direct
-changes that touch their internal source. Externally synchronized source and
+structured statements, expressions, sockets, and opaque ranges with CodeMirror
+decorations in block mode, and filters direct changes that touch opaque internal
+source. Externally synchronized source and
 explicit block-operation transactions are allowed through that filter, so
 repairing source automatically replaces the opaque projection. A language
 adapter's `transform` result is range-validated and dispatched as one ordinary
