@@ -89,3 +89,38 @@ jobs:
       - run: npm --prefix packages/codemirror-editor ci
       - run: npm --prefix packages/javascript-adapter ci
       - run: npm --prefix packages/javascript-adapter test
+
+  legacy-verification:
+    name: Legacy verification
+    if: ${{ always() }}
+    needs:
+      - legacy-build
+      - legacy-and-browser
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every legacy check to pass
+        env:
+          LEGACY_BUILD: ${{ needs.legacy-build.result }}
+          LEGACY_BROWSER: ${{ needs.legacy-and-browser.result }}
+        run: |
+          test "$LEGACY_BUILD" = success
+          test "$LEGACY_BROWSER" = success
+
+  modern-verification:
+    name: Modern verification
+    if: ${{ always() }}
+    needs:
+      - modern-core
+      - codemirror-editor
+      - javascript-adapter
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every modern check to pass
+        env:
+          MODERN_CORE: ${{ needs.modern-core.result }}
+          CODEMIRROR_EDITOR: ${{ needs.codemirror-editor.result }}
+          JAVASCRIPT_ADAPTER: ${{ needs.javascript-adapter.result }}
+        run: |
+          test "$MODERN_CORE" = success
+          test "$CODEMIRROR_EDITOR" = success
+          test "$JAVASCRIPT_ADAPTER" = success

@@ -116,6 +116,9 @@ in the README are stale.
    the browser suite because the historical Puppeteer cannot install Chromium.
 2. For a focused edit, run the narrowest relevant Grunt target first, then the
    full suite if the change could affect other editor layers.
+   GitHub branch protection requires the stable `Legacy verification` and
+   `Modern verification` aggregate checks; add new CI jobs to the appropriate
+   aggregate job's `needs` list rather than adding a new required check.
 3. For changes to examples or visible interaction, start `npx grunt testserver`
    and verify the relevant page in `example/` on port 8001.
 4. If a browser-test failure is caused by the local environment (for example,
