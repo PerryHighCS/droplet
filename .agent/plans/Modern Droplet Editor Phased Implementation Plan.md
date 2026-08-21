@@ -298,11 +298,11 @@ git switch -c feature/python-recovery
 
 Evaluate and selectively port:
 
-- [ ] `src/languages/python.coffee`
-- [ ] `test/src/pytest.coffee`
-- [ ] `example/example-python.coffee`
-- [ ] Python example HTML.
-- [ ] Any Python specific parser changes actually required by the adapter.
+- [x] `src/languages/python.coffee`
+- [x] `test/src/pytest.coffee`
+- [x] `example/example-python.coffee`
+- [x] Python example HTML.
+- [x] Any Python specific parser changes actually required by the adapter.
 - [ ] Any relevant `treewalk.coffee` behavior not already incorporated by later Droplet changes.
 
 Avoid bringing unrelated C parser changes, Grunt experiments, generated grammar data, or unrelated historical work.
@@ -311,40 +311,52 @@ Avoid bringing unrelated C parser changes, Grunt experiments, generated grammar 
 
 Begin with instructional Python.
 
-- [ ] Assignment.
-- [ ] Integer and floating point literals.
-- [ ] Single quoted strings.
-- [ ] Double quoted strings.
-- [ ] Arithmetic.
-- [ ] Comparisons.
+- [x] Assignment.
+- [x] Integer and floating point literals.
+- [x] Single quoted strings.
+- [x] Double quoted strings.
+- [x] Arithmetic.
+- [x] Comparisons.
 - [ ] Boolean expressions.
-- [ ] Function calls.
-- [ ] Nested function calls.
-- [ ] `print()`.
+- [x] Function calls.
+- [x] Nested function calls.
+- [x] `print()`.
 - [ ] `input()`.
-- [ ] `if`.
-- [ ] `if / else`.
+- [x] `if`.
+- [x] `if / else`.
 - [ ] `if / elif / else`.
-- [ ] `for i in range(...)`.
+- [x] `for i in range(...)`.
 - [ ] Iteration over strings.
-- [ ] `while`.
-- [ ] Function definitions.
-- [ ] Parameters.
-- [ ] `return`.
-- [ ] Lists.
-- [ ] Indexing.
+- [x] `while`.
+- [x] Function definitions.
+- [x] Parameters.
+- [x] `return`.
+- [x] Lists.
+- [x] Indexing.
 - [ ] String indexing.
-- [ ] Comments.
-- [ ] Inline comments.
-- [ ] Blank lines.
-- [ ] Imports.
+- [x] Comments.
+- [x] Inline comments.
+- [x] Blank lines.
+- [x] Imports.
 
 At this phase Python 2 era syntax may remain temporarily in historical tests. New project tests should use Python 3 syntax whenever possible.
 
+### Phase 2 baseline findings — 2026-08-21
+
+- The Code.org branch retained an unregistered Python adapter, but it used a
+  superseded tree-walker configuration shape and failed before parsing a basic
+  program. The focused port adapts the Python mode to the current tree-walker
+  contract; it does not import the historical branch's unrelated renderer,
+  controller, C-parser, or dependency changes.
+- `test/src/pytest.coffee` is a browser-executed Python 3 round-trip corpus.
+  It validates exact source preservation and that each supported program emits
+  structural blocks. The runnable Python example is `example/example-python.html`.
+  It has also been smoke-tested in Chromium with no page errors.
+
 ### Phase 2 acceptance criteria
 
-- [ ] The advanced Python adapter runs on top of the Code.org Droplet engine.
-- [ ] Basic Python text converts to meaningful blocks.
+- [x] The advanced Python adapter runs on top of the Code.org Droplet engine.
+- [x] Basic Python text converts to meaningful blocks.
 - [ ] Block manipulation returns valid source for the supported subset.
 - [ ] Historical Python behavior is captured before larger changes begin.
 

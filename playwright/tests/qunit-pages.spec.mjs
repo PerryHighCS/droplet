@@ -5,6 +5,7 @@ const qunitPages = [
   'cstest.html',
   'htmltest.html',
   'jstest.html',
+  'pytest.html',
   'test.html',
   'uitest.html'
 ];
