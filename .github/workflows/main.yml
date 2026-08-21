@@ -81,6 +81,11 @@ jobs:
         with:
           node-version: 24.x
           cache: npm
-          cache-dependency-path: packages/javascript-adapter/package-lock.json
+          cache-dependency-path: |
+            packages/codemirror-editor/package-lock.json
+            packages/javascript-adapter/package-lock.json
+      # The adapter integration test follows its local file: link into this
+      # workspace, so install that workspace's runtime dependencies as well.
+      - run: npm --prefix packages/codemirror-editor ci
       - run: npm --prefix packages/javascript-adapter ci
       - run: npm --prefix packages/javascript-adapter test
