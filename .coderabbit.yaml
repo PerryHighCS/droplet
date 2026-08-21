@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  review_details: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - ".*"
+  path_filters:
+    - "!**/dist/**"
+    - "!**/test/js/**"
+    - "!**/example/*.js"
+    - "!**/example/*.map"
+    - "!**/playwright/playwright-report/**"
+    - "!**/playwright/test-results/**"
+    - "!**/node_modules/**"
+    # Dependency changes must be reviewed with their manifest changes.
+    - "package-lock.json"
+    - "playwright/package-lock.json"
+  path_instructions:
+    - path: "src/**/*.coffee"
+      instructions: |
+        This is the preserved Code.org-derived legacy reference implementation.
+        Preserve CoffeeScript style, the Ace/Grunt/Browserify integration, and
+        exact parse/stringify behavior. Flag changes that accidentally couple
+        this runtime to modern packages or alter source formatting without an
+        explicit, tested block operation.
+    - path: "test/src/**/*.coffee"
+      instructions: |
+        These tests define legacy compatibility behavior. Require focused
+        parser or interaction coverage and deterministic browser assertions.
+    - path: "packages/**"
+      instructions: |
+        This is the modern ESM implementation. CodeMirror owns canonical source
+        and history; modern code must not import, mount, or mutate the legacy
+        editor runtime. Review source ranges, transaction safety, immutable
+        projections, opaque-source recovery, and exact-source preservation.
+    - path: "playwright/**"
+      instructions: |
+        Preserve the ARM64-compatible Playwright harness. Tests must wait for
+        editor events or stable state rather than use timing assumptions.
+    - path: ".github/workflows/**"
+      instructions: |
+        Keep the CI lanes intact: Node 14 legacy distribution, Node 24 legacy
+        parser plus Playwright browser tests, and modern-core tests. Do not
+        reintroduce the historical Puppeteer QUnit runner.
+    - path: "docs/**/*.md"
+      instructions: |
+        Keep documentation aligned with the modernization decision: the legacy
+        editor is an executable compatibility reference and the production
+        editor is a separate CodeMirror 6 implementation.
+
+knowledge_base:
+  code_guidelines:
+    filePatterns:
+      - "docs/architecture/**/*.md"
+      - "docs/decisions/**/*.md"
+
+chat:
+  auto_reply: true
