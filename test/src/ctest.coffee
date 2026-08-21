@@ -220,9 +220,9 @@ dropLocation = (editor, document, location) ->
 
 executeAsyncSequence = (sequence, i = 0) ->
   if i < sequence.length
-    sequence[i]()
     requestAnimationFrame ->
       requestAnimationFrame ->
+        sequence[i]()
         executeAsyncSequence sequence, i + 1
 
 asyncTest 'Controller: ANTLR paren wrap rules', ->

@@ -134,31 +134,40 @@ asyncTest 'Controller: palette block expansion', ->
     }]
   })
 
-  simulate('mousedown', '[data-id=ptest]')
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '[data-id=ptest]', dx: 5 })
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div' })
-  simulate('mouseup', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div' })
-  equal(editor.getValue().trim(), 'pen red')
-  simulate('mousedown', '[data-id=ftest]')
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '[data-id=ftest]', dx: 5 })
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 40 })
-  simulate('mouseup', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 40 })
-  equal(editor.getValue().trim(), 'pen red\na3 = b')
-  simulate('mousedown', '[data-id=ftest]')
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '[data-id=ftest]', dx: 5 })
-  simulate('mousemove', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 70 })
-  simulate('mouseup', '.droplet-drag-cover',
-    { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 70 })
-  equal(editor.getValue().trim(), 'pen red\na3 = b\na6 = b')
-  start()
+  executeAsyncSequence [
+    (->
+      simulate('mousedown', '[data-id=ptest]')
+      simulate('mousemove', '.droplet-drag-cover',
+        { location: '[data-id=ptest]', dx: 5 })
+      simulate('mousemove', '.droplet-drag-cover',
+        { location: '.droplet-wrapper-div' })
+      simulate('mouseup', '.droplet-drag-cover',
+        { location: '.droplet-wrapper-div' })
+    ), (->
+      equal(editor.getValue().trim(), 'pen red')
+    ), (->
+      simulate('mousedown', '[data-id=ftest]')
+      simulate('mousemove', '.droplet-drag-cover',
+        { location: '[data-id=ftest]', dx: 5 })
+      simulate('mousemove', '.droplet-drag-cover',
+        { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 40 })
+      simulate('mouseup', '.droplet-drag-cover',
+        { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 40 })
+    ), (->
+      equal(editor.getValue().trim(), 'pen red\na3 = b')
+    ), (->
+      simulate('mousedown', '[data-id=ftest]')
+      simulate('mousemove', '.droplet-drag-cover',
+        { location: '[data-id=ftest]', dx: 5 })
+      simulate('mousemove', '.droplet-drag-cover',
+        { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 70 })
+      simulate('mouseup', '.droplet-drag-cover',
+        { location: '.droplet-wrapper-div', dx: 45 + 43, dy: 70 })
+    ), (->
+      equal(editor.getValue().trim(), 'pen red\na3 = b\na6 = b')
+      start()
+    )
+  ]
 
 asyncTest 'Controller: reparse and undo reparse', ->
   states = []
@@ -464,9 +473,9 @@ performDragOperation = (editor, drag, cb) ->
 
 executeAsyncSequence = (sequence, i = 0) ->
   if i < sequence.length
-    sequence[i]()
     requestAnimationFrame ->
       requestAnimationFrame ->
+        sequence[i]()
         executeAsyncSequence sequence, i + 1
 
 asyncTest 'Controller: remembered sockets', ->
