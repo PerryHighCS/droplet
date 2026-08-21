@@ -303,7 +303,7 @@ Evaluate and selectively port:
 - [x] `example/example-python.coffee`
 - [x] Python example HTML.
 - [x] Any Python specific parser changes actually required by the adapter.
-- [ ] Any relevant `treewalk.coffee` behavior not already incorporated by later Droplet changes.
+- [x] Any relevant `treewalk.coffee` behavior not already incorporated by later Droplet changes (evaluated; no global tree-walker change is required for the recovered baseline).
 
 Avoid bringing unrelated C parser changes, Grunt experiments, generated grammar data, or unrelated historical work.
 
@@ -317,23 +317,23 @@ Begin with instructional Python.
 - [x] Double quoted strings.
 - [x] Arithmetic.
 - [x] Comparisons.
-- [ ] Boolean expressions.
+- [x] Boolean expressions.
 - [x] Function calls.
 - [x] Nested function calls.
 - [x] `print()`.
-- [ ] `input()`.
+- [x] `input()`.
 - [x] `if`.
 - [x] `if / else`.
-- [ ] `if / elif / else`.
+- [x] `if / elif / else`.
 - [x] `for i in range(...)`.
-- [ ] Iteration over strings.
+- [x] Iteration over strings.
 - [x] `while`.
 - [x] Function definitions.
 - [x] Parameters.
 - [x] `return`.
 - [x] Lists.
 - [x] Indexing.
-- [ ] String indexing.
+- [x] String indexing.
 - [x] Comments.
 - [x] Inline comments.
 - [x] Blank lines.
@@ -357,8 +357,8 @@ At this phase Python 2 era syntax may remain temporarily in historical tests. Ne
 
 - [x] The advanced Python adapter runs on top of the Code.org Droplet engine.
 - [x] Basic Python text converts to meaningful blocks.
-- [ ] Block manipulation returns valid source for the supported subset.
-- [ ] Historical Python behavior is captured before larger changes begin.
+- [x] Block manipulation returns valid source for the supported subset.
+- [x] Historical Python behavior is captured before larger changes begin.
 
 ---
 
