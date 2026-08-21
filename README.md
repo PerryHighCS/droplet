@@ -98,10 +98,13 @@ npx grunt dist
 
 When developing, run:
 ```shell
-grunt testserver
+npm run dev
 ```
 
-This will run the development server and watch the `src/` and `example/` directories for recompilation. Visit `localhost:8000/example/example.html` for a simple running environment. A view debugger is available at `localhost:8000/example/test.html`.
+This runs the development server and watches the `src/` and `example/`
+directories for recompilation. It listens on port **8001**: visit
+`http://localhost:8001/example/example.html` for a simple running environment
+or `http://localhost:8001/example/test.html` for the view debugger.
 
 Run `npx grunt mochaTest` for the parser/model unit suite and
 `npm run test:browser` for the QUnit browser suite.

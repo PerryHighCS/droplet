@@ -95,6 +95,7 @@ creation; otherwise run `PUPPETEER_SKIP_DOWNLOAD=true npm ci` and
 | Run one QUnit page, plus Mocha tests | `npx grunt test:<name>` (for example, `npx grunt test:ctest`) |
 | Run browser tests on supported ARM64 Chromium | `npm run test:browser` |
 | Run modern core tests | `npm --prefix packages/core test` |
+| Run the legacy development server and watcher | `npm run dev` |
 | Run the development server and watch bundle changes | `npx grunt testserver` |
 
 `testserver` listens on port **8001**. The QUnit server used during tests listens
