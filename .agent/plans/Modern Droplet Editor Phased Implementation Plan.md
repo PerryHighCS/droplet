@@ -5,7 +5,7 @@
 Create a modern, maintained Droplet editor that:
 
 1. Preserves the original Droplet philosophy that source text is authoritative.
-2. Uses Code.org's actively maintained Droplet lineage as the primary upstream.
+2. Uses Code.org's Droplet lineage as an executable compatibility reference.
 3. Incorporates the more complete historical Python work from Droplet PR #187.
 4. Supports modern Python while preserving exact source representation wherever practical.
 5. Allows users to switch to block mode even when some source cannot be structurally represented.
@@ -14,7 +14,27 @@ Create a modern, maintained Droplet editor that:
 8. Provides usable framework independent browser packages.
 9. Provides a thin React package suitable for ActiveBits and MobCode.
 10. Keeps execution separate from editing.
-11. Makes it practical to incorporate future Code.org Droplet fixes.
+11. Makes it practical to assess and selectively reimplement future Code.org
+    behavior and fixes.
+
+## Modernization strategy
+
+The current Code.org-derived CoffeeScript editor remains intact as a legacy
+reference implementation. Its file layout, Ace integration, Grunt/Browserify
+build, QUnit pages, and behavior fixtures must remain independently runnable.
+It is not the runtime foundation of the modern editor.
+
+The production editor will be fully modernized around CodeMirror 6, a
+source-range-based core, framework-independent ESM packages, and a thin React
+wrapper. Modern packages must not import, mount, or mutate the legacy editor's
+runtime state. They may use its fixtures and browser suite as an executable
+behavior specification.
+
+Consequently, future Code.org changes are compatibility work rather than
+mechanical merges: review each change, capture any relevant behavior in a
+modern regression test, then selectively reimplement it. This accepts a higher
+cost per adopted upstream change in exchange for avoiding permanent coupling to
+Ace, the legacy document model, CoffeeScript, and Grunt.
 
 ---
 
@@ -1100,7 +1120,9 @@ Code.org application specific behavior
 irrelevant generated output
 ```
 
-Port relevant fixes into `main`.
+For each relevant behavior, add or update a modern regression test and
+selectively reimplement it. Do not assume a legacy CoffeeScript patch can be
+merged into the modern implementation.
 
 ## Compatibility documentation
 

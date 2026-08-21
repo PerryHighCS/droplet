@@ -2,10 +2,34 @@
 
 ## Project overview
 
-Droplet is a browser-based block/text editor. The application is written primarily
-in CoffeeScript, bundled for the browser with Browserify, and built/tested with
-Grunt. It is a legacy JavaScript project: do not introduce TypeScript, a modern
-framework, or a new build system unless the task explicitly calls for it.
+Droplet is a browser-based block/text editor. The repository currently contains
+a Code.org-derived CoffeeScript/Ace implementation bundled with Browserify and
+built/tested with Grunt. It is the legacy reference implementation and must
+remain independently runnable. The planned production editor is a separate,
+fully modern CodeMirror 6 implementation with framework-independent ESM
+packages and a thin React wrapper.
+
+## Modernization and upstream policy
+
+1. Treat the legacy editor as an executable compatibility reference, not as a
+   runtime dependency of modern packages. Modern code must not import, mount,
+   or mutate its editor state.
+2. Preserve the legacy file layout, CoffeeScript sources, Grunt/Browserify
+   build path, QUnit pages, and baseline fixtures unless a task explicitly
+   changes the reference implementation.
+3. When a Code.org upstream change matters, first identify its observable
+   behavior, capture it in a modern regression test, then selectively
+   reimplement it. Do not assume upstream patches can be merged mechanically
+   after modernization.
+4. Keep CodeMirror 6 as the modern text source of truth. Block actions must be
+   expressed as source-range transformations and normal editor transactions;
+   do not maintain competing mutable legacy and CodeMirror documents.
+5. Preserve exact source representation by default. Any intentional source
+   rewrite must be narrow, test-covered, and attributable to an explicit block
+   operation.
+6. Introduce TypeScript, modern packages, or a new build system only in the
+   modern implementation area or when the task explicitly calls for it. Do not
+   migrate legacy modules opportunistically.
 
 ## Read first
 
