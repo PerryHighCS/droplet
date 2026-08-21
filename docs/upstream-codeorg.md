@@ -19,9 +19,10 @@ adopted, intentionally diverges, or is rejected.
 scripts/fetch-codeorg-updates.sh
 ```
 
-The script adds a normal `codeorg` Git remote when needed, fetches
-`code-dot-org`, and lists commits that are not yet in `main`. Set
-`DROPLET_CODEORG_REMOTE` to use a differently named existing remote.
+The script adds a normal `codeorg` Git remote when needed, validates its URL,
+fetches `code-dot-org`, and lists commits that are not yet in `main`. Set
+`DROPLET_CODEORG_REMOTE` to intentionally use a differently named existing
+remote without the default URL check.
 
 Classify each change as a core behavior fix, JavaScript parser fix, Ace-specific
 integration, Code.org application behavior, or irrelevant generated output.

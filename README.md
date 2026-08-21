@@ -131,6 +131,8 @@ npm run test:browser
 Outside the devcontainer, install the browser-test workspace and Chromium once:
 
 ```shell
+nvm install 24
+nvm use 24
 npm --prefix playwright ci
 npm --prefix playwright exec -- playwright install --with-deps chromium
 ```
