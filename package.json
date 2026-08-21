@@ -15,7 +15,7 @@
     "grunt-contrib-connect": "latest",
     "grunt-contrib-cssmin": "latest",
     "grunt-contrib-qunit": "<=0.5.2",
-    "grunt-contrib-uglify": "latest",
+    "grunt-contrib-uglify": "0.5.1",
     "grunt-contrib-watch": "latest",
     "grunt-docco": "latest",
     "grunt-mocha-spawn": "latest",
@@ -55,7 +55,7 @@
   "dependencies": {
     "acorn": "^1.2.2",
     "sax": "^1.1.1",
-    "antlr4": "latest",
-    "parse5": "latest"
+    "antlr4": "4.7.2",
+    "parse5": "3.0.3"
   }
 }

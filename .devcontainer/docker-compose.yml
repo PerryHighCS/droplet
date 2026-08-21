@@ -1,0 +1,7 @@
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/javascript-node:24
+    user: vscode
+    volumes:
+      - ..:/workspaces/Droplet:cached
+    command: sleep infinity
