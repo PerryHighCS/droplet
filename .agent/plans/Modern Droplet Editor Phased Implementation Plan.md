@@ -177,14 +177,31 @@ Do not change Ace, CoffeeScript, the parser architecture, or rendering architect
 
 ## Build
 
-- [ ] Document the existing build requirements.
+- [x] Document the existing build requirements.
 - [ ] Attempt the existing build using the historical expected Node environment.
-- [ ] Record all failures with current Node.
-- [ ] Produce the existing JavaScript distribution.
-- [ ] Produce an unminified development distribution.
-- [ ] Run whatever existing unit tests still function.
+- [x] Record all failures with current Node.
+- [x] Produce the existing JavaScript distribution.
+- [x] Produce an unminified development distribution.
+- [x] Run whatever existing unit tests still function.
 - [ ] Run the existing browser examples.
 - [ ] Verify block to text and text to block switching.
+
+### Baseline findings — 2026-08-21
+
+- The Code.org package metadata declares Node `>=8.15` and npm `>=3.10.8`;
+  its `package-lock.json` uses lockfile version 1.
+- On the devcontainer's Node 24.15.0/npm 11.12.1, a normal `npm ci` fails in
+  Puppeteer 5.5.0 because that version has no Chromium binary for ARM64.
+  `npm ci --ignore-scripts` installs the locked JavaScript dependencies for
+  non-browser baseline checks.
+- `npx grunt dist` creates `dist/droplet-full.js` and
+  `dist/droplet-full.min.js`, but fails while minifying CSS because the legacy
+  minifier calls the removed Node API `util.isRegExp`.
+- `npx grunt mochaTest` passes all 21 parser/model tests on Node 24.
+- `npx grunt testserver` starts successfully with normal container port access;
+  `example/example.html` is served at `http://localhost:8001`. Functional
+  browser verification remains pending because the historical Puppeteer test
+  dependency cannot install its ARM64 browser binary.
 
 ## Reference behavior
 
