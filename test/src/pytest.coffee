@@ -29,6 +29,13 @@ asyncTest 'Python 3 compatibility corpus round-trips through blocks', ->
     ok(document.serialize().indexOf('<block') >= 0, 'Produces structural blocks')
   start()
 
+asyncTest 'Python lexical formatting round-trips exactly', ->
+  $.get 'data/python-lexical-compatibility.py', (source) ->
+    python = new Python({functions: {}})
+    strictEqual(python.parse(source).stringify(), source,
+      'Quotes, escapes, comments, whitespace, indentation, and continuations survive')
+    start()
+
 asyncTest 'Python block socket edit preserves source and supports undo and redo', ->
   document.getElementById('hidden').innerHTML = '<div id="test-main"></div>'
   editor = new droplet.Editor(document.getElementById('test-main'), {

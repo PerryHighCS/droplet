@@ -436,26 +436,26 @@ opaque source
 
 Viewing code as blocks must not normalize:
 
-- [ ] Single versus double quotes.
-- [ ] Triple single versus triple double quotes.
-- [ ] Escape sequences.
-- [ ] Inline comments.
-- [ ] Standalone comments.
-- [ ] Blank lines.
-- [ ] Spaces around operators.
-- [ ] Parentheses.
-- [ ] Existing indentation.
-- [ ] Line continuation style where supported.
-- [ ] Student formatting that does not prevent structural editing.
+- [x] Single versus double quotes.
+- [x] Triple single versus triple double quotes.
+- [x] Escape sequences.
+- [x] Inline comments.
+- [x] Standalone comments.
+- [x] Blank lines.
+- [x] Spaces around operators.
+- [x] Parentheses.
+- [x] Existing indentation.
+- [x] Line continuation style where supported.
+- [x] Student formatting that does not prevent structural editing.
 
 AST to source regeneration should not occur merely because the user switched modes.
 
 ### Phase 3 acceptance criteria
 
-- [ ] Parser API is documented.
-- [ ] Exact source ranges are a first class concept.
-- [ ] Renderer no longer needs to treat AST serialization as canonical source.
-- [ ] Tests explicitly protect lexical formatting.
+- [x] Parser API is documented.
+- [x] Exact source ranges are a first class concept.
+- [x] Renderer no longer needs to treat AST serialization as canonical source.
+- [x] Tests explicitly protect lexical formatting.
 
 ---
 
