@@ -1,5 +1,5 @@
 import {parse} from 'acorn';
-import {applySourceChanges} from '@droplet/core';
+import {applySourceChanges, normalizeSourceChanges} from '@droplet/core';
 
 /**
  * Produces a source-range JavaScript projection without regenerating source.
@@ -69,8 +69,9 @@ export function transformJavaScript(operation, parsed) {
 
   // Do not emit a transformation that produces invalid JavaScript. This is
   // validation only; parseJavaScript never becomes a source serializer.
-  parseJavaScript(applySourceChanges(parsed.source, changes));
-  return changes;
+  const normalizedChanges = normalizeSourceChanges(parsed.source, changes);
+  parseJavaScript(applySourceChanges(parsed.source, normalizedChanges));
+  return normalizedChanges;
 }
 
 function projectNode(node, kind = nodeKind(node)) {

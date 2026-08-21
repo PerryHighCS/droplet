@@ -1,6 +1,11 @@
 import {Annotation, EditorState, StateEffect, StateField} from '@codemirror/state';
 import {Decoration, EditorView} from '@codemirror/view';
-import {applySourceChanges, isOpaque, parseWithOpaqueRecovery} from '@droplet/core';
+import {
+  applySourceChanges,
+  isOpaque,
+  normalizeSourceChanges,
+  parseWithOpaqueRecovery
+} from '@droplet/core';
 
 import {createCodeMirrorEditor, externalValueAnnotation} from './index.js';
 
@@ -82,10 +87,11 @@ export class DropletCodeMirrorEditor {
     if (!Array.isArray(changes)) {
       throw new TypeError('Block transforms must return an array of source changes');
     }
-    applySourceChanges(this.getValue(), changes);
-    if (changes.length) {
+    const normalizedChanges = normalizeSourceChanges(this.getValue(), changes);
+    applySourceChanges(this.getValue(), normalizedChanges);
+    if (normalizedChanges.length) {
       this.editor.dispatch({
-        changes,
+        changes: normalizedChanges,
         annotations: blockOperationAnnotation.of(true)
       });
     }

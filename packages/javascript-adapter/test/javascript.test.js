@@ -59,6 +59,16 @@ test('inserts and moves statements with source-range changes only', () => {
   }, parsed);
   assert.equal(applySourceChanges(source, moved), '\nsecond();\nfirst();');
   assert.equal(source.slice(second.from, second.to), 'second();');
+
+  const movedUpward = transformJavaScript({
+    type: 'move-statement',
+    source: {from: second.from, to: second.to},
+    destination: {from: 0, to: 0}
+  }, parsed);
+  assert.deepEqual(movedUpward, [
+    {from: 0, to: 0, insert: 'second();'},
+    {from: second.from, to: second.to, insert: ''}
+  ]);
 });
 
 function findFirst(node, predicate) {
