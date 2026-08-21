@@ -1,0 +1,9 @@
+{
+  "name": "@droplet/python-adapter",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "engines": {"node": ">=22"},
+  "scripts": {"test": "node --test"},
+  "dependencies": {"@droplet/core": "file:../core"}
+}
