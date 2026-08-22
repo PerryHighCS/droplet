@@ -348,6 +348,34 @@ test('manual modern Python playground renders suite containers and blank-line pl
   expect(innerBox.y + innerBox.height).toBeLessThanOrEqual(secondBox.y);
 });
 
+test('manual modern Python playground replaces a synthetic pass with a dropped outer statement', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  const block = (text) => page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: text}).first();
+  const first = block('first = 1');
+  const second = block('second = 2');
+  const firstBox = await first.boundingBox();
+  await page.mouse.move(firstBox.x + 4, firstBox.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(firstBox.x + 12, firstBox.y + 12);
+  const secondBox = await second.boundingBox();
+  await page.mouse.move(secondBox.x + 4, secondBox.y + secondBox.height - 3, {steps: 8});
+  await page.mouse.up();
+
+  const pass = block('pass');
+  const movedFirst = block('first = 1');
+  const movedFirstBox = await movedFirst.boundingBox();
+  await page.mouse.move(movedFirstBox.x + 4, movedFirstBox.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(movedFirstBox.x + 12, movedFirstBox.y + 12);
+  const passBox = await pass.boundingBox();
+  await page.mouse.move(passBox.x + 4, passBox.y + 4, {steps: 8});
+  await page.mouse.up();
+
+  await expect(page.locator('#modern-python-source')).toContainText('  if ready:\n    first = 1  # inline note\n  second = 2');
+});
+
 test.skip('manual modern Python playground drops a statement at a container C-shape bottom', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
