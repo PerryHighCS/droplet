@@ -41,6 +41,9 @@ export class BlockSurface {
     this.#svg.addEventListener('pointerdown', (event) => this.#beginDrag(event));
     this.#svg.addEventListener('pointermove', (event) => this.#continueDrag(event));
     this.#svg.addEventListener('pointerup', (event) => this.#endDrag(event));
+    this.#dom.addEventListener('dragover', (event) => this.#continuePaletteDrag(event));
+    this.#dom.addEventListener('dragleave', (event) => this.#leavePaletteDrag(event));
+    this.#dom.addEventListener('drop', (event) => this.#dropPaletteBlock(event));
     parent.append(this.#dom);
   }
 
@@ -170,6 +173,32 @@ export class BlockSurface {
     }
     event.preventDefault();
   }
+
+  #continuePaletteDrag(event) {
+    if (!this.#layout || !this.#onOperation || !paletteSource(event)) return;
+    const point = pointFor(this.#svg, event);
+    const target = dropTargetAtPoint(this.#layout, point);
+    const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
+    renderExternalDropGuide(this.#svg, resolved?.zone);
+    event.preventDefault();
+  }
+
+  #leavePaletteDrag(event) {
+    if (!this.#dom.contains(event.relatedTarget)) clearDragPreviews(this.#svg);
+  }
+
+  #dropPaletteBlock(event) {
+    const source = paletteSource(event);
+    if (!this.#layout || !this.#onOperation || !source) return;
+    const point = pointFor(this.#svg, event);
+    const target = dropTargetAtPoint(this.#layout, point);
+    const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
+    clearDragPreviews(this.#svg);
+    if (resolved?.destination) {
+      this.#onOperation({type: 'insert-statement', destination: resolved.destination, source});
+    }
+    event.preventDefault();
+  }
 }
 
 function destinationForTarget(layout, target, point, dragNode) {
@@ -269,6 +298,11 @@ function isExpressionNode(node) { return node?.kind === 'socket' || node?.kind =
 function isSocketNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
 function sameRange(left, right) { return left?.from === right?.from && left?.to === right?.to; }
 
+function paletteSource(event) {
+  const source = event.dataTransfer?.getData('application/x-droplet-statement');
+  return typeof source === 'string' && source.length ? source : undefined;
+}
+
 function pointFor(svg, event) {
   const bounds = svg.getBoundingClientRect();
   return {x: event.clientX - bounds.left, y: event.clientY - bounds.top};
@@ -298,6 +332,19 @@ function renderDragPreviews(svg, layout, node, point, zone) {
   guide.setAttribute('height', '3');
   guide.setAttribute('fill', '#4d7fb5');
   svg.append(placement, guide);
+}
+
+function renderExternalDropGuide(svg, zone) {
+  clearDragPreviews(svg);
+  if (!zone) return;
+  const guide = svg.ownerDocument.createElementNS(SVG_NAMESPACE, 'rect');
+  guide.classList.add('droplet-drop-guide');
+  guide.setAttribute('x', String(zone.bounds.left));
+  guide.setAttribute('y', String(zone.bounds.top + 4));
+  guide.setAttribute('width', String(zone.bounds.right - zone.bounds.left));
+  guide.setAttribute('height', '3');
+  guide.setAttribute('fill', '#4d7fb5');
+  svg.append(guide);
 }
 
 function clearDragPreviews(svg) {

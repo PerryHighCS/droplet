@@ -103,7 +103,12 @@ function renderPalette() {
       button.type = 'button';
       button.className = 'palette-block';
       button.dataset.paletteBlock = block.id;
+      button.draggable = true;
       button.textContent = block.label;
+      button.addEventListener('dragstart', (event) => {
+        event.dataTransfer.setData('application/x-droplet-statement', block.source);
+        event.dataTransfer.effectAllowed = 'copy';
+      });
       button.addEventListener('click', () => insertPaletteBlock(block));
       blocks.append(button);
     }

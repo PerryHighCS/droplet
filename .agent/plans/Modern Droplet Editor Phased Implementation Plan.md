@@ -1118,10 +1118,12 @@ on their enclosing statement or container header; JavaScript-specific browser
 playground and interaction parity coverage remains outstanding.
 
 The modern Python playground includes a small starter palette (`print`, an
-assignment, `if`, and `for`). Palette activation inserts valid source using the
-existing Python statement transformer: it appends by default or inserts before
-the currently selected block. It is a development/playground affordance, not a
-second mutable block document.
+assignment, `if`, and `for`). Palette blocks are native drag sources: dropping
+one on a BlockSurface insertion target uses the existing Python statement
+transformer and its placement guide. Click activation remains an accessible
+shortcut that appends by default or inserts before the currently selected
+block. It is a development/playground affordance, not a second mutable block
+document.
 
 ## Expandable conditional containers
 

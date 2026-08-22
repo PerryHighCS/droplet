@@ -339,6 +339,23 @@ test('manual modern Python playground inserts a Python palette block through the
   await expect(page.locator('#modern-python-status')).toHaveText('Inserted value = 1.');
 });
 
+test('manual modern Python playground accepts a palette block drag at an insertion target', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
+  const [tailBox, dataTransfer] = await Promise.all([
+    tail.boundingBox(), page.evaluateHandle(() => new DataTransfer())
+  ]);
+  const paletteBlock = page.locator('[data-palette-block="assignment"]');
+  await paletteBlock.dispatchEvent('dragstart', {dataTransfer});
+  const surface = page.locator('.droplet-block-surface svg');
+  await surface.dispatchEvent('dragover', {dataTransfer, clientX: tailBox.x + 3, clientY: tailBox.y + 2});
+  await expect(page.locator('.droplet-drop-guide')).toBeVisible();
+  await surface.dispatchEvent('drop', {dataTransfer, clientX: tailBox.x + 3, clientY: tailBox.y + 2});
+
+  await expect(page.locator('#modern-python-source')).toContainText('  second = 2\n\nvalue = 1\ntail = 0');
+});
+
 test('manual modern Python playground renders suite containers and blank-line placeholders', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
