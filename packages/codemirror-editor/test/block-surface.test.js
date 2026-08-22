@@ -37,6 +37,20 @@ test('keeps whitespace as a measured sibling and exposes insertion zones around 
     zone.destination.from === source.length && zone.destination.indentation === ''));
 });
 
+test('renders an inline comment beside, rather than inside, its statement block', () => {
+  const source = 'first = 1  # note\n';
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('first', 0, 9),
+    children: [{id: 'note', kind: 'comment', from: 11, to: 17, editable: true, children: [], metadata: {inline: true}}]
+  }])});
+  const statementNode = layout.nodes.find((node) => node.id === 'first');
+  const commentNode = layout.nodes.find((node) => node.id === 'note');
+
+  assert.equal(statementNode.text, 'first = 1');
+  assert.equal(commentNode.kind, 'comment');
+  assert.ok(commentNode.bounds.left > statementNode.bounds.right);
+});
+
 test('uses the same subtree geometry for a drag preview and gives a nested child hit priority', () => {
   const source = 'if ready:\n  first()\nsecond()\n';
   const layout = createBlockLayout(projection(source));

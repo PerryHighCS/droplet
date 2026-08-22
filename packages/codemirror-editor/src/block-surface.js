@@ -8,6 +8,7 @@
 export function createBlockLayout(projection, options = {}) {
   assertProjection(projection);
   const settings = normalizeOptions(options);
+  settings.inlineComments = collectInlineComments(projection.root);
   const root = layoutDocument(projection.root, projection.source, settings);
   return {
     source: projection.source,
@@ -67,7 +68,7 @@ function layoutChildren(nodes, source, settings, left, top, bodyEnd, destination
     const child = layoutNode(node, source, settings, left, cursor);
     children.push(child);
     cursor = child.bounds.bottom + settings.rowGap;
-    right = Math.max(right, child.bounds.right);
+    right = Math.max(right, layoutRight(child));
   }
   insertionZones.push(insertionZone(bodyEnd, left, cursor, right - left, settings, 'body-end', destination));
   return {children, insertionZones, right, bottom: Math.max(top + settings.lineHeight, cursor)};
@@ -80,11 +81,16 @@ function layoutNode(node, source, settings, left, top) {
 }
 
 function layoutAtomic(node, source, settings, left, top) {
-  const text = node.kind === 'statement' ? source.slice(node.from, lineEnd(source, node.to)) : source.slice(node.from, node.to);
+  const inlineComment = node.kind === 'statement' ? inlineCommentFor(node, source, settings.inlineComments) : undefined;
+  const textEnd = inlineComment ? inlineComment.from : node.kind === 'statement' ? lineEnd(source, node.to) : node.to;
+  const text = source.slice(node.from, textEnd).trimEnd();
   const width = Math.max(settings.minimumWidth, settings.measureText(text) + settings.horizontalPadding * 2);
-  const children = (node.children ?? [])
+  const children = [
+    ...(inlineComment ? [layoutAtomic(inlineComment, source, settings, left + width + settings.inlineCommentGap, top)] : []),
+    ...(node.children ?? [])
     .filter((child) => child.kind?.startsWith('opaque-'))
-    .map((child) => layoutAtomic(child, source, settings, left + 4, top + 4));
+    .map((child) => layoutAtomic(child, source, settings, left + 4, top + 4))
+  ];
   return {
     id: node.id,
     kind: node.kind === 'comment' ? 'comment' : node.kind.startsWith('opaque-') ? node.kind : 'statement',
@@ -225,6 +231,22 @@ function collectLayoutNodes(node) {
   return [node, ...(node.children ?? []).flatMap(collectLayoutNodes)];
 }
 
+function layoutRight(node) {
+  return Math.max(node.bounds.right, ...(node.children ?? []).map(layoutRight));
+}
+
+function collectInlineComments(node) {
+  return [
+    ...(node.kind === 'comment' && node.metadata?.inline ? [node] : []),
+    ...(node.children ?? []).flatMap(collectInlineComments)
+  ];
+}
+
+function inlineCommentFor(statement, source, comments) {
+  const lineEndOffset = lineEnd(source, statement.from);
+  return comments.find((comment) => comment.from >= statement.to && comment.from <= lineEndOffset);
+}
+
 function translateLayoutNode(node, x, y) {
   return {
     ...node,
@@ -264,7 +286,8 @@ function normalizeOptions(options) {
     rowGap: nonNegativeNumber(options.rowGap, 4),
     insertionHeight: positiveNumber(options.insertionHeight, 12),
     minimumWidth: positiveNumber(options.minimumWidth, 56),
-    whitespaceWidth: positiveNumber(options.whitespaceWidth, 72)
+    whitespaceWidth: positiveNumber(options.whitespaceWidth, 72),
+    inlineCommentGap: positiveNumber(options.inlineCommentGap, 6)
   };
 }
 
