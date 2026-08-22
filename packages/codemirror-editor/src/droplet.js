@@ -446,7 +446,11 @@ function projectionRangeFromElement(element) {
 }
 
 function movableRangeFromElement(element) {
-  const block = element?.closest?.('[data-droplet-kind="statement"], [data-droplet-kind="comment"]');
+  // Comments can be nested in a statement decoration. Prefer their exact
+  // range so dragging an inline comment never promotes the gesture to its
+  // containing statement.
+  const block = element?.closest?.('[data-droplet-kind="comment"]') ??
+    element?.closest?.('[data-droplet-kind="statement"]');
   return projectionRangeFromBlock(block);
 }
 

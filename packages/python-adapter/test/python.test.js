@@ -216,6 +216,20 @@ test('attaches a standalone comment to the end of a statement line', () => {
   assert.equal(applySourceChanges(source, changes), 'value = 1  # note\n');
 });
 
+test('moves an inline comment without moving its statement text', () => {
+  const source = 'first = 1  # note\nnext = 2\n';
+  const parsed = projection(source, [
+    {id: 'statement:first', kind: 'statement', from: 0, to: 17, children: []},
+    {id: 'comment:11:17', kind: 'comment', from: 11, to: 17, children: [], metadata: {inline: true}},
+    {id: 'statement:next', kind: 'statement', from: 18, to: 26, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: 11, to: 17}, destination: {from: 18, to: 18}
+  }, parsed, () => ({}));
+  assert.equal(applySourceChanges(source, changes), 'first = 1\n# note\nnext = 2\n');
+});
+
 test('classifies the complete modern Python statement set as statements', () => {
   const types = [
     'Assert', 'AsyncFor', 'AsyncFunctionDef', 'AsyncWith', 'ClassDef', 'Delete',

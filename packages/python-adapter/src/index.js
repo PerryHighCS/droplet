@@ -73,9 +73,12 @@ export function transformPython(operation, parsed, pythonToAST) {
         break;
       }
       assertInsertionPoint(parsed.source, operation.destination);
-      const commentRange = lineRange(parsed.source, comment);
+      const commentRange = comment.metadata?.inline ? inlineCommentRange(parsed.source, comment) :
+        lineRange(parsed.source, comment);
       if (operation.destination.from >= commentRange.from && operation.destination.from <= commentRange.to) return [];
-      changes = moveLineRangeChanges(parsed.source, commentRange, operation.destination.from);
+      changes = comment.metadata?.inline
+        ? moveInlineCommentChanges(parsed.source, comment, commentRange, operation.destination.from)
+        : moveLineRangeChanges(parsed.source, commentRange, operation.destination.from);
       break;
     }
     default:
@@ -222,6 +225,14 @@ function inlineCommentRange(source, comment) {
   let from = comment.from;
   while (from > 0 && (source[from - 1] === ' ' || source[from - 1] === '\t')) from -= 1;
   return {from, to: comment.to};
+}
+
+function moveInlineCommentChanges(source, comment, commentRange, destination) {
+  const insertion = insertStatementChange(source, destination, source.slice(comment.from, comment.to));
+  return [
+    {from: commentRange.from, to: commentRange.to, insert: ''},
+    insertion
+  ];
 }
 
 function reindentPythonLines(source, fromIndentation, toIndentation) {

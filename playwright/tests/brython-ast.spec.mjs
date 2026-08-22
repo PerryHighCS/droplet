@@ -396,3 +396,35 @@ test('manual modern Python playground attaches a standalone comment without movi
     'if outer:\n  if ready:\n    first = 1  # inline note\n  second = 2\n\ntail = 0  # standalone note'
   );
 });
+
+test('manual modern Python playground drags an inline comment without moving its statement', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  const {comment, tail} = await page.evaluate(() => {
+    const source = document.querySelector('#modern-python-source').textContent;
+    const blocks = [...document.querySelectorAll('[data-droplet-kind]')];
+    const range = (block) => ({from: block.dataset.dropletFrom, to: block.dataset.dropletTo});
+    return {
+      comment: range(blocks.find((block) => block.dataset.dropletKind === 'comment' && source.slice(
+        Number(block.dataset.dropletFrom), Number(block.dataset.dropletTo)
+      ) === '# inline note')),
+      tail: range(blocks.find((block) => block.dataset.dropletKind === 'statement' && source.slice(
+        Number(block.dataset.dropletFrom), Number(block.dataset.dropletTo)
+      ) === 'tail = 0'))
+    };
+  });
+  const block = ({from, to}) => page.locator(`[data-droplet-from="${from}"][data-droplet-to="${to}"]`).first();
+  const commentBox = await block(comment).boundingBox();
+  const tailBox = await block(tail).boundingBox();
+  await page.mouse.move(commentBox.x + commentBox.width / 2, commentBox.y + commentBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(commentBox.x + commentBox.width / 2 + 8, commentBox.y + commentBox.height / 2 + 8);
+  await expect(page.locator('.droplet-drag-preview')).toContainText('# inline note');
+  await page.mouse.move(tailBox.x + tailBox.width / 2, tailBox.y - 4, {steps: 10});
+  await page.mouse.up();
+
+  await expect(page.locator('#modern-python-source')).toHaveText(
+    'if outer:\n  # standalone note\n  if ready:\n    first = 1\n  second = 2\n\n# inline note\ntail = 0\n'
+  );
+});
