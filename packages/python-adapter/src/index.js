@@ -71,8 +71,12 @@ export function transformPython(operation, parsed, pythonToAST) {
       const statementRange = lineRange(parsed.source, statement);
       if (operation.destination.from >= statementRange.from && operation.destination.from <= statementRange.to) {
         const sourceIndentation = indentationAt(parsed.source, statementRange.from);
-        if (operation.destination.from === statementRange.from &&
-            operation.destination.indentation !== undefined && operation.destination.indentation !== sourceIndentation) {
+        // A container body-end can coincide with the end of its final child.
+        // It is still a meaningful move when the target suite has a different
+        // indentation: reindent the statement in place instead of treating it
+        // as a no-op.
+        if (operation.destination.indentation !== undefined &&
+            operation.destination.indentation !== sourceIndentation) {
           changes = [{
             from: statementRange.from,
             to: statementRange.to,

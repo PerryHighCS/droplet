@@ -217,6 +217,24 @@ test('moves a statement to a container body end using the suite indentation', ()
   assert.equal(applySourceChanges(source, changes), 'if ready:\n  first()\n  next()\n');
 });
 
+test('reindents a final nested statement when its outer-suite body end shares its range boundary', () => {
+  const source = 'if outer:\n  if ready:\n    first()\n    second()\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 25, to: 32, children: []};
+  const second = {id: 'statement:second', kind: 'statement', from: 37, to: 45, children: []};
+  const parsed = projection(source, [{
+    id: 'statement:outer', kind: 'statement', from: 0, to: source.length, children: [{
+      id: 'statement:inner', kind: 'statement', from: 12, to: second.to, children: [first, second]
+    }]
+  }]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: second.from, to: second.to},
+    destination: {from: second.to, to: second.to, indentation: '  '}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if outer:\n  if ready:\n    first()\n  second()\n');
+});
+
 test('leaves an actual pass when moving the only Python suite statement out', () => {
   const source = 'if ready:\n  only()\nafter()\n';
   const ast = {type: 'Module', body: [
