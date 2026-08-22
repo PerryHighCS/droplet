@@ -363,3 +363,34 @@ test('manual modern Python playground moves statement blocks into an editor gap'
 
   await expect(page.locator('#modern-python-source')).toContainText('if ready:\n  first = 1  # inline note\ntail = 0');
 });
+
+test('manual modern Python playground moves a standalone comment without its containing suite', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  const {comment, tail} = await page.evaluate(() => {
+    const source = document.querySelector('#modern-python-source').textContent;
+    const blocks = [...document.querySelectorAll('[data-droplet-kind]')];
+    const range = (block) => ({from: block.dataset.dropletFrom, to: block.dataset.dropletTo});
+    return {
+      comment: range(blocks.find((block) => block.dataset.dropletKind === 'comment' && source.slice(
+        Number(block.dataset.dropletFrom), Number(block.dataset.dropletTo)
+      ) === '# standalone note')),
+      tail: range(blocks.find((block) => block.dataset.dropletKind === 'statement' && source.slice(
+        Number(block.dataset.dropletFrom), Number(block.dataset.dropletTo)
+      ) === 'tail = 0'))
+    };
+  });
+  const block = ({from, to}) => page.locator(`[data-droplet-from="${from}"][data-droplet-to="${to}"]`).first();
+  const commentBox = await block(comment).boundingBox();
+  const tailBox = await block(tail).boundingBox();
+  await page.mouse.move(commentBox.x + commentBox.width / 2, commentBox.y + commentBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(commentBox.x + commentBox.width / 2 + 8, commentBox.y + commentBox.height / 2 + 8);
+  await page.mouse.move(tailBox.x + 8, tailBox.y - tailBox.height / 2, {steps: 10});
+  await page.mouse.up();
+
+  await expect(page.locator('#modern-python-source')).toContainText(
+    'if outer:\n  if ready:\n    first = 1  # inline note\n  second = 2\n\n# standalone note\ntail = 0'
+  );
+});

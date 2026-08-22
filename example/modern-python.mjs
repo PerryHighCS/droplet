@@ -32,7 +32,7 @@ const editor = createDropletCodeMirrorEditor({
   parent: document.querySelector('#modern-python-editor'),
   value: samples[sampleSelect.value],
   blockMode: true,
-  parse: createBrythonPythonParser(pythonToAST),
+  parse: createBrythonPythonParser(pythonToAST, window.__BRYTHON__.tokenizer),
   transform: createBrythonPythonTransformer(pythonToAST),
   onUpdate: refresh
 });

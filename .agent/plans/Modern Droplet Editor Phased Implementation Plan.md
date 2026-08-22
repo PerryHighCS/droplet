@@ -898,6 +898,13 @@ The Chromium integration test drives these operations through
 to module scope while retaining inline and standalone comments plus a blank
 line, then inserts a new empty suite before a sibling statement.
 
+The Code.org JavaScript mode remains the interaction reference: it marks each
+AST statement independently, represents comments as separate comment blocks,
+and allows drops into statement containers. The modern Python adapter follows
+that model when supplied Brython's tokenizer: standalone comments are projected
+as independently movable `comment` nodes, while nested statements retain their
+own source ranges rather than inheriting the enclosing suite's drag behavior.
+
 ## Newly generated indentation
 
 When Droplet creates a new suite or moves a statement:

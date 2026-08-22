@@ -44,6 +44,8 @@ ranges. `createBrythonPythonTransformer` adds source-range socket replacement,
 statement insertion, and statement movement with Brython validation. These
 operations preserve untouched source exactly, including comments, blank lines,
 and tabs; moved statements adopt only the target line's existing indentation.
+When Brython's tokenizer is supplied, standalone comments are rendered as
+independent gray blocks and can move without moving their containing suite.
 
 How to Embed
 ------------

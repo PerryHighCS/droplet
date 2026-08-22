@@ -178,8 +178,15 @@ function createProjectionField(setProjection, initialProjection) {
 }
 
 function projectionDecorations(projection) {
+  const seen = new Set();
   const ranges = collectProjectionNodes(projection.root)
     .filter((node) => node.kind !== 'document' && node.from < node.to)
+    .filter((node) => {
+      const key = `${node.kind}:${node.from}:${node.to}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((node) => Decoration.mark({
       class: isOpaque(node)
         ? `droplet-block droplet-opaque droplet-block-${node.kind}`
@@ -227,7 +234,7 @@ function createProjectionInteraction(onOperation) {
   let pointerDrag;
   return EditorView.domEventHandlers({
     mousedown(event, view) {
-      const source = event.button === 0 && statementRangeFromElement(event.target);
+      const source = event.button === 0 && movableRangeFromElement(event.target);
       if (!source) return false;
       pointerDrag = {
         source,
@@ -248,7 +255,7 @@ function createProjectionInteraction(onOperation) {
       if (!moved) return true;
       pointerDrag.preview ??= createDragPreview(view, pointerDrag.source);
       updateDragPreview(pointerDrag.preview, event.clientX, event.clientY);
-      const target = statementRangeFromElement(event.target);
+      const target = movableRangeFromElement(event.target);
       const destination = target?.from ?? statementDestinationAtPointer(view, event);
       updateDropTarget(pointerDrag, event.target, destination, event.clientX, event.clientY);
       event.preventDefault();
@@ -265,7 +272,7 @@ function createProjectionInteraction(onOperation) {
       const drag = pointerDrag;
       pointerDrag = undefined;
       if (!drag || event.button !== 0) return false;
-      const target = statementRangeFromElement(event.target);
+      const target = movableRangeFromElement(event.target);
       const moved = drag.preview !== undefined;
       clearDragPreview(drag);
       if (!moved) {
@@ -302,7 +309,7 @@ function updateDragPreview(preview, clientX, clientY) {
 }
 
 function updateDropTarget(drag, element, destination, clientX, clientY) {
-  const targetElement = element?.closest?.('[data-droplet-kind="statement"]');
+  const targetElement = element?.closest?.('[data-droplet-kind="statement"], [data-droplet-kind="comment"]');
   if (drag.targetElement !== targetElement) {
     drag.targetElement?.classList.remove('droplet-block-drop-target');
     drag.targetElement = targetElement;
@@ -338,7 +345,7 @@ function createDropGuide(document) {
 function statementDestinationAtPointer(view, event) {
   const position = view.posAtCoords({x: event.clientX, y: event.clientY});
   if (position === null) return undefined;
-  const statements = [...view.dom.querySelectorAll('[data-droplet-kind="statement"]')]
+  const statements = [...view.dom.querySelectorAll('[data-droplet-kind="statement"], [data-droplet-kind="comment"]')]
     .map(projectionRangeFromBlock)
     .filter(Boolean)
     .filter((range, index, ranges) => ranges.findIndex((other) =>
@@ -357,6 +364,13 @@ export function projectionOperationFromDrop(source, target, document) {
       destination: {from: target.from, to: target.from}
     };
   }
+  if (source.kind === 'comment' && (target.kind === 'statement' || target.kind === 'comment')) {
+    return {
+      type: 'move-comment',
+      source: {from: source.from, to: source.to},
+      destination: {from: target.from, to: target.from}
+    };
+  }
   if ((source.kind === 'expression' || source.kind === 'socket') && target.kind === 'socket') {
     return {
       type: 'replace-socket',
@@ -369,8 +383,11 @@ export function projectionOperationFromDrop(source, target, document) {
 
 function projectionOperationFromDestination(source, target, destination, document) {
   if (target) return projectionOperationFromDrop(source, target, document);
-  if (source.kind === 'statement' && Number.isInteger(destination)) {
-    return {type: 'move-statement', source: {from: source.from, to: source.to}, destination: {from: destination, to: destination}};
+  if ((source.kind === 'statement' || source.kind === 'comment') && Number.isInteger(destination)) {
+    return {
+      type: source.kind === 'statement' ? 'move-statement' : 'move-comment',
+      source: {from: source.from, to: source.to}, destination: {from: destination, to: destination}
+    };
   }
   return undefined;
 }
@@ -380,8 +397,8 @@ function projectionRangeFromElement(element) {
   return projectionRangeFromBlock(block);
 }
 
-function statementRangeFromElement(element) {
-  const block = element?.closest?.('[data-droplet-kind="statement"]');
+function movableRangeFromElement(element) {
+  const block = element?.closest?.('[data-droplet-kind="statement"], [data-droplet-kind="comment"]');
   return projectionRangeFromBlock(block);
 }
 
@@ -401,6 +418,12 @@ const opaqueTheme = EditorView.baseTheme({
   '.droplet-block-statement': {
     backgroundColor: '#eaf3ff',
     borderRadius: '4px',
+    cursor: 'grab'
+  },
+  '.droplet-block-comment': {
+    backgroundColor: '#f0f0f0',
+    borderRadius: '4px',
+    color: '#555',
     cursor: 'grab'
   },
   '.droplet-block-drop-target': {

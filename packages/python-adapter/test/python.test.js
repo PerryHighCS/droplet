@@ -169,6 +169,39 @@ test('retains form-feed indentation prefixes', () => {
   ]);
 });
 
+test('projects tokenizer comments as independent movable nodes', () => {
+  const source = 'if ready:\n  # note\n  pass\n';
+  const ast = {type: 'Module', body: [{
+    type: 'If', lineno: 1, col_offset: 0, end_lineno: 3, end_col_offset: 6,
+    body: [{type: 'Pass', lineno: 3, col_offset: 2, end_lineno: 3, end_col_offset: 6}]
+  }]};
+  const tokenize = () => [{type: 65, string: '# note', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 8}];
+
+  const parsed = parsePython(source, () => ast, tokenize);
+  const comment = collectProjectedNodes(parsed.root).find((node) => node.kind === 'comment');
+  assert.deepEqual(comment, {
+    id: 'comment:12:18', kind: 'comment', from: 12, to: 18, editable: true, children: [],
+    metadata: {inline: false}
+  });
+});
+
+test('moves an independent comment line without moving its containing statement', () => {
+  const source = 'if ready:\n  # note\n  pass\nnext()\n';
+  const ifStatement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: 25, children: [{
+      id: 'comment:12:18', kind: 'comment', from: 12, to: 18, children: []
+    }]
+  };
+  const parsed = projection(source, [ifStatement,
+    {id: 'statement:next', kind: 'statement', from: 26, to: 32, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: 12, to: 18}, destination: {from: 26, to: 26}
+  }, parsed, () => ({}));
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\n# note\nnext()\n');
+});
+
 test('classifies the complete modern Python statement set as statements', () => {
   const types = [
     'Assert', 'AsyncFor', 'AsyncFunctionDef', 'AsyncWith', 'ClassDef', 'Delete',

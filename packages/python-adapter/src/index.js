@@ -1,12 +1,12 @@
 import {applySourceChanges, normalizeSourceChanges, parseWithOpaqueRecovery} from '@droplet/core';
 
 /** Creates a source-range Python parser from Brython's browser AST API. */
-export function createBrythonPythonParser(pythonToAST) {
+export function createBrythonPythonParser(pythonToAST, tokenize) {
   if (typeof pythonToAST !== 'function') throw new TypeError('Brython pythonToAST is required');
-  return (source) => parsePython(source, pythonToAST);
+  return (source) => parsePython(source, pythonToAST, tokenize);
 }
 
-export function parsePython(source, pythonToAST) {
+export function parsePython(source, pythonToAST, tokenize) {
   if (typeof source !== 'string') throw new TypeError('Source must be a string');
   if (typeof pythonToAST !== 'function') throw new TypeError('Brython pythonToAST is required');
   return parseWithOpaqueRecovery(source, () => {
@@ -20,7 +20,9 @@ export function parsePython(source, pythonToAST) {
       throw error;
     }
     const lines = lineStarts(source);
-    return {source, root: project(ast, source, lines, 'document'), issues: []};
+    const root = project(ast, source, lines, 'document');
+    if (tokenize) addCommentNodes(root, collectPythonTrivia(source, tokenize).comments);
+    return {source, root, issues: []};
   });
 }
 
@@ -56,9 +58,18 @@ export function transformPython(operation, parsed, pythonToAST) {
       const statement = findNode(parsed.root, operation.source, 'statement');
       if (!statement) throw new RangeError('Statement source is not present in the current projection');
       assertInsertionPoint(parsed.source, operation.destination);
-      const statementRange = statementLineRange(parsed.source, statement);
+      const statementRange = lineRange(parsed.source, statement);
       if (operation.destination.from >= statementRange.from && operation.destination.from <= statementRange.to) return [];
-      changes = moveStatementChanges(parsed.source, statementRange, operation.destination.from);
+      changes = moveLineRangeChanges(parsed.source, statementRange, operation.destination.from);
+      break;
+    }
+    case 'move-comment': {
+      const comment = findNode(parsed.root, operation.source, 'comment');
+      if (!comment) throw new RangeError('Comment source is not present in the current projection');
+      assertInsertionPoint(parsed.source, operation.destination);
+      const commentRange = lineRange(parsed.source, comment);
+      if (operation.destination.from >= commentRange.from && operation.destination.from <= commentRange.to) return [];
+      changes = moveLineRangeChanges(parsed.source, commentRange, operation.destination.from);
       break;
     }
     default:
@@ -122,6 +133,24 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
   };
 }
 
+function addCommentNodes(root, comments) {
+  for (const comment of comments) {
+    const parent = commentParent(root, comment);
+    parent.children.push({
+      id: `comment:${comment.from}:${comment.to}`,
+      kind: 'comment', from: comment.from, to: comment.to, editable: true, children: [],
+      metadata: {inline: comment.inline}
+    });
+    parent.children.sort(compareProjectedNodes);
+  }
+}
+
+function commentParent(node, comment) {
+  const child = (node.children ?? []).find((candidate) => candidate.kind === 'statement' &&
+    candidate.from <= comment.from && candidate.to >= comment.to);
+  return child ? commentParent(child, comment) : node;
+}
+
 function expandDecoratorRange(node, source, lines, range) {
   const decoratorFrom = (node.decorator_list ?? []).reduce((from, decorator) => {
     const offsetFrom = offset(decorator?.lineno, decorator?.col_offset, lines, source, -1);
@@ -146,7 +175,7 @@ function insertStatementChange(source, destination, statementSource) {
   return {from: destination, to: destination, insert: `${text}${ensureLineEnding(text, lineEnding)}${indentation}`};
 }
 
-function moveStatementChanges(source, statementRange, destination) {
+function moveLineRangeChanges(source, statementRange, destination) {
   const sourceIndentation = indentationAt(source, statementRange.from);
   const destinationIndentation = indentationAt(source, destination);
   const text = reindentPythonLines(source.slice(statementRange.from, statementRange.to), sourceIndentation, destinationIndentation);
@@ -158,7 +187,7 @@ function moveStatementChanges(source, statementRange, destination) {
   ];
 }
 
-function statementLineRange(source, statement) {
+function lineRange(source, statement) {
   const from = lineStartAt(source, statement.from);
   let to = statement.to;
   while (to < source.length && source[to] !== '\r' && source[to] !== '\n') to += 1;
