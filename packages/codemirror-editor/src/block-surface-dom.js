@@ -123,6 +123,13 @@ export class BlockSurface {
 
   #handleKeydown(event) {
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    // Delete/Backspace inside the open inline editor is ordinary text
+    // editing (its own keydown handler covers clearing it entirely via
+    // select-all) and must not also bubble into the "delete this block"
+    // shortcut below. Checked by element type rather than comparing against
+    // #socketEditor: committing an edit clears that reference synchronously,
+    // before this same event finishes bubbling here.
+    if (event.target?.tagName === 'INPUT') return;
     const node = this.#selectedNode;
     if (!node || !isDeletable(node)) return;
     event.preventDefault();

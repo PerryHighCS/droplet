@@ -169,6 +169,47 @@ test('deleting a selected socket commits an empty editable recovery range', () =
   editor.destroy();
 });
 
+test('selecting all and pressing Delete in a socket editor commits exactly one change', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseRecoveringSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:value"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.selectionStart = 0;
+  input.selectionEnd = input.value.length;
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Delete'}));
+
+  // The keydown bubbles from the input up through the block surface, whose
+  // own Delete/Backspace shortcut for the currently-selected socket must not
+  // also fire and commit a second, redundant change.
+  assert.equal(editor.getValue(), 'target = \n');
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), 'target = value\n');
+  editor.destroy();
+});
+
+test('pressing Backspace mid-edit in a socket only edits its text, not the whole block', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:value"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.selectionStart = input.value.length;
+  input.selectionEnd = input.value.length;
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Backspace'}));
+
+  // Ordinary text editing with the cursor mid-field (not a full selection)
+  // must not bubble into the block surface's "delete this socket" shortcut.
+  assert.equal(editor.getValue(), 'target = value\n');
+  editor.destroy();
+});
+
 test('editing a rendered comment commits one CodeMirror source change on Enter', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
