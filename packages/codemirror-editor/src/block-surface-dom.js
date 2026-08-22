@@ -215,7 +215,8 @@ export class BlockSurface {
     if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
     this.#drag.moved = true;
     const target = dropTargetAtPoint(this.#layout, point);
-    const resolved = destinationForTarget(this.#layout, target, point, this.#drag.node);
+    const resolved = destinationForTarget(this.#layout, target, point, this.#drag.node) ??
+      escapeDestination(this.#layout, point, this.#drag.node, this.#drag.copy);
     this.#drag.destination = resolved?.destination;
     this.#drag.operation = resolved?.operation;
     renderDragPreviews(this.#svg, this.#layout, this.#drag.node, point, resolved?.zone);
@@ -346,6 +347,26 @@ function destinationForTarget(layout, target, point, dragNode) {
   return {
     destination: zone.destination,
     zone: {...zone, bounds: statementHalfBounds(targetBounds, before)}
+  };
+}
+
+// A release above or below the whole rendered document — not just a gap
+// between two rows — reorders a top-level statement or comment to the very
+// start or end instead of requiring a pixel-precise drop on a thin gap.
+// Sockets and other expression drags fall through to the ordinary outside-
+// canvas delete instead, since "top/bottom of the document" is meaningless
+// for them.
+function escapeDestination(layout, point, dragNode, copy) {
+  if (dragNode?.kind !== 'statement' && dragNode?.kind !== 'container' && dragNode?.kind !== 'comment') return undefined;
+  const zones = layout.root.insertionZones;
+  const zone = point.y < 0 ? zones.at(0) : point.y > layout.bounds.bottom ? zones.at(-1) : undefined;
+  if (!zone) return undefined;
+  const kind = dragNode.kind === 'container' ? 'statement' : dragNode.kind;
+  return {
+    operation: copy
+      ? {type: 'copy-node', source: dragNode.source, kind, destination: zone.destination}
+      : {type: dragNode.kind === 'comment' ? 'move-comment' : 'move-statement', source: dragNode.source, destination: zone.destination},
+    zone
   };
 }
 

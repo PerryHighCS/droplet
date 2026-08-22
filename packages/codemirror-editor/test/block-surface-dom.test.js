@@ -90,6 +90,31 @@ test('deletes a selected block with Delete and a dragged block outside the canva
   ]);
 });
 
+test('reorders a statement to the top or bottom when dropped above or below the document', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  // Released above the whole document: move to the very top (a no-op here,
+  // since "first" is already first, but it proves the drop resolved instead
+  // of being swallowed or deleted).
+  drag(svg, dom.window, first, first.bounds.left, -20);
+  // Released below the whole document: move to the very end.
+  drag(svg, dom.window, first, first.bounds.left, surface.layout.bounds.bottom + 20);
+
+  assert.deepEqual(operations, [
+    {type: 'move-statement', source: {from: 0, to: 7}, destination: {from: 0, to: 0, indentation: ''}},
+    {type: 'move-statement', source: {from: 0, to: 7}, destination: {from: 17, to: 17, indentation: ''}}
+  ]);
+});
+
 test('marks the selected block with a visible SVG outline', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
