@@ -108,6 +108,29 @@ test('labels a unary operator\'s operand as an editable socket', () => {
   ]);
 });
 
+test('sockets a call\'s function name alongside its arguments, leaving the parentheses fixed', () => {
+  const source = 'result = name(first)\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Assign', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 20,
+      targets: [{type: 'Name', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 6}],
+      value: {type: 'Call', lineno: 1, col_offset: 9, end_lineno: 1, end_col_offset: 20,
+        func: {type: 'Name', lineno: 1, col_offset: 9, end_lineno: 1, end_col_offset: 13, id: 'name'},
+        args: [{type: 'Name', lineno: 1, col_offset: 14, end_lineno: 1, end_col_offset: 19, id: 'first'}],
+        keywords: []}}
+  ]};
+
+  const sockets = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(sockets, [
+    {text: 'result', role: 'assignment-target'},
+    {text: 'name(first)', role: 'assignment-value'},
+    {text: 'name', role: 'call-target'},
+    {text: 'first', role: 'expression'}
+  ]);
+});
+
 test('projects a standalone print call as argument sockets, including an editable empty argument', () => {
   const source = 'print()\nprint(first, second)\n';
   const ast = {type: 'Module', body: [

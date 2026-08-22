@@ -807,6 +807,13 @@ function createLabel(text, x, y, document) {
   label.setAttribute('fill', '#24344d');
   label.setAttribute('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace');
   label.setAttribute('font-size', '16');
+  // SVG text collapses leading/trailing whitespace by default, which would
+  // trim gap text like " + " down to "+" and leave an infix operator hugging
+  // its left operand while the layout still reserves the full measured width
+  // before the next socket. xml:space="preserve" is the SVG-native way to
+  // opt out, but browsers now key whitespace handling off the CSS
+  // white-space property instead, so set that directly.
+  label.style.whiteSpace = 'pre';
   label.textContent = text.replace(/[\r\n].*$/, '');
   return label;
 }

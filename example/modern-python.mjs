@@ -60,7 +60,8 @@ const palette = [
     name: 'Functions & classes', blocks: [
       {id: 'def', label: 'def name():', source: 'def name():\n  pass\n'},
       {id: 'return', label: 'return value', source: 'return value\n'},
-      {id: 'class', label: 'class Name:', source: 'class Name:\n  pass\n'}
+      {id: 'class', label: 'class Name:', source: 'class Name:\n  pass\n'},
+      {id: 'call', label: 'name()', source: 'name()', kind: 'expression'}
     ]
   },
   {

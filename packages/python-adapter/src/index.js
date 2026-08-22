@@ -507,6 +507,13 @@ function socketRoleFor(parent, key, value) {
     return 'assignment-value';
   }
   if (type === 'If' && key === 'test') return 'if-condition';
+  // A call's own arguments are already covered by the generic `args` socket
+  // key below, but the callee name is user-supplied too - it should be
+  // editable like any other identifier the user typed, not fixed structural
+  // syntax the way the parentheses around it are. print() is special-cased
+  // above as a fixed statement shape with only its own argument sockets, so
+  // its own name should stay out of that.
+  if (type === 'Call' && key === 'func' && !isPrintCall(parent)) return 'call-target';
   return socketKeys.has(key) ? 'expression' : undefined;
 }
 

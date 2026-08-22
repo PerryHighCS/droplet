@@ -304,6 +304,20 @@ test('renders a compound socket\'s operands once each, not duplicated by its own
   assert.deepEqual(labels, ['value', ' + ', 'value', 'target', ' = ']);
 });
 
+test('preserves whitespace in gap text labels so an infix operator does not hug its left operand', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
+  surface.update(compoundAssignmentSockets());
+  const svg = surface.element.querySelector('svg');
+
+  // SVG text collapses leading/trailing whitespace unless told otherwise; a
+  // gap label of " + " rendered without white-space: pre would visually trim
+  // down to "+" flush against the preceding socket, even though the layout
+  // still reserves the full measured width for it.
+  const operatorLabel = [...svg.querySelectorAll('text')].find((node) => node.textContent === ' + ');
+  assert.equal(operatorLabel.style.whiteSpace, 'pre');
+});
+
 test('uses the upper and lower halves of a standalone comment as sibling drop targets', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
