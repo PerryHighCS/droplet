@@ -56,6 +56,33 @@ test('block mode visibly decorates structured statements', () => {
   editor.destroy();
 });
 
+test('block mode installs a structural overlay for container and whitespace rendering', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent,
+    value: 'for item in items:\n  pass\n\n',
+    blockMode: true,
+    parse: (source) => ({
+      source,
+      root: {
+        id: 'document', kind: 'document', from: 0, to: source.length, editable: false,
+        children: [{
+          id: 'loop', kind: 'statement', from: 0, to: 25, editable: true,
+          children: [{id: 'pass', kind: 'statement', from: 21, to: 25, editable: true, children: []}],
+          metadata: {type: 'For', blockRole: 'container', headerTo: 18}
+        }, {
+          id: 'blank', kind: 'whitespace', from: 26, to: 27, editable: false, children: [],
+          metadata: {text: '', lineEnding: '\n'}
+        }]
+      },
+      issues: []
+    })
+  });
+
+  assert.ok(parent.querySelector('.droplet-structural-overlay'));
+  editor.destroy();
+});
+
 test('clicking a rendered projection selects its exact source range', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({

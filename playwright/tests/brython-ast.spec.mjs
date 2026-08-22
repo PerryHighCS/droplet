@@ -330,6 +330,13 @@ test('manual modern Python playground loads with its source and projection panel
   await expect(page.locator('#modern-python-projection')).toContainText('Module');
 });
 
+test('manual modern Python playground renders suite containers and blank-line placeholders', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  await expect(page.locator('.droplet-structural-overlay [data-droplet-role="container"]')).toHaveCount(2);
+  await expect(page.locator('.droplet-structural-overlay [data-droplet-role="whitespace"]')).toHaveCount(1);
+});
+
 test('manual modern Python playground resolves a block hover to an insertion gap', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
