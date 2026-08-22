@@ -41,6 +41,24 @@ test('falls back to the containing source boundary for invalid AST locations', (
   });
 });
 
+test('contains partial and inverted child locations within their statement', () => {
+  const source = 'first\nsecond\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Assign', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 5,
+      value: {type: 'Call', lineno: 1, col_offset: 5, end_lineno: 1, end_col_offset: 1}},
+    {type: 'Assign', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 6,
+      value: {type: 'Call', lineno: 2, col_offset: 0}}
+  ]};
+
+  const statements = parsePython(source, () => ast).root.children;
+  assert.deepEqual(statements.map(({from, to}) => ({from, to})), [
+    {from: 0, to: 5}, {from: 6, to: 12}
+  ]);
+  assert.deepEqual(statements.map((node) => ({from: node.children[0].from, to: node.children[0].to})), [
+    {from: 0, to: 5}, {from: 6, to: 12}
+  ]);
+});
+
 test('uses raw source indentation while retaining inline and standalone comments', () => {
   const source = '# heading\nif value:\n\t# nested\n\tresult = value  # inline\n';
   const tokens = [

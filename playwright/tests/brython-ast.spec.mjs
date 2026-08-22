@@ -39,7 +39,7 @@ test('Brython AST columns use JavaScript source offsets and omit comments', asyn
   expect(assignment.lineno).toBe(2);
   expect(assignment.col_offset).toBe(0);
   expect(assignment.end_col_offset).toBe('name = "😀"'.length);
-  expect(Object.values(ast).flat()).not.toContain('# retained comment');
+  expect(JSON.stringify(ast)).not.toContain('# retained comment');
 });
 
 test('the modern Python adapter projects a live Brython AST without changing source', async ({page}) => {

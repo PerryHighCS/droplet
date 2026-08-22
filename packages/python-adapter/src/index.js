@@ -51,13 +51,19 @@ export function collectPythonTrivia(source, tokenize, {indentTokenType = 5} = {}
   return {comments, indentation};
 }
 
-function project(node, source, lines, kind = kindFor(node)) {
-  const from = offset(node.lineno, node.col_offset, lines, source.length, 0);
-  const to = offset(node.end_lineno, node.end_col_offset, lines, source.length, source.length);
+function project(node, source, lines, kind = kindFor(node), boundary = {from: 0, to: source.length}) {
+  const range = boundedRange(
+    offset(node.lineno, node.col_offset, lines, source.length, boundary.from),
+    offset(node.end_lineno, node.end_col_offset, lines, source.length, boundary.to),
+    boundary
+  );
+  const {from, to} = range;
   return {
     id: `${kind}:${typeOf(node)}:${from}:${to}`,
     kind, from, to, editable: kind !== 'document',
-    children: childNodes(node).map((child) => project(child.node, source, lines, child.socket ? 'socket' : kindFor(child.node))),
+    children: childNodes(node).map((child) => project(
+      child.node, source, lines, child.socket ? 'socket' : kindFor(child.node), range
+    )),
     metadata: {type: typeOf(node)}
   };
 }
@@ -106,6 +112,12 @@ function leadingWhitespace(source, from) { return /^[\t ]*/.exec(source.slice(fr
 function hasCodeBeforeComment(source, from) {
   const lineStart = source.lastIndexOf('\n', from - 1) + 1;
   return /\S/.test(source.slice(lineStart, from));
+}
+function boundedRange(from, to, boundary) {
+  if (from < boundary.from || from > boundary.to || to < from || to > boundary.to) {
+    return boundary;
+  }
+  return {from, to};
 }
 function offset(line, column, starts, length, fallback) {
   if (!Number.isInteger(line) || !Number.isInteger(column) || column < 0) return fallback;
