@@ -374,15 +374,17 @@ function destinationForTarget(layout, target, point, dragNode) {
       };
     }
   }
-  // Standalone comments and container headers participate in their suite's
-  // vertical sibling order. A container body/footer retains its structural
-  // insertion zones; only the header gets before/after behavior. An inline
-  // comment is a child of its statement rather than a suite-level sibling, so
-  // it borrows its owning statement's position for this purpose.
+  // Standalone comments, blank lines, and container headers participate in
+  // their suite's vertical sibling order. A container body/footer retains
+  // its structural insertion zones; only the header gets before/after
+  // behavior. An inline comment is a child of its statement rather than a
+  // suite-level sibling, so it borrows its owning statement's position for
+  // this purpose.
   const inlineOwner = target?.node?.kind === 'comment' && target.node.metadata?.inline
     ? findParent(layout.root, target.node.id) : undefined;
   const targetNode = inlineOwner ?? target?.node;
-  if (targetNode?.kind !== 'statement' && targetNode?.kind !== 'comment' && target?.kind !== 'container-header') return undefined;
+  if (targetNode?.kind !== 'statement' && targetNode?.kind !== 'comment' && targetNode?.kind !== 'whitespace' &&
+      target?.kind !== 'container-header') return undefined;
   const targetBounds = target.kind === 'container-header' ? target.node.regions.header : targetNode.bounds;
   const before = point.y < (targetBounds.top + targetBounds.bottom) / 2;
   if (target.kind === 'container-header' && !before) {
@@ -446,7 +448,7 @@ function dropTargetAtPoint(layout, point) {
   // before/after dropping practical beside a narrow block, while preserving
   // the more specific structural insertion zones inside container bodies.
   const candidate = layout.nodes
-    .filter((node) => node.kind === 'statement' || node.kind === 'comment' || node.kind === 'container')
+    .filter((node) => node.kind === 'statement' || node.kind === 'comment' || node.kind === 'container' || node.kind === 'whitespace')
     .map((node) => ({node, bounds: node.kind === 'container' ? node.regions.header : node.bounds}))
     .filter(({bounds}) => point.y >= bounds.top && point.y <= bounds.bottom)
     .sort((left, right) => (left.bounds.right - left.bounds.left) - (right.bounds.right - right.bounds.left))[0];
@@ -457,7 +459,8 @@ function dropTargetAtPoint(layout, point) {
 }
 
 function isSiblingDropTarget(target) {
-  return target?.node?.kind === 'statement' || target?.node?.kind === 'comment' || target?.kind === 'container-header';
+  return target?.node?.kind === 'statement' || target?.node?.kind === 'comment' ||
+    target?.node?.kind === 'whitespace' || target?.kind === 'container-header';
 }
 
 function findParent(node, childId) {

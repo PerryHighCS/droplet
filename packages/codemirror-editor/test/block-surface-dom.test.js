@@ -276,6 +276,27 @@ test('uses the upper and lower halves of a standalone comment as sibling drop ta
   ]);
 });
 
+test('uses the upper and lower halves of a blank line as sibling drop targets', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(statementsWithBlankLine());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const blank = surface.layout.nodes.find((node) => node.id === 'blank');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  drag(svg, dom.window, second, blank.bounds.left + 2, blank.bounds.top + 2);
+  drag(svg, dom.window, second, blank.bounds.left + 2, blank.bounds.bottom - 2);
+
+  assert.deepEqual(operations, [
+    {type: 'move-statement', source: {from: 9, to: 16}, destination: {from: 8, to: 8, indentation: ''}},
+    {type: 'move-statement', source: {from: 9, to: 16}, destination: {from: 9, to: 9, indentation: ''}}
+  ]);
+});
+
 test('starts a drag by picking up an inline comment directly', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -462,6 +483,17 @@ function statementsWithStandaloneComment() {
       {id: 'first', kind: 'statement', from: 0, to: 7, editable: true, metadata: {}, children: []},
       {id: 'comment', kind: 'comment', from: 8, to: 20, editable: true, metadata: {inline: false}, children: []},
       {id: 'second', kind: 'statement', from: 21, to: 29, editable: true, metadata: {}, children: []}
+    ]
+  }};
+}
+
+function statementsWithBlankLine() {
+  const source = 'first()\n\nsecond()\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [
+      {id: 'first', kind: 'statement', from: 0, to: 7, editable: true, metadata: {}, children: []},
+      {id: 'blank', kind: 'whitespace', from: 8, to: 8, editable: false, metadata: {text: ''}, children: []},
+      {id: 'second', kind: 'statement', from: 9, to: 16, editable: true, metadata: {}, children: []}
     ]
   }};
 }
