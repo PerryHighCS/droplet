@@ -67,6 +67,67 @@ test('uses the upper and lower halves of a statement as before and after drop ta
   ]);
 });
 
+test('deletes a selected block with Delete and a dragged block outside the canvas', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.top + 2}));
+  surface.element.dispatchEvent(new dom.window.KeyboardEvent('keydown', {bubbles: true, key: 'Delete'}));
+  drag(svg, dom.window, first, -12, first.bounds.top + 2);
+
+  assert.deepEqual(operations, [
+    {type: 'delete-node', source: {from: 8, to: 16}, kind: 'statement'},
+    {type: 'delete-node', source: {from: 0, to: 7}, kind: 'statement'}
+  ]);
+});
+
+test('marks the selected block with a visible SVG outline', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const [first, second] = surface.layout.nodes.filter((node) => node.kind === 'statement');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0,
+    clientX: first.bounds.left + 2, clientY: first.bounds.top + 2}));
+  assert.equal(svg.dataset.dropletSelectedId, 'first');
+  assert.equal(svg.querySelector('.droplet-block-selection').getAttribute('stroke'), '#d97706');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.top + 2}));
+  assert.equal(svg.dataset.dropletSelectedId, 'second');
+  assert.equal(svg.querySelectorAll('.droplet-block-selection').length, 1);
+});
+
+test('uses Ctrl-drag to emit a copy operation instead of a move', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  drag(svg, dom.window, first, second.bounds.left + 2, second.bounds.top + 2, {ctrlKey: true});
+
+  assert.deepEqual(operations, [{
+    type: 'copy-node', source: {from: 0, to: 7}, kind: 'statement', destination: {from: 8, to: 8, indentation: ''}
+  }]);
+});
+
 test('drags an expression socket onto another socket as a replacement operation', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -263,9 +324,9 @@ function passSuite() {
   }};
 }
 
-function drag(svg, window, source, x, y) {
+function drag(svg, window, source, x, y, modifiers = {}) {
   svg.dispatchEvent(new window.MouseEvent('pointerdown', {bubbles: true, button: 0,
-    clientX: source.bounds.left + 2, clientY: source.bounds.top + 2}));
+    clientX: source.bounds.left + 2, clientY: source.bounds.top + 2, ...modifiers}));
   svg.dispatchEvent(new window.MouseEvent('pointermove', {bubbles: true, button: 0, clientX: x, clientY: y}));
   svg.dispatchEvent(new window.MouseEvent('pointerup', {bubbles: true, button: 0, clientX: x, clientY: y}));
 }

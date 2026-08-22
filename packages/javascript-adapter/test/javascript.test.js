@@ -105,6 +105,29 @@ test('inserts and moves statements with source-range changes only', () => {
   ]);
 });
 
+test('deletes a JavaScript statement through a source-range operation', () => {
+  const source = 'first();\nsecond();\n';
+  const [first] = parseJavaScript(source).root.children;
+
+  const deleted = transformJavaScript({
+    type: 'delete-node', source: {from: first.from, to: first.to}, kind: 'statement'
+  }, parseJavaScript(source));
+
+  assert.equal(applySourceChanges(source, deleted), '\nsecond();\n');
+});
+
+test('copies a JavaScript statement through a source-range operation', () => {
+  const source = 'first();\nsecond();\n';
+  const [first] = parseJavaScript(source).root.children;
+
+  const copied = transformJavaScript({
+    type: 'copy-node', source: {from: first.from, to: first.to}, kind: 'statement',
+    destination: {from: source.length, to: source.length}
+  }, parseJavaScript(source));
+
+  assert.equal(applySourceChanges(source, copied), 'first();\nsecond();\nfirst();');
+});
+
 function findFirst(node, predicate) {
   if (predicate(node)) return node;
   for (const child of node.children) {

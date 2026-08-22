@@ -15,6 +15,7 @@ export class BlockSurface {
   #layout;
   #drag;
   #socketEditor;
+  #selectedNode;
   #suppressClick = false;
 
   constructor({parent, onSelect, onOperation, onSocketEdit, layoutOptions = {}}) {
@@ -32,12 +33,14 @@ export class BlockSurface {
     Object.assign(this.#dom.style, {
       display: 'none', overflow: 'auto', position: 'relative', minHeight: '100%', userSelect: 'none'
     });
+    this.#dom.tabIndex = 0;
     this.#svg = parent.ownerDocument.createElementNS(SVG_NAMESPACE, 'svg');
     this.#svg.setAttribute('role', 'tree');
     this.#svg.setAttribute('aria-label', 'Droplet blocks');
     this.#svg.style.display = 'block';
     this.#dom.append(this.#svg);
     this.#dom.addEventListener('click', (event) => this.#handleClick(event));
+    this.#dom.addEventListener('keydown', (event) => this.#handleKeydown(event));
     this.#svg.addEventListener('pointerdown', (event) => this.#beginDrag(event));
     this.#svg.addEventListener('pointermove', (event) => this.#continueDrag(event));
     this.#svg.addEventListener('pointerup', (event) => this.#endDrag(event));
@@ -57,6 +60,8 @@ export class BlockSurface {
 
   update(projection) {
     this.#closeSocketEditor();
+    this.#selectedNode = undefined;
+    delete this.#svg.dataset.dropletSelectedId;
     this.#layout = createBlockLayout(projection, this.#layoutOptions);
     renderLayout(this.#svg, this.#layout, this.#dom.ownerDocument);
   }
@@ -77,13 +82,47 @@ export class BlockSurface {
       return;
     }
     if (!this.#layout || event.defaultPrevented) return;
+    const directNode = layoutNodeForElement(this.#layout, event.target);
+    if (directNode?.kind === 'socket' || directNode?.kind === 'recovery-socket') {
+      this.#selectNode(directNode);
+      this.#openSocketEditor(directNode);
+      return;
+    }
     const bounds = this.#svg.getBoundingClientRect();
     const target = hitTestBlockLayout(this.#layout, {x: event.clientX - bounds.left, y: event.clientY - bounds.top});
     if (target?.node?.kind === 'socket' || target?.node?.kind === 'recovery-socket') {
+      this.#selectNode(target.node);
       this.#openSocketEditor(target.node);
       return;
     }
-    if (target?.node?.source) this.#onSelect?.(target.node.source);
+    if (target?.node?.source) this.#selectNode(target.node);
+  }
+
+  #handleKeydown(event) {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    const node = this.#selectedNode;
+    if (!node || !isDeletable(node)) return;
+    event.preventDefault();
+    this.#deleteNode(node);
+  }
+
+  #selectNode(node) {
+    this.#selectedNode = node;
+    renderSelection(this.#svg, node, this.#dom.ownerDocument);
+    this.#dom.focus();
+    this.#onSelect?.(node.source);
+  }
+
+  #deleteNode(node) {
+    if (isSocketNode(node)) {
+      this.#onSocketEdit?.({target: node.source, source: ''});
+      return;
+    }
+    this.#onOperation?.({
+      type: 'delete-node',
+      source: node.source,
+      kind: node.kind === 'container' ? 'statement' : node.kind
+    });
   }
 
   #openSocketEditor(socket) {
@@ -108,6 +147,11 @@ export class BlockSurface {
       } else if (event.key === 'Escape') {
         event.preventDefault();
         this.#closeSocketEditor();
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && input.selectionStart === 0 &&
+          input.selectionEnd === input.value.length) {
+        event.preventDefault();
+        input.value = '';
+        this.#commitSocketEditor(editing);
       }
     });
     input.addEventListener('blur', () => this.#commitSocketEditor(editing));
@@ -136,7 +180,14 @@ export class BlockSurface {
     if (event.button !== 0 || !this.#layout || !this.#onOperation) return;
     const target = hitTestBlockLayout(this.#layout, pointFor(this.#svg, event));
     if (!target?.node || !isMovable(target.node)) return;
-    this.#drag = {node: target.node, start: pointFor(this.#svg, event), moved: false, destination: undefined, operation: undefined};
+    this.#drag = {
+      node: target.node,
+      copy: event.ctrlKey || event.metaKey,
+      start: pointFor(this.#svg, event),
+      moved: false,
+      destination: undefined,
+      operation: undefined
+    };
     this.#svg.setPointerCapture?.(event.pointerId);
     event.preventDefault();
   }
@@ -165,17 +216,25 @@ export class BlockSurface {
     if (drag.operation) {
       this.#onOperation(drag.operation);
     } else if (drag.destination) {
-      this.#onOperation({
+      this.#onOperation(drag.copy ? {
+        type: 'copy-node',
+        source: drag.node.source,
+        kind: drag.node.kind === 'container' ? 'statement' : drag.node.kind,
+        destination: drag.destination
+      } : {
         type: drag.node.kind === 'comment' ? 'move-comment' : 'move-statement',
         source: drag.node.source,
         destination: drag.destination
       });
+    } else if (!drag.copy && isOutsideCanvas(this.#layout, pointFor(this.#svg, event))) {
+      this.#deleteNode(drag.node);
     }
     event.preventDefault();
   }
 
   #continuePaletteDrag(event) {
     if (!this.#layout || !this.#onOperation || !isPaletteDrag(event)) return;
+    event.dataTransfer.dropEffect = 'move';
     const point = pointFor(this.#svg, event);
     const target = dropTargetAtPoint(this.#layout, point);
     const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
@@ -294,9 +353,18 @@ function isMovable(node) {
   return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment' || isExpressionNode(node);
 }
 
+function isDeletable(node) {
+  return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment' || isSocketNode(node);
+}
+
 function isExpressionNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
 function isSocketNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
 function sameRange(left, right) { return left?.from === right?.from && left?.to === right?.to; }
+
+function layoutNodeForElement(layout, element) {
+  const id = element?.closest?.('[data-droplet-layout-id]')?.dataset.dropletLayoutId;
+  return id ? layout.nodes.find((node) => node.id === id) : undefined;
+}
 
 function paletteSource(event) {
   const source = event.dataTransfer?.getData('application/x-droplet-statement');
@@ -310,6 +378,10 @@ function isPaletteDrag(event) {
 function pointFor(svg, event) {
   const bounds = svg.getBoundingClientRect();
   return {x: event.clientX - bounds.left, y: event.clientY - bounds.top};
+}
+
+function isOutsideCanvas(layout, point) {
+  return point.x < 0 || point.y < 0 || point.x > layout.bounds.right + 16 || point.y > layout.bounds.bottom + 16;
 }
 
 function renderDragPreviews(svg, layout, node, point, zone) {
@@ -365,6 +437,24 @@ function renderLayout(svg, layout, document) {
   for (const child of layout.root.children) svg.append(renderNode(child, document));
 }
 
+function renderSelection(svg, node, document) {
+  svg.querySelector('.droplet-block-selection')?.remove();
+  const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
+  rect.classList.add('droplet-block-selection');
+  rect.setAttribute('x', String(node.bounds.left - 3));
+  rect.setAttribute('y', String(node.bounds.top - 3));
+  rect.setAttribute('width', String(node.bounds.right - node.bounds.left + 6));
+  rect.setAttribute('height', String(node.bounds.bottom - node.bounds.top + 6));
+  rect.setAttribute('rx', '6');
+  rect.setAttribute('fill', 'rgba(245, 158, 11, .10)');
+  rect.setAttribute('stroke', '#d97706');
+  rect.setAttribute('stroke-width', '2.5');
+  rect.setAttribute('stroke-dasharray', '4 2');
+  rect.setAttribute('pointer-events', 'none');
+  svg.dataset.dropletSelectedId = node.id;
+  svg.append(rect);
+}
+
 function renderNode(node, document, options = {}) {
   const group = document.createElementNS(SVG_NAMESPACE, 'g');
   group.setAttribute('data-droplet-layout-id', node.id);
@@ -377,7 +467,7 @@ function renderNode(node, document, options = {}) {
   if (node.kind === 'container') {
     renderContainerFrame(group, node, document);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
-    group.append(createLabel(node.text, node.regions.header.left + 8, node.regions.header.top + 20, document));
+    renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document);
   } else if (node.kind === 'whitespace') {
     renderWhitespace(group, node, document);
   } else if (node.kind === 'socket' || node.kind === 'recovery-socket') {
@@ -385,7 +475,7 @@ function renderNode(node, document, options = {}) {
   } else {
     renderAtomicFrame(group, node, document);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
-    group.append(createLabel(node.text, node.bounds.left + 8, node.bounds.top + 20, document));
+    renderSourceLabels(group, node, node.bounds.left + 8, node.bounds.top + 20, document);
   }
   for (const child of otherChildren) group.append(renderNode(child, document, options));
   return group;
@@ -445,6 +535,28 @@ function renderSocket(group, node, document, {showSocketText = false} = {}) {
     label.setAttribute('text-anchor', 'middle');
     group.append(label);
   }
+}
+
+function renderSourceLabels(group, node, left, top, document) {
+  const sockets = node.children.filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
+    .sort((first, second) => first.source.from - second.source.from);
+  if (!sockets.length) {
+    group.append(createLabel(node.text, left, top, document));
+    return;
+  }
+  let sourceCursor = node.source.from;
+  let visualCursor = left;
+  for (const socket of sockets) {
+    const from = sourceCursor - node.source.from;
+    const to = socket.source.from - node.source.from;
+    const prefix = node.text.slice(from, to);
+    if (prefix) group.append(createLabel(prefix, visualCursor, top, document));
+    group.append(createLabel(socket.text, socket.textLeft, top, document));
+    sourceCursor = socket.source.to;
+    visualCursor = socket.bounds.right + 4;
+  }
+  const suffix = node.text.slice(sourceCursor - node.source.from);
+  if (suffix) group.append(createLabel(suffix, visualCursor, top, document));
 }
 
 function renderWhitespace(group, node, document) {

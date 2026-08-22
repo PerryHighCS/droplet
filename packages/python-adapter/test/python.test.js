@@ -45,6 +45,31 @@ test('labels assignment targets, assignment values, and if conditions as distinc
   ]);
 });
 
+test('projects a standalone print call as argument sockets, including an editable empty argument', () => {
+  const source = 'print()\nprint(first, second)\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Expr', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 7,
+      value: {type: 'Call', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 7,
+        func: {type: 'Name', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 5, id: 'print'}, args: []}},
+    {type: 'Expr', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 20,
+      value: {type: 'Call', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 20,
+        func: {type: 'Name', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 5, id: 'print'}, args: [
+          {type: 'Name', lineno: 2, col_offset: 6, end_lineno: 2, end_col_offset: 11, id: 'first'},
+          {type: 'Name', lineno: 2, col_offset: 13, end_lineno: 2, end_col_offset: 19, id: 'second'}
+        ]}}
+  ]};
+
+  const statements = parsePython(source, () => ast).root.children;
+  const sockets = statements.map((statement) => collectProjectedNodes(statement)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole, empty: node.metadata.empty})));
+
+  assert.deepEqual(sockets, [
+    [{text: '', role: 'call-argument', empty: true}],
+    [{text: 'first', role: 'expression', empty: undefined}, {text: 'second', role: 'expression', empty: undefined}]
+  ]);
+});
+
 test('converts Brython syntax failures into an opaque source projection', () => {
   const parsed = parsePython('if score >', () => { throw new Error('invalid syntax'); });
   assert.deepEqual(parsed.root.children[0], {
@@ -484,6 +509,46 @@ test('moves only Python statement lines and preserves comments, blanks, and loca
   }, parsed, () => ({}));
 
   assert.equal(applySourceChanges(source, changes), 'if ready:\n  second = 2\n  first = 1  # retain\n\n');
+});
+
+test('deletes a Python statement line and leaves pass in an emptied suite', () => {
+  const source = 'if ready:\n  first = 1\nnext = 2\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 12, to: 21, children: []};
+  const parsed = projection(source, [
+    {id: 'statement:if', kind: 'statement', from: 0, to: 21, children: [first],
+      metadata: {blockRole: 'container', bodyFrom: 12, bodyEnd: 21}},
+    {id: 'statement:next', kind: 'statement', from: 22, to: 30, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'delete-node', source: {from: first.from, to: first.to}, kind: 'statement'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nnext = 2\n');
+});
+
+test('deletes an inline Python comment without deleting its statement', () => {
+  const source = 'first = 1  # note\n';
+  const comment = {id: 'comment:11', kind: 'comment', from: 11, to: 17, children: [], metadata: {inline: true}};
+  const parsed = projection(source, [{id: 'statement:first', kind: 'statement', from: 0, to: 9, children: [comment]}]);
+
+  const changes = transformPython({
+    type: 'delete-node', source: {from: 11, to: 17}, kind: 'comment'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'first = 1\n');
+});
+
+test('copies a Python statement with destination indentation', () => {
+  const source = 'first = 1\nsecond = 2\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 0, to: 9, children: []};
+  const parsed = projection(source, [first, {id: 'statement:second', kind: 'statement', from: 10, to: 20, children: []}]);
+
+  const changes = transformPython({
+    type: 'copy-node', source: {from: 0, to: 9}, kind: 'statement', destination: {from: source.length, to: source.length}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'first = 1\nsecond = 2\nfirst = 1');
 });
 
 test('rejects Python block changes that Brython cannot parse', () => {

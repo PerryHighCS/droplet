@@ -84,11 +84,12 @@ function layoutAtomic(node, source, settings, left, top) {
   const inlineComment = node.kind === 'statement' ? inlineCommentFor(node, source, settings.inlineComments) : undefined;
   const textEnd = inlineComment ? inlineComment.from : node.kind === 'statement' ? lineEnd(source, node.to) : node.to;
   const text = source.slice(node.from, textEnd).trimEnd();
-  const width = Math.max(settings.minimumWidth, settings.measureText(text) + settings.horizontalPadding * 2);
-  const sockets = node.kind === 'statement'
-    ? sourceSockets(node)
-      .map((child) => layoutSocket(child, node, source, settings, left, top))
-    : [];
+  const sockets = node.kind === 'statement' ? layoutSockets(sourceSockets(node), node, source, settings, left, top) : [];
+  const width = Math.max(
+    settings.minimumWidth,
+    settings.measureText(text) + settings.horizontalPadding * 2,
+    socketContentWidth(sockets, node, textEnd, source, settings, left)
+  );
   const children = [
     ...(inlineComment ? [layoutAtomic(inlineComment, source, settings, left + width + settings.inlineCommentGap, top)] : []),
     ...sockets,
@@ -108,10 +109,21 @@ function layoutAtomic(node, source, settings, left, top) {
   };
 }
 
-function layoutSocket(node, statement, source, settings, left, top) {
+function layoutSockets(nodes, statement, source, settings, left, top) {
+  let sourceCursor = statement.from;
+  let visualCursor = left + settings.horizontalPadding;
+  return nodes.sort(compareSourceRanges).map((node) => {
+    visualCursor += settings.measureText(source.slice(sourceCursor, node.from));
+    const socket = layoutSocket(node, source, settings, visualCursor, top);
+    sourceCursor = node.to;
+    visualCursor = socket.bounds.right + settings.socketTextGap;
+    return socket;
+  });
+}
+
+function layoutSocket(node, source, settings, textLeft, top) {
   const text = source.slice(node.from, node.to);
-  const prefix = source.slice(statement.from, node.from);
-  const socketLeft = left + settings.horizontalPadding + settings.measureText(prefix) - settings.socketHorizontalPadding;
+  const socketLeft = textLeft - settings.socketHorizontalPadding;
   const width = Math.max(settings.socketMinimumWidth, settings.measureText(text) + settings.socketHorizontalPadding * 2);
   return {
     id: node.id,
@@ -119,10 +131,21 @@ function layoutSocket(node, statement, source, settings, left, top) {
     source: rangeOf(node),
     metadata: node.metadata,
     text,
+    textLeft,
     bounds: box(socketLeft, top + 2, width, settings.lineHeight - 4),
     children: [],
     insertionZones: []
   };
+}
+
+function socketContentWidth(sockets, node, textEnd, source, settings, left) {
+  if (!sockets.length) return 0;
+  const last = sockets.at(-1);
+  const suffix = source.slice(last.source.to, textEnd).trimEnd();
+  const labelRight = suffix
+    ? last.bounds.right + settings.socketTextGap + settings.measureText(suffix)
+    : last.textLeft + settings.measureText(last.text);
+  return Math.max(last.bounds.right, labelRight) - left + settings.horizontalPadding;
 }
 
 function layoutWhitespace(node, settings, left, top) {
@@ -140,9 +163,12 @@ function layoutWhitespace(node, settings, left, top) {
 function layoutContainer(node, source, settings, left, top) {
   const headerTo = validHeaderTo(node, source);
   const headerText = source.slice(node.from, headerTo);
-  const headerWidth = Math.max(settings.minimumWidth, settings.measureText(headerText) + settings.horizontalPadding * 2);
-  const headerSockets = sourceSockets(node)
-    .map((child) => layoutSocket(child, node, source, settings, left, top));
+  const headerSockets = layoutSockets(sourceSockets(node), node, source, settings, left, top);
+  const headerWidth = Math.max(
+    settings.minimumWidth,
+    settings.measureText(headerText) + settings.horizontalPadding * 2,
+    socketContentWidth(headerSockets, node, headerTo, source, settings, left)
+  );
   const bodyLeft = left + settings.indentWidth;
   const bodyTop = top + settings.lineHeight + settings.containerGap;
   const bodyEnd = Number.isInteger(node.metadata?.bodyEnd) ? node.metadata.bodyEnd : node.to;
@@ -286,6 +312,7 @@ function inlineCommentFor(statement, source, comments) {
 function translateLayoutNode(node, x, y) {
   return {
     ...node,
+    ...(Number.isFinite(node.textLeft) ? {textLeft: node.textLeft + x} : {}),
     bounds: translateBox(node.bounds, x, y),
     regions: node.regions && Object.fromEntries(Object.entries(node.regions).map(([key, value]) => [key, translateBox(value, x, y)])),
     insertionZones: (node.insertionZones ?? []).map((zone) => ({...zone, bounds: translateBox(zone.bounds, x, y)})),
@@ -325,7 +352,8 @@ function normalizeOptions(options) {
     whitespaceWidth: positiveNumber(options.whitespaceWidth, 72),
     inlineCommentGap: positiveNumber(options.inlineCommentGap, 6),
     socketMinimumWidth: positiveNumber(options.socketMinimumWidth, 16),
-    socketHorizontalPadding: nonNegativeNumber(options.socketHorizontalPadding, 3)
+    socketHorizontalPadding: nonNegativeNumber(options.socketHorizontalPadding, 3),
+    socketTextGap: nonNegativeNumber(options.socketTextGap, 4)
   };
 }
 

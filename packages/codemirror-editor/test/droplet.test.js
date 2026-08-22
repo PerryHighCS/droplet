@@ -111,7 +111,7 @@ test('editing a rendered socket commits one CodeMirror source change on Enter', 
   const svg = parent.querySelector('.droplet-block-surface svg');
   svg.getBoundingClientRect = () => ({left: 0, top: 0});
 
-  socket.dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0, clientX: 98, clientY: 5}));
+  clickRenderedSocket(socket);
   const input = parent.querySelector('.droplet-socket-editor');
   assert.equal(input.value, 'value');
   input.value = 'answer';
@@ -133,7 +133,7 @@ test('an incomplete socket commit remains an editable recovery socket until it p
   const svg = parent.querySelector('.droplet-block-surface svg');
   svg.getBoundingClientRect = () => ({left: 0, top: 0});
   const edit = (selector, value) => {
-    parent.querySelector(selector).dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0, clientX: 98, clientY: 5}));
+    clickRenderedSocket(parent.querySelector(selector));
     const input = parent.querySelector('.droplet-socket-editor');
     input.value = value;
     input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
@@ -150,6 +150,34 @@ test('an incomplete socket commit remains an editable recovery socket until it p
   assert.equal(parent.querySelector('[data-droplet-layout-id="value:answer"]')?.dataset.dropletKind, 'socket');
   editor.destroy();
 });
+
+test('deleting a selected socket commits an empty editable recovery range', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseRecoveringSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:value"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.selectionStart = 0;
+  input.selectionEnd = input.value.length;
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Delete'}));
+
+  assert.equal(editor.getValue(), 'target = \n');
+  assert.equal(parent.querySelector('[data-droplet-kind="recovery-socket"]')?.dataset.dropletFrom, '9');
+  editor.destroy();
+});
+
+function clickRenderedSocket(socket) {
+  const frame = socket.querySelector('rect');
+  socket.dispatchEvent(new window.MouseEvent('click', {
+    bubbles: true,
+    button: 0,
+    clientX: Number(frame.getAttribute('x')) + 2,
+    clientY: Number(frame.getAttribute('y')) + 2
+  }));
+}
 
 test('rendered block drops become source operations without a second document', () => {
   assert.deepEqual(
@@ -283,7 +311,7 @@ function parseSocketExample(source) {
 }
 
 function parseRecoveringSocketExample(source) {
-  if (source.includes('(')) {
+  if (source.includes('(') || source === 'target = \n') {
     const error = new Error('Expected an expression');
     error.from = 0;
     error.to = source.length;

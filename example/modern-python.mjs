@@ -13,7 +13,7 @@ const samples = {
 
 const palette = [{
   name: 'Python', blocks: [
-    {id: 'print', label: 'print("hello")', source: 'print("hello")\n'},
+    {id: 'print', label: 'print()', source: 'print()\n'},
     {id: 'assignment', label: 'value = 1', source: 'value = 1\n'},
     {id: 'if', label: 'if True:', source: 'if True:\n  pass\n'},
     {id: 'for', label: 'for item in range(3):', source: 'for item in range(3):\n  pass\n'}
@@ -107,7 +107,7 @@ function renderPalette() {
       button.textContent = block.label;
       button.addEventListener('dragstart', (event) => {
         event.dataTransfer.setData('application/x-droplet-statement', block.source);
-        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.effectAllowed = 'move';
       });
       button.addEventListener('click', () => insertPaletteBlock(block));
       blocks.append(button);

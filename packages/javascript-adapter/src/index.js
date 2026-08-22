@@ -65,6 +65,19 @@ export function transformJavaScript(operation, parsed) {
       ];
       break;
     }
+    case 'delete-node': {
+      const node = findNode(parsed.root, operation.source, operation.kind);
+      if (!node || node.kind !== 'statement') throw new RangeError('Statement deletion source is not present in the current projection');
+      changes = [{from: node.from, to: node.to, insert: ''}];
+      break;
+    }
+    case 'copy-node': {
+      const node = findNode(parsed.root, operation.source, operation.kind);
+      if (!node || node.kind !== 'statement') throw new RangeError('Statement copy source is not present in the current projection');
+      assertInsertionPoint(parsed.source, operation.destination);
+      changes = [{from: operation.destination.from, to: operation.destination.to, insert: parsed.source.slice(node.from, node.to)}];
+      break;
+    }
     default:
       throw new RangeError(`Unsupported JavaScript block operation: ${operation?.type}`);
   }

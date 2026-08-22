@@ -1125,6 +1125,34 @@ shortcut that appends by default or inserts before the currently selected
 block. It is a development/playground affordance, not a second mutable block
 document.
 
+### Print call sockets — 2026-08-22
+
+The Python playground's `print` starter is `print()`, not a pre-filled opaque
+call expression. A standalone `print()` exposes one source-backed empty
+argument socket between its parentheses. Editing that socket with an expression
+commits one normal source transaction; comma-separated arguments reparse into
+individually addressable argument sockets. This is the initial expandable-call
+pattern: no secondary block document and no source normalization.
+
+### Source-backed deletion — 2026-08-22
+
+Selected statement and comment blocks can be deleted with Delete or Backspace,
+and a dragged block can be deleted by releasing it outside the BlockSurface.
+Deletion is expressed as a source operation and stays in CodeMirror history.
+Deleting a Python suite's final statement replaces only that line with the
+locally-indented `pass` placeholder. Socket deletion follows the existing
+editable recovery path: its exact range becomes empty source and remains
+directly repairable if that intermediate text is incomplete.
+
+The currently selected block has a high-contrast SVG outline. This selection is
+the target of keyboard deletion and remains visually distinct from ordinary
+blue structural borders.
+
+Ctrl-drag (Cmd-drag on macOS) copies a block to its insertion target rather
+than moving it. Copy operations retain the same local indentation and
+empty-suite handling as source-backed insertion; modifier drags released
+outside the surface cancel rather than delete.
+
 ## Expandable conditional containers
 
 An `if` chain is one conditional construct with multiple branches, not several

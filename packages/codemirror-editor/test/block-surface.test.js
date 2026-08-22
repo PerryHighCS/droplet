@@ -67,6 +67,7 @@ test('lays out source-backed assignment sockets inside their statement block', (
   assert.equal(target.metadata.socketRole, 'assignment-target');
   assert.equal(value.metadata.socketRole, 'assignment-value');
   assert.ok(target.bounds.left < value.bounds.left);
+  assert.equal(value.textLeft, target.bounds.right + 4 + 30);
   assert.equal(hitTestBlockLayout(layout, {x: value.bounds.left + 2, y: value.bounds.top + 2}).node.id, 'value');
 });
 
@@ -85,6 +86,7 @@ test('lays out an if condition socket in the container header', () => {
   assert.equal(condition.kind, 'socket');
   assert.ok(condition.bounds.top >= container.regions.header.top);
   assert.ok(condition.bounds.bottom <= container.regions.header.bottom);
+  assert.ok(container.regions.header.right >= condition.bounds.right + 4 + 10);
   assert.equal(hitTestBlockLayout(layout, {x: condition.bounds.left + 2, y: condition.bounds.top + 2}).node.id, 'condition');
 });
 

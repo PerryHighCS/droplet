@@ -339,6 +339,33 @@ test('manual modern Python playground inserts a Python palette block through the
   await expect(page.locator('#modern-python-status')).toHaveText('Inserted value = 1.');
 });
 
+test('manual modern Python playground exposes an expandable print argument socket', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  await page.locator('[data-palette-block="print"]').click();
+  await expect(page.locator('#modern-python-source')).toContainText('print()');
+
+  const emptyArgument = await page.locator('.droplet-block-surface [data-droplet-kind="socket"]').evaluateAll((sockets) => {
+    const source = document.querySelector('#modern-python-source').textContent;
+    const socket = sockets.find((candidate) => candidate.dataset.dropletFrom === candidate.dataset.dropletTo &&
+      source.slice(Number(candidate.dataset.dropletFrom) - 6, Number(candidate.dataset.dropletFrom)) === 'print(');
+    return socket ? {from: socket.dataset.dropletFrom, to: socket.dataset.dropletTo} : undefined;
+  });
+  expect(emptyArgument).toBeDefined();
+  const socket = page.locator(`[data-droplet-kind="socket"][data-droplet-from="${emptyArgument.from}"][data-droplet-to="${emptyArgument.to}"]`);
+  const box = await socket.boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.locator('.droplet-socket-editor').fill('first, second');
+  await page.locator('.droplet-socket-editor').press('Enter');
+
+  await expect(page.locator('#modern-python-source')).toContainText('print(first, second)');
+  await expect.poll(() => page.locator('.droplet-block-surface [data-droplet-kind="socket"]').evaluateAll((sockets) => {
+    const source = document.querySelector('#modern-python-source').textContent;
+    return sockets.filter((socket) => source.slice(Number(socket.dataset.dropletFrom), Number(socket.dataset.dropletTo))
+      .match(/^(first|second)$/)).length;
+  })).toBe(2);
+});
+
 test('manual modern Python playground accepts a palette block drag at an insertion target', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
@@ -354,6 +381,59 @@ test('manual modern Python playground accepts a palette block drag at an inserti
   await surface.dispatchEvent('drop', {dataTransfer, clientX: tailBox.x + 3, clientY: tailBox.y + 2});
 
   await expect(page.locator('#modern-python-source')).toContainText('  second = 2\n\nvalue = 1\ntail = 0');
+});
+
+test('manual modern Python playground deletes selected and off-canvas blocks', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
+  const tailBox = await tail.boundingBox();
+  await page.mouse.click(tailBox.x + 4, tailBox.y + 4);
+  await page.keyboard.press('Delete');
+  await expect(page.locator('#modern-python-source')).not.toContainText('tail = 0');
+
+  const second = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'second = 2'}).first();
+  const [secondBox, surfaceBox] = await Promise.all([
+    second.boundingBox(), page.locator('.droplet-block-surface svg').boundingBox()
+  ]);
+  await page.mouse.move(secondBox.x + 4, secondBox.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(secondBox.x + 12, secondBox.y + 12);
+  await page.mouse.move(surfaceBox.x - 20, secondBox.y + 12, {steps: 8});
+  await page.mouse.up();
+
+  await expect(page.locator('#modern-python-source')).not.toContainText('second = 2');
+});
+
+test('manual modern Python playground copies a block with Ctrl-drag', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  const first = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'first = 1'}).first();
+  const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
+  const [firstBox, tailBox] = await Promise.all([first.boundingBox(), tail.boundingBox()]);
+
+  await page.keyboard.down('Control');
+  await page.mouse.move(firstBox.x + 4, firstBox.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(firstBox.x + 12, firstBox.y + 12);
+  await page.mouse.move(tailBox.x + 4, tailBox.y + 2, {steps: 8});
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+
+  await expect(page.locator('#modern-python-source')).toContainText('  if ready:\n    first = 1  # inline note\n  second = 2\n\nfirst = 1\ntail = 0');
+});
+
+test('manual modern Python playground visibly outlines the selected block', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
+  const box = await tail.boundingBox();
+  await page.mouse.click(box.x + 4, box.y + 4);
+
+  const selection = page.locator('.droplet-block-surface .droplet-block-selection');
+  await expect(selection).toBeVisible();
+  await expect(selection).toHaveAttribute('stroke', '#d97706');
+  await expect(page.locator('.droplet-block-surface svg')).toHaveAttribute('data-droplet-selected-id', 'statement:Assign:85:93');
 });
 
 test('manual modern Python playground renders suite containers and blank-line placeholders', async ({page}) => {

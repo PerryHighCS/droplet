@@ -114,6 +114,36 @@ export function transformPython(operation, parsed, pythonToAST) {
         : moveLineRangeChanges(parsed.source, commentRange, operation.destination.from);
       break;
     }
+    case 'copy-node': {
+      const node = findNode(parsed.root, operation.source, operation.kind);
+      if (!node || (node.kind !== 'statement' && node.kind !== 'comment')) {
+        throw new RangeError('Copy source is not present in the current projection');
+      }
+      assertInsertionPoint(parsed.source, operation.destination);
+      const copiedSource = parsed.source.slice(node.from, node.to);
+      const emptyPass = emptySuitePass(parsed, operation.destination);
+      changes = emptyPass
+        ? [replaceEmptySuitePass(parsed.source, emptyPass, copiedSource)]
+        : [insertStatementChange(parsed.source, operation.destination.from, copiedSource)];
+      break;
+    }
+    case 'delete-node': {
+      const node = findNode(parsed.root, operation.source, operation.kind);
+      if (!node) throw new RangeError('Deletion source is not present in the current projection');
+      if (node.kind === 'comment') {
+        const commentRange = node.metadata?.inline ? inlineCommentRange(parsed.source, node) : lineRange(parsed.source, node);
+        changes = [{from: commentRange.from, to: commentRange.to, insert: ''}];
+        break;
+      }
+      if (node.kind !== 'statement') throw new RangeError('Only statements and comments can be deleted');
+      const statementRange = lineRange(parsed.source, node);
+      changes = [{
+        from: statementRange.from,
+        to: statementRange.to,
+        insert: containerEmptiedByMove(parsed.root, node) ? emptySuiteReplacement(parsed.source, statementRange) : ''
+      }];
+      break;
+    }
     default:
       throw new RangeError(`Unsupported Python block operation: ${operation?.type}`);
   }
@@ -165,14 +195,27 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
     : boundedRange(rawFrom, rawTo, boundary);
   const statementRange = kind === 'statement' ? expandDecoratorRange(node, source, lines, range) : range;
   const {from, to} = statementRange;
+  const children = childNodes(node).map((child) => project(
+    child.node, source, lines, child.socketRole ? 'socket' : kindFor(child.node), statementRange, child.socketRole
+  ));
+  addEmptyPrintArgumentSocket(children, node, source, rawFrom, rawTo);
   return {
     id: `${kind}:${typeOf(node)}:${from}:${to}`,
     kind, from, to, editable: kind !== 'document',
-    children: childNodes(node).map((child) => project(
-    child.node, source, lines, child.socketRole ? 'socket' : kindFor(child.node), statementRange, child.socketRole
-    )).sort(compareProjectedNodes),
+    children: children.sort(compareProjectedNodes),
     metadata: metadataFor(node, kind, source, rawFrom ?? from, socketRole)
   };
+}
+
+function addEmptyPrintArgumentSocket(children, node, source, from, to) {
+  if (!isPrintCall(node) || children.some((child) => child.kind === 'socket') || from === null || to === null) return;
+  const closingParenthesis = source.lastIndexOf(')', to - 1);
+  if (closingParenthesis < from) return;
+  children.push({
+    id: `socket:print-argument:${closingParenthesis}:${closingParenthesis}`,
+    kind: 'socket', from: closingParenthesis, to: closingParenthesis, editable: true, children: [],
+    metadata: {type: 'CallArgument', socketRole: 'call-argument', empty: true}
+  });
 }
 
 function metadataFor(node, kind, source, headerFrom, socketRole) {
@@ -401,7 +444,7 @@ function childNodes(node) {
   const children = [];
   for (const [key, value] of Object.entries(node ?? {})) {
     if (key.startsWith('$') || locationKeys.has(key) || bookkeepingKeys.has(key)) continue;
-    collectLocatedChildren(value, socketRoleFor(node, key), children);
+    collectLocatedChildren(value, socketRoleFor(node, key, value), children);
   }
   return children;
 }
@@ -415,13 +458,14 @@ function collectLocatedChildren(value, socketRole, children) {
     }
     for (const [key, nestedValue] of Object.entries(child)) {
       if (key.startsWith('$') || locationKeys.has(key)) continue;
-      collectLocatedChildren(nestedValue, socketRole ?? socketRoleFor(child, key), children);
+      collectLocatedChildren(nestedValue, socketRole ?? socketRoleFor(child, key, nestedValue), children);
     }
   }
 }
 
-function socketRoleFor(parent, key) {
+function socketRoleFor(parent, key, value) {
   const type = typeOf(parent);
+  if (type === 'Expr' && key === 'value' && isPrintCall(value)) return undefined;
   if ((type === 'Assign' || type === 'AnnAssign' || type === 'AugAssign') &&
       (key === 'target' || key === 'targets')) return 'assignment-target';
   if ((type === 'Assign' || type === 'AnnAssign' || type === 'AugAssign') && key === 'value') {
@@ -429,6 +473,10 @@ function socketRoleFor(parent, key) {
   }
   if (type === 'If' && key === 'test') return 'if-condition';
   return socketKeys.has(key) ? 'expression' : undefined;
+}
+
+function isPrintCall(node) {
+  return typeOf(node) === 'Call' && typeOf(node.func) === 'Name' && node.func.id === 'print';
 }
 
 const statementTypes = new Set([
