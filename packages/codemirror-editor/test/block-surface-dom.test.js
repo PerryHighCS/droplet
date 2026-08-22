@@ -255,6 +255,55 @@ test('drops an expression palette block into a gap as a standalone statement lin
   assert.deepEqual(operations, [{type: 'insert-statement', destination: bodyEnd.destination, source: 'value + value\n'}]);
 });
 
+test('opens the inline editor for a compound socket\'s own leaf socket', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onSocketEdit: () => {}});
+  surface.update(compoundAssignmentSockets());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const left = surface.layout.nodes.find((node) => node.id === 'left');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0,
+    clientX: left.bounds.left + 2, clientY: left.bounds.top + 2}));
+
+  const input = surface.element.querySelector('.droplet-socket-editor');
+  assert.ok(input);
+  assert.equal(input.value, 'value');
+});
+
+test('selects but does not open a free-text editor for a compound socket as a whole', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onSocketEdit: () => {}});
+  surface.update(compoundAssignmentSockets());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const binop = surface.layout.nodes.find((node) => node.id === 'binop');
+  const left = surface.layout.nodes.find((node) => node.id === 'left');
+  const right = surface.layout.nodes.find((node) => node.id === 'right');
+  // A point inside the compound socket's own bounds but between its two
+  // nested sockets - i.e. over the "+" operator text, not over "value".
+  const operatorX = (left.bounds.right + right.bounds.left) / 2;
+
+  svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0,
+    clientX: operatorX, clientY: binop.bounds.top + 2}));
+
+  assert.equal(surface.element.querySelector('.droplet-socket-editor'), null);
+  assert.equal(svg.dataset.dropletSelectedId, 'binop');
+});
+
+test('renders a compound socket\'s operands once each, not duplicated by its own flat text', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
+  surface.update(compoundAssignmentSockets());
+  const svg = surface.element.querySelector('svg');
+
+  // The enclosing statement's own label pass used to also draw the compound
+  // socket's flat "value + value" text on top of the nested rendering the
+  // socket already did for itself, overlapping the second "value".
+  const labels = [...svg.querySelectorAll('text')].map((node) => node.textContent);
+  assert.deepEqual(labels, ['value', ' + ', 'value', 'target', ' = ']);
+});
+
 test('uses the upper and lower halves of a standalone comment as sibling drop targets', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -540,6 +589,21 @@ function assignmentSockets() {
       id: 'assign', kind: 'statement', from: 0, to: 14, editable: true, metadata: {}, children: [
         {id: 'target', kind: 'socket', from: 0, to: 6, editable: true, metadata: {socketRole: 'assignment-target'}, children: []},
         {id: 'value', kind: 'socket', from: 9, to: 14, editable: true, metadata: {socketRole: 'assignment-value'}, children: []}
+      ]
+    }]
+  }};
+}
+
+function compoundAssignmentSockets() {
+  const source = 'target = value + value\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'assign', kind: 'statement', from: 0, to: 22, editable: true, metadata: {}, children: [
+        {id: 'target', kind: 'socket', from: 0, to: 6, editable: true, metadata: {socketRole: 'assignment-target'}, children: []},
+        {id: 'binop', kind: 'socket', from: 9, to: 22, editable: true, metadata: {socketRole: 'assignment-value'}, children: [
+          {id: 'left', kind: 'socket', from: 9, to: 14, editable: true, metadata: {socketRole: 'expression'}, children: []},
+          {id: 'right', kind: 'socket', from: 17, to: 22, editable: true, metadata: {socketRole: 'expression'}, children: []}
+        ]}
       ]
     }]
   }};

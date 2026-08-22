@@ -487,7 +487,11 @@ function isDeletable(node) {
 
 function isExpressionNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
 function isSocketNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
-function isInlineEditable(node) { return isSocketNode(node) || node?.kind === 'comment'; }
+// A compound socket (one with its own nested sockets, e.g. `value + value`)
+// is selectable and movable like any socket, but not click-to-edit as free
+// text - only its own leaf sockets are, so the user can't rewrite the
+// operator structure that makes it that expression.
+function isInlineEditable(node) { return (isSocketNode(node) && !node.children?.length) || node?.kind === 'comment'; }
 function sameRange(left, right) { return left?.from === right?.from && left?.to === right?.to; }
 
 function layoutNodeForElement(layout, element) {
@@ -729,7 +733,13 @@ function renderAtomicFrame(group, node, document) {
   group.append(rect);
 }
 
-function renderSocket(group, node, document, {showSocketText = false} = {}) {
+function renderSocket(group, node, document, options = {}) {
+  // A compound socket (e.g. `value + value`) only lets the user edit its own
+  // operand sockets, not the operator/keyword structure around them: render
+  // its nested sockets and their surrounding text, the same way a
+  // statement's own sockets render, instead of one flat, freely-editable box.
+  if (node.children.length) return renderCompoundSocket(group, node, document, options);
+  const {showSocketText = false} = options;
   const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
   rect.setAttribute('x', String(node.bounds.left));
   rect.setAttribute('y', String(node.bounds.top));
@@ -747,6 +757,11 @@ function renderSocket(group, node, document, {showSocketText = false} = {}) {
   }
 }
 
+function renderCompoundSocket(group, node, document, options) {
+  for (const child of node.children) group.append(renderNode(child, document, options));
+  renderSourceLabels(group, node, node.textLeft, node.bounds.top + 20, document);
+}
+
 function renderSourceLabels(group, node, left, top, document) {
   const sockets = node.children.filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
     .sort((first, second) => first.source.from - second.source.from);
@@ -761,7 +776,10 @@ function renderSourceLabels(group, node, left, top, document) {
     const to = socket.source.from - node.source.from;
     const prefix = node.text.slice(from, to);
     if (prefix) group.append(createLabel(prefix, visualCursor, top, document));
-    group.append(createLabel(socket.text, socket.textLeft, top, document));
+    // A compound socket already rendered its own nested sockets and text (the
+    // earlier renderNode call for it, in the loop above this one); drawing
+    // its flat text here too would duplicate and overlap that.
+    if (!socket.children.length) group.append(createLabel(socket.text, socket.textLeft, top, document));
     sourceCursor = socket.source.to;
     visualCursor = socket.bounds.right + 4;
   }

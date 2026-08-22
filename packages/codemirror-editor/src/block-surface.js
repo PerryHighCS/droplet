@@ -109,9 +109,9 @@ function layoutAtomic(node, source, settings, left, top) {
   };
 }
 
-function layoutSockets(nodes, statement, source, settings, left, top) {
+function layoutSockets(nodes, statement, source, settings, left, top, initialPadding = settings.horizontalPadding) {
   let sourceCursor = statement.from;
-  let visualCursor = left + settings.horizontalPadding;
+  let visualCursor = left + initialPadding;
   return nodes.sort(compareSourceRanges).map((node) => {
     const gap = source.slice(sourceCursor, node.from);
     visualCursor += settings.measureText(gap);
@@ -128,6 +128,13 @@ function layoutSockets(nodes, statement, source, settings, left, top) {
 }
 
 function layoutSocket(node, source, settings, textLeft, top, leftPadding = settings.socketHorizontalPadding) {
+  // A compound socket (e.g. `value + value`, `not value`) should only let
+  // the user edit its own operand sockets, not rewrite the operator/keyword
+  // structure that makes it that expression - so it lays out its own inner
+  // sockets and the surrounding text between them, instead of rendering as
+  // one flat, freely-editable string.
+  const innerSockets = sourceSockets(node);
+  if (innerSockets.length) return layoutCompoundSocket(node, innerSockets, source, settings, textLeft, top, leftPadding);
   const text = source.slice(node.from, node.to);
   const socketLeft = textLeft - leftPadding;
   const width = Math.max(settings.socketMinimumWidth, settings.measureText(text) + leftPadding + settings.socketHorizontalPadding);
@@ -140,6 +147,26 @@ function layoutSocket(node, source, settings, textLeft, top, leftPadding = setti
     textLeft,
     bounds: box(socketLeft, top + 2, width, settings.lineHeight - 4),
     children: [],
+    insertionZones: []
+  };
+}
+
+function layoutCompoundSocket(node, innerSockets, source, settings, textLeft, top, leftPadding) {
+  const sockets = layoutSockets(innerSockets, node, source, settings, textLeft, top, 0);
+  const last = sockets.at(-1);
+  const suffix = source.slice(last.source.to, node.to);
+  const contentRight = suffix ? last.bounds.right + settings.socketTextGap + settings.measureText(suffix) : last.bounds.right;
+  const socketLeft = textLeft - leftPadding;
+  const width = Math.max(settings.socketMinimumWidth, contentRight - socketLeft + settings.socketHorizontalPadding);
+  return {
+    id: node.id,
+    kind: node.kind,
+    source: rangeOf(node),
+    metadata: node.metadata,
+    text: source.slice(node.from, node.to),
+    textLeft,
+    bounds: box(socketLeft, top + 2, width, settings.lineHeight - 4),
+    children: sockets,
     insertionZones: []
   };
 }

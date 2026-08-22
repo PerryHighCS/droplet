@@ -90,6 +90,30 @@ test('keeps a socket rect clear of its source gap text when there is no surround
   assert.equal(value.bounds.left, target.bounds.right + 4 + 10);
 });
 
+test('lays out a compound socket\'s own inner sockets instead of one flat socket', () => {
+  const source = 'target = value + value\n';
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('assign', 0, 22),
+    children: [
+      {id: 'target', kind: 'socket', from: 0, to: 6, editable: true, children: [], metadata: {socketRole: 'assignment-target'}},
+      {id: 'binop', kind: 'socket', from: 9, to: 22, editable: true, metadata: {socketRole: 'assignment-value'}, children: [
+        {id: 'left', kind: 'socket', from: 9, to: 14, editable: true, children: [], metadata: {socketRole: 'expression'}},
+        {id: 'right', kind: 'socket', from: 17, to: 22, editable: true, children: [], metadata: {socketRole: 'expression'}}
+      ]}
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+  const binop = layout.nodes.find((node) => node.id === 'binop');
+  const left = layout.nodes.find((node) => node.id === 'left');
+  const right = layout.nodes.find((node) => node.id === 'right');
+
+  assert.deepEqual(binop.children.map((child) => child.id), ['left', 'right']);
+  assert.ok(left.bounds.left >= binop.bounds.left);
+  assert.ok(right.bounds.right <= binop.bounds.right);
+  assert.ok(left.bounds.right < right.bounds.left);
+  assert.equal(hitTestBlockLayout(layout, {x: left.bounds.left + 2, y: left.bounds.top + 2}).node.id, 'left');
+  assert.equal(hitTestBlockLayout(layout, {x: right.bounds.left + 2, y: right.bounds.top + 2}).node.id, 'right');
+});
+
 test('lays out an if condition socket in the container header', () => {
   const source = 'if ready:\n  pass\n';
   const layout = createBlockLayout({source, root: documentNode(source, [{
