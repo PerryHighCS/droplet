@@ -52,6 +52,25 @@ test('uses the same subtree geometry for a drag preview and gives a nested child
   }).node.id, 'first');
 });
 
+test('prefers an inner container insertion zone and retains its source indentation', () => {
+  const source = 'if outer:\n  if ready:\n    pass\n';
+  const layout = createBlockLayout({
+    source,
+    root: documentNode(source, [{
+      ...statement('outer', 0, source.length, {blockRole: 'container', headerTo: 9, bodyEnd: source.length, bodyIndentation: '  '}),
+      children: [{
+        ...statement('inner', 12, source.length, {blockRole: 'container', headerTo: 21, bodyEnd: source.length, bodyIndentation: '    '}),
+        children: [statement('pass', 26, 30)]
+      }]
+    }])
+  });
+  const inner = layout.nodes.find((node) => node.id === 'inner');
+  const zone = hitTestBlockLayout(layout, {x: inner.regions.body.left, y: inner.regions.footer.top}).zone;
+
+  assert.equal(zone.depth, 2);
+  assert.deepEqual(zone.destination, {from: source.length, to: source.length, indentation: '    '});
+});
+
 function projection(source) {
   return {
     source,

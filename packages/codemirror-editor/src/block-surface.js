@@ -13,7 +13,7 @@ export function createBlockLayout(projection, options = {}) {
     source: projection.source,
     bounds: root.bounds,
     root,
-    insertionZones: collectInsertionZones(root),
+    insertionZones: collectInsertionZones(root).sort((left, right) => right.depth - left.depth),
     nodes: collectLayoutNodes(root)
   };
 }
@@ -57,19 +57,19 @@ function layoutDocument(node, source, settings) {
   };
 }
 
-function layoutChildren(nodes, source, settings, left, top, bodyEnd) {
+function layoutChildren(nodes, source, settings, left, top, bodyEnd, destination = {}) {
   let cursor = top;
   let right = left + settings.minimumWidth;
   const children = [];
   const insertionZones = [];
   for (const node of nodes) {
-    insertionZones.push(insertionZone(node.from, left, cursor, right - left, settings, 'before-sibling'));
+    insertionZones.push(insertionZone(node.from, left, cursor, right - left, settings, 'before-sibling', destination));
     const child = layoutNode(node, source, settings, left, cursor);
     children.push(child);
     cursor = child.bounds.bottom + settings.rowGap;
     right = Math.max(right, child.bounds.right);
   }
-  insertionZones.push(insertionZone(bodyEnd, left, cursor, right - left, settings, 'body-end'));
+  insertionZones.push(insertionZone(bodyEnd, left, cursor, right - left, settings, 'body-end', destination));
   return {children, insertionZones, right, bottom: Math.max(top + settings.lineHeight, cursor)};
 }
 
@@ -115,7 +115,10 @@ function layoutContainer(node, source, settings, left, top) {
   const bodyLeft = left + settings.indentWidth;
   const bodyTop = top + settings.lineHeight + settings.containerGap;
   const bodyEnd = Number.isInteger(node.metadata?.bodyEnd) ? node.metadata.bodyEnd : node.to;
-  const body = layoutChildren(structuralChildren(node), source, settings, bodyLeft, bodyTop, bodyEnd);
+  const body = layoutChildren(structuralChildren(node), source, settings, bodyLeft, bodyTop, bodyEnd, {
+    ...(node.metadata?.bodyIndentation === undefined ? {} : {indentation: node.metadata.bodyIndentation}),
+    ...(node.metadata?.emptySuitePass ? {emptySuitePass: node.metadata.emptySuitePass} : {})
+  });
   const right = Math.max(left + headerWidth, body.right + settings.horizontalPadding);
   const footerTop = Math.max(bodyTop, body.bottom);
   const footer = box(left, footerTop, right - left, settings.footerHeight);
@@ -158,9 +161,9 @@ function validHeaderTo(node, source) {
     : source.indexOf('\n', node.from) === -1 ? node.to : source.indexOf('\n', node.from);
 }
 
-function insertionZone(destination, left, top, width, settings, role) {
+function insertionZone(destination, left, top, width, settings, role, details) {
   return {
-    kind: 'insertion-zone', role, destination: {from: destination, to: destination},
+    kind: 'insertion-zone', role, destination: {from: destination, to: destination, ...details},
     bounds: box(left, top - settings.insertionHeight / 2, Math.max(settings.minimumWidth, width), settings.insertionHeight)
   };
 }
@@ -175,10 +178,10 @@ function hitTestNode(node, point) {
   return node.kind === 'document' ? undefined : node;
 }
 
-function collectInsertionZones(node) {
+function collectInsertionZones(node, depth = 0) {
   return [
-    ...(node.insertionZones ?? []),
-    ...(node.children ?? []).flatMap(collectInsertionZones)
+    ...(node.insertionZones ?? []).map((zone) => ({...zone, depth})),
+    ...(node.children ?? []).flatMap((child) => collectInsertionZones(child, depth + 1))
   ];
 }
 
