@@ -132,14 +132,19 @@ export class BlockSurface {
   #openSocketEditor(socket) {
     if (!this.#onSocketEdit) return;
     this.#closeSocketEditor();
+    // The input is an absolutely positioned sibling of the SVG, not part of
+    // its coordinate system, so a host page adding padding/border around the
+    // SVG (or scaling it) would otherwise leave the input misaligned with
+    // the socket it edits.
+    const {left, top, scale} = this.#svgOffset();
     const input = this.#dom.ownerDocument.createElement('input');
     input.className = 'droplet-socket-editor';
     input.value = this.#layout.source.slice(socket.source.from, socket.source.to);
     input.setAttribute('aria-label', `${socket.metadata?.socketRole ?? 'expression'} socket`);
     Object.assign(input.style, {
-      position: 'absolute', left: `${socket.bounds.left}px`, top: `${socket.bounds.top}px`,
-      width: `${Math.max(24, socket.bounds.right - socket.bounds.left)}px`,
-      height: `${socket.bounds.bottom - socket.bounds.top}px`, boxSizing: 'border-box',
+      position: 'absolute', left: `${left + socket.bounds.left * scale}px`, top: `${top + socket.bounds.top * scale}px`,
+      width: `${Math.max(24, (socket.bounds.right - socket.bounds.left) * scale)}px`,
+      height: `${(socket.bounds.bottom - socket.bounds.top) * scale}px`, boxSizing: 'border-box',
       border: '1px solid #246ca8', borderRadius: '3px', padding: '0 3px',
       font: '16px ui-monospace, SFMono-Regular, Menlo, monospace', color: '#24344d', background: '#fff'
     });
@@ -163,6 +168,14 @@ export class BlockSurface {
     this.#dom.append(input);
     input.focus();
     input.select();
+  }
+
+  #svgOffset() {
+    const svgRect = this.#svg.getBoundingClientRect();
+    const hostRect = this.#dom.getBoundingClientRect();
+    const declaredWidth = Number(this.#svg.getAttribute('width'));
+    const scale = declaredWidth && svgRect.width ? svgRect.width / declaredWidth : 1;
+    return {left: (svgRect.left || 0) - (hostRect.left || 0), top: (svgRect.top || 0) - (hostRect.top || 0), scale};
   }
 
   #commitSocketEditor(editing) {

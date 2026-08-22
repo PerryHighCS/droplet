@@ -113,18 +113,24 @@ function layoutSockets(nodes, statement, source, settings, left, top) {
   let sourceCursor = statement.from;
   let visualCursor = left + settings.horizontalPadding;
   return nodes.sort(compareSourceRanges).map((node) => {
-    visualCursor += settings.measureText(source.slice(sourceCursor, node.from));
-    const socket = layoutSocket(node, source, settings, visualCursor, top);
+    const gap = source.slice(sourceCursor, node.from);
+    visualCursor += settings.measureText(gap);
+    // The socket's rounded rect pads its own text on the left by pulling its
+    // edge back before textLeft. That pullback is meant to land in blank
+    // space; without a trailing-whitespace source gap (e.g. `x=1`, no space
+    // before the value), it would instead cut into the preceding glyph.
+    const leftPadding = Math.min(settings.socketHorizontalPadding, settings.measureText(/[\t ]*$/.exec(gap)[0]));
+    const socket = layoutSocket(node, source, settings, visualCursor, top, leftPadding);
     sourceCursor = node.to;
     visualCursor = socket.bounds.right + settings.socketTextGap;
     return socket;
   });
 }
 
-function layoutSocket(node, source, settings, textLeft, top) {
+function layoutSocket(node, source, settings, textLeft, top, leftPadding = settings.socketHorizontalPadding) {
   const text = source.slice(node.from, node.to);
-  const socketLeft = textLeft - settings.socketHorizontalPadding;
-  const width = Math.max(settings.socketMinimumWidth, settings.measureText(text) + settings.socketHorizontalPadding * 2);
+  const socketLeft = textLeft - leftPadding;
+  const width = Math.max(settings.socketMinimumWidth, settings.measureText(text) + leftPadding + settings.socketHorizontalPadding);
   return {
     id: node.id,
     kind: node.kind,
@@ -161,8 +167,15 @@ function layoutWhitespace(node, settings, left, top) {
 }
 
 function layoutContainer(node, source, settings, left, top) {
-  const headerTo = validHeaderTo(node, source);
-  const headerText = source.slice(node.from, headerTo);
+  const rawHeaderTo = validHeaderTo(node, source);
+  // An inline comment attached to the header line (`if x:  # note`) is a
+  // direct child of the container node, not the body. Exclude its range from
+  // the header text and lay it out as its own block, the way layoutAtomic
+  // does for a statement's own trailing comment.
+  const inlineComment = (node.children ?? [])
+    .find((child) => child.kind === 'comment' && child.metadata?.inline && child.from < rawHeaderTo);
+  const headerTo = inlineComment ? inlineComment.from : rawHeaderTo;
+  const headerText = source.slice(node.from, headerTo).trimEnd();
   const headerSockets = layoutSockets(sourceSockets(node), node, source, settings, left, top);
   const headerWidth = Math.max(
     settings.minimumWidth,
@@ -176,6 +189,9 @@ function layoutContainer(node, source, settings, left, top) {
     ...(node.metadata?.bodyIndentation === undefined ? {} : {indentation: node.metadata.bodyIndentation}),
     ...(node.metadata?.emptySuitePass ? {emptySuitePass: node.metadata.emptySuitePass} : {})
   });
+  const commentChild = inlineComment
+    ? [layoutAtomic(inlineComment, source, settings, left + headerWidth + settings.inlineCommentGap, top)]
+    : [];
   const right = Math.max(left + headerWidth, body.right + settings.horizontalPadding);
   const footerTop = Math.max(bodyTop, body.bottom);
   const footer = box(left, footerTop, right - left, settings.footerHeight);
@@ -192,7 +208,7 @@ function layoutContainer(node, source, settings, left, top) {
       body: {left: bodyLeft, top: bodyTop, right, bottom: footer.top},
       footer
     },
-    children: [...headerSockets, ...body.children],
+    children: [...headerSockets, ...commentChild, ...body.children],
     insertionZones: body.insertionZones
   };
 }

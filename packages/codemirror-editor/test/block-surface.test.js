@@ -71,6 +71,25 @@ test('lays out source-backed assignment sockets inside their statement block', (
   assert.equal(hitTestBlockLayout(layout, {x: value.bounds.left + 2, y: value.bounds.top + 2}).node.id, 'value');
 });
 
+test('keeps a socket rect clear of its source gap text when there is no surrounding whitespace', () => {
+  const source = 'second=1\n';
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('assign', 0, 8),
+    children: [
+      {id: 'target', kind: 'socket', from: 0, to: 6, editable: true, children: [], metadata: {socketRole: 'assignment-target'}},
+      {id: 'value', kind: 'socket', from: 7, to: 8, editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+  const target = layout.nodes.find((node) => node.id === 'target');
+  const value = layout.nodes.find((node) => node.id === 'value');
+
+  // The gap between the sockets is a single non-whitespace "=" (10px under
+  // this test's measureText). Without a trailing space to pad into, the
+  // value socket's rect must start no earlier than that gap text's own
+  // measured width allows, or it would visually overlap the "=" glyph.
+  assert.equal(value.bounds.left, target.bounds.right + 4 + 10);
+});
+
 test('lays out an if condition socket in the container header', () => {
   const source = 'if ready:\n  pass\n';
   const layout = createBlockLayout({source, root: documentNode(source, [{
