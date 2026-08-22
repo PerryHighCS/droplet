@@ -1018,6 +1018,11 @@ corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
   comment-only movement, and insertion placement.
 - [ ] Browser screenshot or geometry tests verify that a dragged container
   preview has the same nested structure as its on-canvas block.
+- [ ] Provide a modern JavaScript manual playground based on
+  `test/data/javascript-compatibility.js`. It must be a beginner-friendly
+  drag/drop example: users can visibly move an inner loop statement, a sibling
+  statement, and an entire `if` or `for` container with the same structural
+  preview and insertion affordances used by production block mode.
 
 Only after these criteria are complete should Phase 9 package the editor's
 public browser API.
