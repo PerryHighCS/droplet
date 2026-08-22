@@ -95,6 +95,7 @@ function layoutAtomic(node, source, settings, left, top) {
     id: node.id,
     kind: node.kind === 'comment' ? 'comment' : node.kind.startsWith('opaque-') ? node.kind : 'statement',
     source: rangeOf(node),
+    metadata: node.metadata,
     text,
     bounds: box(left, top, width, settings.lineHeight),
     children,

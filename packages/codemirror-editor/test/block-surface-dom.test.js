@@ -90,6 +90,21 @@ test('accepts an outer sibling dropped in the lower interior of a nested contain
     destination: {from: 34, to: 34, indentation: '    '}}]);
 });
 
+test('treats a synthetic pass as an empty-suite replacement target', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)});
+  surface.update(passSuite());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const pass = surface.layout.nodes.find((node) => node.id === 'pass');
+
+  drag(svg, dom.window, first, pass.bounds.left + 2, pass.bounds.top + 2);
+  assert.deepEqual(operations, [{type: 'move-statement', source: {from: 18, to: 27},
+    destination: {from: 18, to: 18, indentation: '  ', emptySuitePass: {from: 12, to: 16}}}]);
+});
+
 function projection() {
   const source = 'if ready:\n  first()\n\n';
   return {
@@ -129,6 +144,17 @@ function nestedStatements() {
         ]
       }, {id: 'second', kind: 'statement', from: 36, to: 44, editable: true, metadata: {}, children: []}]
     }]
+  }};
+}
+
+function passSuite() {
+  const source = 'if ready:\n  pass\nfirst = 1\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'ready', kind: 'statement', from: 0, to: 18, editable: true,
+      metadata: {blockRole: 'container', headerTo: 9, bodyEnd: 18, bodyIndentation: '  ', emptySuitePass: {from: 12, to: 16}},
+      children: [{id: 'pass', kind: 'statement', from: 12, to: 16, editable: true, metadata: {type: 'Pass'}, children: []}]
+    }, {id: 'first', kind: 'statement', from: 18, to: 27, editable: true, metadata: {}, children: []}]
   }};
 }
 

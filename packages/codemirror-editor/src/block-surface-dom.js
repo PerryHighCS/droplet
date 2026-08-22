@@ -119,6 +119,11 @@ function destinationForTarget(layout, target, point) {
   const before = point.y < (target.node.bounds.top + target.node.bounds.bottom) / 2;
   const parent = findParent(layout.root, target.node.id);
   if (!parent) return undefined;
+  if (target.node.metadata?.type === 'Pass') {
+    const zone = parent.insertionZones.find((candidate) =>
+      candidate.role === 'body-end' && candidate.destination.emptySuitePass?.from === target.node.source.from);
+    if (zone) return {destination: zone.destination, zone: {...zone, bounds: target.node.bounds}};
+  }
   const index = parent.children.findIndex((child) => child.id === target.node.id);
   const zone = before
     ? parent.insertionZones.find((candidate) => candidate.role === 'before-sibling' && candidate.destination.from === target.node.source.from)
