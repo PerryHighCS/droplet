@@ -88,7 +88,7 @@ export class BlockSurface {
     if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
     this.#drag.moved = true;
     const target = hitTestBlockLayout(this.#layout, point);
-    this.#drag.destination = target?.kind === 'insertion' ? target.zone.destination : undefined;
+    this.#drag.destination = destinationForTarget(this.#layout, target, point);
     renderDragPreviews(this.#svg, this.#layout, this.#drag.node, point, target?.zone);
     event.preventDefault();
   }
@@ -108,6 +108,29 @@ export class BlockSurface {
     });
     event.preventDefault();
   }
+}
+
+function destinationForTarget(layout, target, point) {
+  if (target?.kind === 'insertion') return target.zone.destination;
+  // Containers have structural targets: their header moves the whole subtree,
+  // their body/footer accepts children. Do not reduce them to before/after.
+  if (target?.node?.kind !== 'statement') return undefined;
+  const before = point.y < (target.node.bounds.top + target.node.bounds.bottom) / 2;
+  const from = before ? target.node.source.from : lineEndAfter(layout.source, target.node.source.to);
+  return {from, to: from, indentation: indentationAt(layout.source, target.node.source.from)};
+}
+
+function lineEndAfter(source, offset) {
+  let position = offset;
+  while (position < source.length && source[position] !== '\r' && source[position] !== '\n') position += 1;
+  if (source[position] === '\r') position += source[position + 1] === '\n' ? 2 : 1;
+  else if (source[position] === '\n') position += 1;
+  return position;
+}
+
+function indentationAt(source, offset) {
+  const start = source.lastIndexOf('\n', offset - 1) + 1;
+  return /^[\t \f]*/.exec(source.slice(start, offset))?.[0] ?? '';
 }
 
 function isMovable(node) {
