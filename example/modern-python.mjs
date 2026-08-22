@@ -11,14 +11,47 @@ const samples = {
   'Opaque recovery': 'if score >\n'
 };
 
-const palette = [{
-  name: 'Python', blocks: [
-    {id: 'print', label: 'print()', source: 'print()\n'},
-    {id: 'assignment', label: 'value = 1', source: 'value = 1\n'},
-    {id: 'if', label: 'if True:', source: 'if True:\n  pass\n'},
-    {id: 'for', label: 'for item in range(3):', source: 'for item in range(3):\n  pass\n'}
-  ]
-}];
+const palette = [
+  {
+    name: 'Values & output', blocks: [
+      {id: 'assignment', label: 'value = 1', source: 'value = 1\n'},
+      {id: 'augmented-assignment', label: 'value += 1', source: 'value += 1\n'},
+      {id: 'print', label: 'print()', source: 'print()\n'}
+    ]
+  },
+  {
+    name: 'Conditionals', blocks: [
+      {id: 'if', label: 'if True:', source: 'if True:\n  pass\n'}
+    ]
+  },
+  {
+    name: 'Loops', blocks: [
+      {id: 'for', label: 'for item in range(3):', source: 'for item in range(3):\n  pass\n'},
+      {id: 'while', label: 'while True:', source: 'while True:\n  pass\n'},
+      {id: 'break', label: 'break', source: 'break\n'},
+      {id: 'continue', label: 'continue', source: 'continue\n'}
+    ]
+  },
+  {
+    name: 'Functions & classes', blocks: [
+      {id: 'def', label: 'def name():', source: 'def name():\n  pass\n'},
+      {id: 'return', label: 'return value', source: 'return value\n'},
+      {id: 'class', label: 'class Name:', source: 'class Name:\n  pass\n'}
+    ]
+  },
+  {
+    name: 'Modules', blocks: [
+      {id: 'import', label: 'import module', source: 'import module\n'},
+      {id: 'from-import', label: 'from module import name', source: 'from module import name\n'}
+    ]
+  },
+  {
+    name: 'Notes', blocks: [
+      {id: 'comment', label: '# comment', source: '# comment\n'},
+      {id: 'pass', label: 'pass', source: 'pass\n'}
+    ]
+  }
+];
 
 const sampleSelect = document.querySelector('#modern-python-sample');
 const modeButton = document.querySelector('#modern-python-mode');
