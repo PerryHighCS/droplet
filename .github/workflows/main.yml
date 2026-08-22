@@ -99,10 +99,7 @@ jobs:
         with:
           node-version: 24.x
           cache: npm
-          cache-dependency-path: |
-            packages/codemirror-editor/package-lock.json
-            packages/python-adapter/package-lock.json
-      - run: npm --prefix packages/codemirror-editor ci
+          cache-dependency-path: packages/python-adapter/package-lock.json
       - run: npm --prefix packages/python-adapter ci
       - run: npm --prefix packages/python-adapter test
 

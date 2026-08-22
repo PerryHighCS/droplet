@@ -73,13 +73,23 @@ function childNodes(node) {
   const children = [];
   for (const [key, value] of Object.entries(node ?? {})) {
     if (key.startsWith('$') || locationKeys.has(key)) continue;
-    for (const child of Array.isArray(value) ? value : [value]) {
-      if (child && typeof child === 'object' && Number.isInteger(child.lineno)) {
-        children.push({node: child, socket: socketKeys.has(key)});
-      }
-    }
+    collectLocatedChildren(value, socketKeys.has(key), children);
   }
   return children;
+}
+
+function collectLocatedChildren(value, socket, children) {
+  for (const child of Array.isArray(value) ? value : [value]) {
+    if (!child || typeof child !== 'object') continue;
+    if (Number.isInteger(child.lineno)) {
+      children.push({node: child, socket});
+      continue;
+    }
+    for (const [key, nestedValue] of Object.entries(child)) {
+      if (key.startsWith('$') || locationKeys.has(key)) continue;
+      collectLocatedChildren(nestedValue, socket || socketKeys.has(key), children);
+    }
+  }
 }
 
 const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_offset']);

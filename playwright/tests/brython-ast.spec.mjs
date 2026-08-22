@@ -74,6 +74,34 @@ test('the modern Python adapter projects a live Brython AST without changing sou
   ]));
 });
 
+test('the modern Python adapter retains descendants of Brython AST containers', async ({page}) => {
+  await page.goto('/test/ctest.html');
+  await page.addScriptTag({url: '/playwright/node_modules/brython/brython.js'});
+  const source = 'def greet(name="world"):\n  return [item for item in values]\n';
+  const nodes = await page.evaluate(async (python) => {
+    const importMap = document.createElement('script');
+    importMap.type = 'importmap';
+    importMap.textContent = JSON.stringify({imports: {
+      '@droplet/core': '/packages/core/src/index.js'
+    }});
+    document.head.append(importMap);
+    const {parsePython} = await import('/packages/python-adapter/src/index.js');
+    window.brython();
+    const parsed = parsePython(python, window.__BRYTHON__.pythonToAST);
+    const collect = (node) => [
+      {type: node.metadata?.type, kind: node.kind},
+      ...(node.children ?? []).flatMap(collect)
+    ];
+    return collect(parsed.root);
+  }, source);
+
+  expect(nodes).toEqual(expect.arrayContaining([
+    {type: 'arg', kind: 'socket'},
+    {type: 'Constant', kind: 'expression'},
+    {type: 'Name', kind: 'socket'}
+  ]));
+});
+
 test('the modern Python adapter preserves a basic Python 3 corpus', async ({page}) => {
   await page.goto('/test/ctest.html');
   await page.addScriptTag({url: '/playwright/node_modules/brython/brython.js'});
@@ -167,4 +195,60 @@ test('Brython tokenizer retains comments and reports visual indentation ranges',
     ],
     indentation: [{kind: 'indentation', from: 20, to: 21, text: '\t'}]
   });
+});
+
+test('CodeMirror block mode preserves Brython Python source in Chromium', async ({page}) => {
+  await page.goto('/test/ctest.html');
+  await page.addScriptTag({url: '/playwright/node_modules/brython/brython.js'});
+  const source = "label = 'single quoted'\nmessage = \"\"\"first line\nsecond line\"\"\"\n";
+  const result = await page.evaluate(async (python) => {
+    const importMap = document.createElement('script');
+    importMap.type = 'importmap';
+    importMap.textContent = JSON.stringify({imports: {
+      '@droplet/core': '/packages/core/src/index.js',
+      '@droplet/codemirror-editor': '/packages/codemirror-editor/src/index.js',
+      '@droplet/codemirror-editor/droplet': '/packages/codemirror-editor/src/droplet.js',
+      '@codemirror/state': '/playwright/node_modules/@codemirror/state/dist/index.js',
+      '@codemirror/view': '/playwright/node_modules/@codemirror/view/dist/index.js',
+      '@codemirror/commands': '/playwright/node_modules/@codemirror/commands/dist/index.js',
+      '@codemirror/language': '/playwright/node_modules/@codemirror/language/dist/index.js',
+      '@lezer/common': '/playwright/node_modules/@lezer/common/dist/index.js',
+      '@lezer/highlight': '/playwright/node_modules/@lezer/highlight/dist/index.js',
+      '@marijn/find-cluster-break': '/playwright/node_modules/@marijn/find-cluster-break/src/index.js',
+      'crelt': '/playwright/node_modules/crelt/index.js',
+      'style-mod': '/playwright/node_modules/style-mod/src/style-mod.js',
+      'w3c-keyname': '/playwright/node_modules/w3c-keyname/index.js'
+    }});
+    document.head.append(importMap);
+    const {createDropletCodeMirrorEditor} = await import('@droplet/codemirror-editor/droplet');
+    const {createBrythonPythonParser} = await import('/packages/python-adapter/src/index.js');
+    window.brython();
+    const parent = document.createElement('div');
+    document.body.append(parent);
+    const editor = createDropletCodeMirrorEditor({
+      parent,
+      value: python,
+      blockMode: true,
+      parse: createBrythonPythonParser(window.__BRYTHON__.pythonToAST)
+    });
+    const structured = {
+      value: editor.getValue(),
+      blocks: parent.querySelectorAll('.droplet-block-statement').length
+    };
+    editor.setBlockMode(false);
+    const textValue = editor.getValue();
+    editor.setValue('if score >');
+    editor.setBlockMode(true);
+    const opaque = {
+      value: editor.getValue(),
+      blocks: parent.querySelectorAll('.droplet-opaque').length
+    };
+    editor.destroy();
+    return {structured, textValue, opaque};
+  }, source);
+
+  expect(result.structured).toMatchObject({value: source});
+  expect(result.structured.blocks).toBeGreaterThan(0);
+  expect(result.textValue).toBe(source);
+  expect(result.opaque).toEqual({value: 'if score >', blocks: 1});
 });

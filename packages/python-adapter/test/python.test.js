@@ -1,16 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {JSDOM} from 'jsdom';
-
-import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
 
 import {
   collectPythonTrivia,
-  createBrythonPythonParser,
   parsePython
 } from '../src/index.js';
-
-installDom();
 
 test('maps Brython line and column locations to exact source ranges', () => {
   const source = 'value = outer(1)\n';
@@ -64,74 +58,37 @@ test('uses raw source indentation while retaining inline and standalone comments
   });
 });
 
-test('CodeMirror block-mode toggles retain quoted Python source exactly', () => {
-  const source = "label = 'single quoted'\nmessage = \"\"\"first line\nsecond line\"\"\"\n";
-  const parent = appendParent();
-  const editor = createDropletCodeMirrorEditor({
-    parent,
-    value: source,
-    parse: createBrythonPythonParser(sourceAst)
+test('projects descendants of unlocated Brython argument and comprehension containers', () => {
+  const source = 'def f(value=1):\n  return [item for item in values]\n';
+  const located = (type, from, to, extra = {}) => ({
+    type, lineno: 1, col_offset: from, end_lineno: 1, end_col_offset: to, ...extra
   });
+  const ast = {type: 'Module', body: [located('FunctionDef', 0, 15, {
+    args: {
+      args: [located('arg', 6, 11)],
+      defaults: [located('Constant', 12, 13)]
+    },
+    body: [located('Return', 16, source.length - 1, {
+      value: located('ListComp', 25, source.length - 1, {
+        elt: located('Name', 26, 30),
+        generators: [{
+          target: located('Name', 35, 39),
+          iter: located('Name', 43, 49),
+          ifs: []
+        }]
+      })
+    })]
+  })]};
 
-  editor.setBlockMode(true);
-  assert.equal(editor.isUsingBlocks(), true);
-  assert.equal(editor.getValue(), source);
-  assert.ok(parent.querySelectorAll('.droplet-block-statement').length > 0);
-
-  editor.setBlockMode(false);
-  assert.equal(editor.isUsingBlocks(), false);
-  assert.equal(editor.getValue(), source);
-  assert.equal(parent.querySelectorAll('.droplet-block').length, 0);
-  editor.destroy();
+  const projected = parsePython(source, () => ast);
+  const descendants = collectProjectedNodes(projected.root);
+  assert.deepEqual(
+    descendants.filter((node) => ['arg', 'Constant', 'Name'].includes(node.metadata?.type))
+      .map((node) => [node.metadata.type, node.kind]),
+    [['arg', 'socket'], ['Constant', 'socket'], ['Name', 'expression'], ['Name', 'socket'], ['Name', 'socket']]
+  );
 });
 
-test('CodeMirror block-mode displays invalid Python as exact opaque source', () => {
-  const source = 'if score >';
-  const parent = appendParent();
-  const editor = createDropletCodeMirrorEditor({
-    parent,
-    value: source,
-    parse: createBrythonPythonParser((python) => {
-      if (python === source) throw new Error('invalid syntax');
-      return sourceAst(python);
-    })
-  });
-
-  editor.setBlockMode(true);
-  assert.equal(editor.getValue(), source);
-  assert.equal(editor.getProjection().root.children[0].kind, 'opaque-statement');
-  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
-  editor.destroy();
-});
-
-function sourceAst(source) {
-  const text = source.endsWith('\n') ? source.slice(0, -1) : source;
-  const lines = text.split('\n');
-  return {
-    type: 'Module',
-    body: [{
-      type: 'Expr', lineno: 1, col_offset: 0,
-      end_lineno: lines.length, end_col_offset: lines.at(-1).length,
-      value: {type: 'Constant', lineno: 1, col_offset: 0, end_lineno: lines.length, end_col_offset: lines.at(-1).length}
-    }]
-  };
-}
-
-function appendParent() {
-  const parent = document.createElement('div');
-  document.body.append(parent);
-  return parent;
-}
-
-function installDom() {
-  const dom = new JSDOM('<!doctype html><html><body></body></html>', {pretendToBeVisual: true});
-  const {window} = dom;
-  globalThis.window = window;
-  globalThis.document = window.document;
-  Object.defineProperty(globalThis, 'navigator', {configurable: true, value: window.navigator});
-  globalThis.MutationObserver = window.MutationObserver;
-  globalThis.HTMLElement = window.HTMLElement;
-  globalThis.Window = window.Window;
-  globalThis.getComputedStyle = window.getComputedStyle;
-  globalThis.requestAnimationFrame = window.requestAnimationFrame.bind(window);
+function collectProjectedNodes(node) {
+  return [node, ...(node.children ?? []).flatMap(collectProjectedNodes)];
 }
