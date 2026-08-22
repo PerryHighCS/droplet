@@ -105,6 +105,12 @@ export class BlockSurface {
       return;
     }
     if (!this.#layout || event.defaultPrevented) return;
+    // A click inside the already-open inline editor is ordinary text-field
+    // interaction (repositioning the cursor, adjusting the selection). Left
+    // to hit-test against the layout underneath, it would find the same
+    // socket/comment again and reopen the editor, destroying and recreating
+    // the input - clearing whatever selection the click just made.
+    if (event.target?.tagName === 'INPUT') return;
     const directNode = layoutNodeForElement(this.#layout, event.target);
     if (isInlineEditable(directNode)) {
       this.#selectNode(directNode);

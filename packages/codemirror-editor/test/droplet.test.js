@@ -125,6 +125,34 @@ test('editing a rendered socket commits one CodeMirror source change on Enter', 
   editor.destroy();
 });
 
+test('clicking again inside an already-open socket editor repositions the cursor instead of reopening it', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseSocketExample
+  });
+  const socket = parent.querySelector('.droplet-block-surface [data-droplet-layout-id="value:value"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(socket);
+  const input = parent.querySelector('.droplet-socket-editor');
+  assert.equal(input.selectionStart, 0);
+  assert.equal(input.selectionEnd, input.value.length);
+
+  // The browser's own click-to-position-cursor behavior isn't simulated by a
+  // dispatched event in this test environment, so set the resulting
+  // selection directly, then dispatch the click and check our own handlers
+  // left it alone instead of reopening (and re-selecting) the editor.
+  input.selectionStart = 2;
+  input.selectionEnd = 2;
+  input.dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0, clientX: 1, clientY: 1}));
+
+  assert.equal(parent.querySelector('.droplet-socket-editor'), input);
+  assert.equal(input.selectionStart, 2);
+  assert.equal(input.selectionEnd, 2);
+  editor.destroy();
+});
+
 test('an incomplete socket commit remains an editable recovery socket until it parses', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
