@@ -122,5 +122,8 @@ function boundedRange(from, to, boundary) {
 function offset(line, column, starts, length, fallback) {
   if (!Number.isInteger(line) || !Number.isInteger(column) || column < 0) return fallback;
   const lineStart = starts[line - 1];
-  return Number.isInteger(lineStart) ? Math.min(lineStart + column, length) : fallback;
+  if (!Number.isInteger(lineStart)) return fallback;
+  const lineEnd = sourceLineEnd(starts, line, length);
+  return column <= lineEnd - lineStart ? lineStart + column : fallback;
 }
+function sourceLineEnd(starts, line, length) { return starts[line] === undefined ? length : starts[line] - 1; }

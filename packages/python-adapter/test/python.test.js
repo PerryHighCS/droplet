@@ -59,6 +59,24 @@ test('contains partial and inverted child locations within their statement', () 
   ]);
 });
 
+test('contains child columns beyond their source line within their statement', () => {
+  const source = 'pass\nnext\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Expr', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 4,
+      value: {type: 'Call', lineno: 1, col_offset: 100, end_lineno: 1, end_col_offset: 101}},
+    {type: 'Expr', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 4}
+  ]};
+
+  const statements = parsePython(source, () => ast).root.children;
+  assert.deepEqual(statements.map(({from, to}) => ({from, to})), [
+    {from: 0, to: 4}, {from: 5, to: 9}
+  ]);
+  assert.deepEqual(statements[0].children[0], {
+    id: 'socket:Call:0:4', kind: 'socket', from: 0, to: 4, editable: true,
+    children: [], metadata: {type: 'Call'}
+  });
+});
+
 test('uses raw source indentation while retaining inline and standalone comments', () => {
   const source = '# heading\nif value:\n\t# nested\n\tresult = value  # inline\n';
   const tokens = [
