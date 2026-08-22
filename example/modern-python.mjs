@@ -92,4 +92,4 @@ function setStatus(message) { status.value = message; status.textContent = messa
 
 modeButton.textContent = 'Use text mode';
 refresh();
-setStatus('Ready. Block mode is active; drag a blue statement block onto another to move it.');
+setStatus('Ready. Block mode is active; drop a blue statement onto a block or into a gap between statements.');

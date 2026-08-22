@@ -330,7 +330,7 @@ test('manual modern Python playground loads with its source and projection panel
   await expect(page.locator('#modern-python-projection')).toContainText('Module');
 });
 
-test('manual modern Python playground moves statement blocks by drag and drop', async ({page}) => {
+test('manual modern Python playground moves statement blocks into an editor gap', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
 
@@ -357,7 +357,8 @@ test('manual modern Python playground moves statement blocks by drag and drop', 
   await page.mouse.down();
   await page.mouse.move(sourceBox.x + sourceBox.width / 2 + 8, sourceBox.y + sourceBox.height / 2 + 8);
   await expect(page.locator('.droplet-drag-preview')).toBeVisible();
-  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {steps: 10});
+  await page.mouse.move(targetBox.x + 8, targetBox.y - targetBox.height / 2, {steps: 10});
+  await expect(page.locator('.droplet-drop-guide')).toBeVisible();
   await page.mouse.up();
 
   await expect(page.locator('#modern-python-source')).toContainText('if ready:\n  first = 1  # inline note\ntail = 0');

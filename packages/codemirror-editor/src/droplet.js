@@ -235,7 +235,8 @@ function createProjectionInteraction(onOperation) {
         startX: event.clientX,
         startY: event.clientY,
         preview: undefined,
-        targetElement: undefined
+        targetElement: undefined,
+        dropGuide: undefined
       };
       event.preventDefault();
       return true;
@@ -247,7 +248,9 @@ function createProjectionInteraction(onOperation) {
       if (!moved) return true;
       pointerDrag.preview ??= createDragPreview(view, pointerDrag.source);
       updateDragPreview(pointerDrag.preview, event.clientX, event.clientY);
-      updateDropTarget(pointerDrag, event.target);
+      const target = statementRangeFromElement(event.target);
+      const destination = target?.from ?? statementDestinationAtPointer(view, event);
+      updateDropTarget(pointerDrag, event.target, destination, event.clientX, event.clientY);
       event.preventDefault();
       return true;
     },
@@ -269,8 +272,8 @@ function createProjectionInteraction(onOperation) {
         view.dispatch({selection: {anchor: drag.source.from, head: drag.source.to}});
         return true;
       }
-      if (!target) return true;
-      const operation = projectionOperationFromDrop(drag.source, target, view.state.doc.toString());
+      const destination = target?.from ?? statementDestinationAtPointer(view, event);
+      const operation = projectionOperationFromDestination(drag.source, target, destination, view.state.doc.toString());
       if (!operation) return true;
       event.preventDefault();
       onOperation(operation);
@@ -298,17 +301,50 @@ function updateDragPreview(preview, clientX, clientY) {
   preview.style.top = `${clientY + 12}px`;
 }
 
-function updateDropTarget(drag, element) {
+function updateDropTarget(drag, element, destination, clientX, clientY) {
   const targetElement = element?.closest?.('[data-droplet-kind="statement"]');
-  if (drag.targetElement === targetElement) return;
-  drag.targetElement?.classList.remove('droplet-block-drop-target');
-  drag.targetElement = targetElement;
-  if (targetElement && targetElement !== drag.sourceElement) targetElement.classList.add('droplet-block-drop-target');
+  if (drag.targetElement !== targetElement) {
+    drag.targetElement?.classList.remove('droplet-block-drop-target');
+    drag.targetElement = targetElement;
+    if (targetElement && targetElement !== drag.sourceElement) targetElement.classList.add('droplet-block-drop-target');
+  }
+  if (targetElement || destination === undefined) {
+    drag.dropGuide?.remove();
+    drag.dropGuide = undefined;
+    return;
+  }
+  drag.dropGuide ??= createDropGuide(drag.preview.ownerDocument);
+  drag.dropGuide.style.left = `${clientX - 70}px`;
+  drag.dropGuide.style.top = `${clientY - 1}px`;
 }
 
 function clearDragPreview(drag) {
   drag.preview?.remove();
+  drag.dropGuide?.remove();
   drag.targetElement?.classList.remove('droplet-block-drop-target');
+}
+
+function createDropGuide(document) {
+  const guide = document.createElement('div');
+  guide.className = 'droplet-drop-guide';
+  Object.assign(guide.style, {
+    position: 'fixed', pointerEvents: 'none', zIndex: '999', width: '150px', height: '3px',
+    borderRadius: '2px', background: '#4d7fb5', boxShadow: '0 0 0 2px #eaf3ff'
+  });
+  document.body.append(guide);
+  return guide;
+}
+
+function statementDestinationAtPointer(view, event) {
+  const position = view.posAtCoords({x: event.clientX, y: event.clientY});
+  if (position === null) return undefined;
+  const statements = [...view.dom.querySelectorAll('[data-droplet-kind="statement"]')]
+    .map(projectionRangeFromBlock)
+    .filter(Boolean)
+    .filter((range, index, ranges) => ranges.findIndex((other) =>
+      other.from === range.from && other.to === range.to) === index)
+    .sort((left, right) => left.from - right.from || left.to - right.to);
+  return statements.find((statement) => statement.from >= position)?.from ?? view.state.doc.length;
 }
 
 /** Derives a source operation from a supported rendered block drop. */
@@ -327,6 +363,14 @@ export function projectionOperationFromDrop(source, target, document) {
       target: {from: target.from, to: target.to},
       source: document.slice(source.from, source.to)
     };
+  }
+  return undefined;
+}
+
+function projectionOperationFromDestination(source, target, destination, document) {
+  if (target) return projectionOperationFromDrop(source, target, document);
+  if (source.kind === 'statement' && Number.isInteger(destination)) {
+    return {type: 'move-statement', source: {from: source.from, to: source.to}, destination: {from: destination, to: destination}};
   }
   return undefined;
 }
