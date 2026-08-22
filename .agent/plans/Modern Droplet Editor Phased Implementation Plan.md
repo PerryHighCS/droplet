@@ -802,6 +802,9 @@ BrythonPythonParser
 - `@droplet/python-adapter` wraps Brython's `pythonToAST` callback, maps its
   source ranges to modern projection nodes, and recovers syntax errors as an
   opaque source projection.
+- Projection traverses unlocated Brython AST containers, preserving located
+  parameters, defaults, and comprehension components instead of dropping them
+  from the source-range tree.
 - The historical Skulpt implementation projected parser tokens into its legacy
   markup model (including Python 2 `print`); the modern adapter instead uses
   semantic AST ranges. Compatibility work should compare source-preserving
