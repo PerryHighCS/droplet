@@ -378,6 +378,25 @@ test('manual modern Python playground replaces a synthetic pass with a dropped o
   await expect(page.locator('#modern-python-source')).toContainText('  if ready:\n    first = 1  # inline note\n  second = 2');
 });
 
+test('manual modern Python playground accepts statement drops above a standalone comment', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  const statement = page.locator('.droplet-block-surface [data-droplet-kind="statement"]');
+  const second = statement.filter({hasText: 'second = 2'}).first();
+  const comment = page.locator('.droplet-block-surface [data-droplet-kind="comment"]').filter({hasText: '# standalone note'});
+  const [secondBox, commentBox] = await Promise.all([second.boundingBox(), comment.boundingBox()]);
+
+  await page.mouse.move(secondBox.x + 4, secondBox.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(secondBox.x + 12, secondBox.y + 12);
+  await page.mouse.move(commentBox.x + 4, commentBox.y + 2, {steps: 8});
+  await expect(page.locator('.droplet-drop-guide')).toBeVisible();
+  await page.mouse.up();
+
+  await expect(page.locator('#modern-python-source')).toContainText('if outer:\n  second = 2\n  # standalone note\n  if ready:');
+});
+
 test.skip('manual modern Python playground drops a statement at a container C-shape bottom', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);

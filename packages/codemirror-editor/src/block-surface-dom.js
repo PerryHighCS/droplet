@@ -118,7 +118,10 @@ function destinationForTarget(layout, target, point) {
   if (target?.kind === 'insertion') return {destination: target.zone.destination, zone: target.zone};
   // Containers have structural targets: their header moves the whole subtree,
   // their body/footer accepts children. Do not reduce them to before/after.
-  if (target?.node?.kind !== 'statement') return undefined;
+  // Standalone comments participate in their suite's vertical sibling order.
+  // Like statements, their upper and lower halves mean before and after;
+  // inline comments remain children of their statement and are not targets here.
+  if (target?.node?.kind !== 'statement' && target?.node?.kind !== 'comment') return undefined;
   const before = point.y < (target.node.bounds.top + target.node.bounds.bottom) / 2;
   const parent = findParent(layout.root, target.node.id);
   if (!parent) return undefined;
