@@ -839,11 +839,11 @@ Support should grow progressively. Unsupported syntax remains usable through opa
 
 ### Phase 7 acceptance criteria
 
-- [ ] Basic instructional Python no longer depends on Python 2 grammar.
-- [ ] Modern Python constructs parse where supported.
-- [ ] Unsupported constructs remain visible as opaque blocks.
-- [ ] Quote style remains exact.
-- [ ] Triple quoted strings survive block mode unchanged.
+- [x] Basic instructional Python no longer depends on Python 2 grammar.
+- [x] Modern Python constructs parse where supported.
+- [x] Unsupported constructs remain visible as opaque blocks.
+- [x] Quote style remains exact.
+- [x] Triple quoted strings survive block mode unchanged.
 
 ---
 

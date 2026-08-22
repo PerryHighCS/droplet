@@ -5,5 +5,9 @@
   "exports": "./src/index.js",
   "engines": {"node": ">=22"},
   "scripts": {"test": "node --test"},
-  "dependencies": {"@droplet/core": "file:../core"}
+  "dependencies": {"@droplet/core": "file:../core"},
+  "devDependencies": {
+    "@droplet/codemirror-editor": "file:../codemirror-editor",
+    "jsdom": "30.0.1"
+  }
 }
