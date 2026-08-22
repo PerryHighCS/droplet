@@ -42,20 +42,39 @@ test('falls back to the containing source boundary for invalid AST locations', (
 });
 
 test('uses raw source indentation while retaining inline and standalone comments', () => {
-  const source = '# heading\nif value:\n\tresult = value  # inline\n';
+  const source = '# heading\nif value:\n\t# nested\n\tresult = value  # inline\n';
   const tokens = [
     {type: 65, string: '# heading', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 9},
-    {type: 5, string: '', lineno: 3, col_offset: 0, end_lineno: 3, end_col_offset: 8},
-    {type: 65, string: '# inline', lineno: 3, col_offset: 17, end_lineno: 3, end_col_offset: 25}
+    {type: 65, string: '# nested', lineno: 3, col_offset: 1, end_lineno: 3, end_col_offset: 9},
+    {type: 5, string: '', lineno: 4, col_offset: 0, end_lineno: 4, end_col_offset: 8},
+    {type: 65, string: '# inline', lineno: 4, col_offset: 17, end_lineno: 4, end_col_offset: 25}
   ];
 
   assert.deepEqual(collectPythonTrivia(source, () => tokens), {
     comments: [
       {kind: 'comment', from: 0, to: 9, inline: false},
-      {kind: 'comment', from: 37, to: 45, inline: true}
+      {kind: 'comment', from: 21, to: 29, inline: false},
+      {kind: 'comment', from: 47, to: 55, inline: true}
     ],
-    indentation: [{kind: 'indentation', from: 20, to: 21, text: '\t'}]
+    indentation: [{kind: 'indentation', from: 30, to: 31, text: '\t'}]
   });
+});
+
+test('classifies the complete modern Python statement set as statements', () => {
+  const types = [
+    'Assert', 'AsyncFor', 'AsyncFunctionDef', 'AsyncWith', 'ClassDef', 'Delete',
+    'Global', 'Match', 'Nonlocal', 'Raise', 'Try', 'TryStar', 'TypeAlias', 'With'
+  ];
+  const source = 'pass\n';
+  const ast = {
+    type: 'Module',
+    body: types.map((type) => ({
+      type, lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 4
+    }))
+  };
+
+  assert.deepEqual(parsePython(source, () => ast).root.children.map((node) => node.kind),
+    types.map(() => 'statement'));
 });
 
 test('projects descendants of unlocated Brython argument and comprehension containers', () => {

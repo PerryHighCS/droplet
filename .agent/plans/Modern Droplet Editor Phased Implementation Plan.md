@@ -880,6 +880,8 @@ being silently converted or assigned the wrong source range.
 `@droplet/python-adapter` exposes `collectPythonTrivia` for exact standalone
 and inline comment ranges plus raw indentation slices. Structural comment
 association and indentation-changing operations remain future work.
+It determines an inline comment from non-whitespace source preceding `#` on
+the same line, so indented standalone comments remain standalone.
 
 ## Newly generated indentation
 

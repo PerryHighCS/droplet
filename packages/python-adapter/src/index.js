@@ -40,7 +40,7 @@ export function collectPythonTrivia(source, tokenize, {indentTokenType = 5} = {}
     if (typeof token?.string === 'string' && token.string.startsWith('#')) {
       const from = offset(token.lineno, token.col_offset, starts, source.length, 0);
       const to = offset(token.end_lineno, token.end_col_offset, starts, source.length, source.length);
-      comments.push({kind: 'comment', from, to, inline: token.col_offset > 0});
+      comments.push({kind: 'comment', from, to, inline: hasCodeBeforeComment(source, from)});
     }
     if (token?.type === indentTokenType && Number.isInteger(token.lineno)) {
       const lineStart = starts[token.lineno - 1];
@@ -65,7 +65,7 @@ function project(node, source, lines, kind = kindFor(node)) {
 function kindFor(node) {
   const type = typeOf(node);
   if (type === 'Module') return 'document';
-  if (/^(Assign|AnnAssign|AugAssign|Expr|If|For|While|FunctionDef|Return|Import|ImportFrom|Pass|Break|Continue|ClassDef)$/.test(type)) return 'statement';
+  if (statementTypes.has(type)) return 'statement';
   return 'expression';
 }
 
@@ -92,11 +92,21 @@ function collectLocatedChildren(value, socket, children) {
   }
 }
 
+const statementTypes = new Set([
+  'AnnAssign', 'Assert', 'Assign', 'AsyncFor', 'AsyncFunctionDef', 'AsyncWith',
+  'AugAssign', 'Break', 'ClassDef', 'Continue', 'Delete', 'Expr', 'For',
+  'FunctionDef', 'Global', 'If', 'Import', 'ImportFrom', 'Match', 'Nonlocal',
+  'Pass', 'Raise', 'Return', 'Try', 'TryStar', 'TypeAlias', 'While', 'With'
+]);
 const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_offset']);
 const socketKeys = new Set(['value', 'args', 'target', 'targets', 'test', 'iter', 'left', 'right']);
 function typeOf(node) { return node?.type ?? node?.$name ?? node?.constructor?.$name ?? node?.constructor?.name ?? 'Unknown'; }
 function lineStarts(source) { const starts = [0]; for (let i = 0; i < source.length; i += 1) if (source[i] === '\n') starts.push(i + 1); return starts; }
 function leadingWhitespace(source, from) { return /^[\t ]*/.exec(source.slice(from))?.[0] ?? ''; }
+function hasCodeBeforeComment(source, from) {
+  const lineStart = source.lastIndexOf('\n', from - 1) + 1;
+  return /\S/.test(source.slice(lineStart, from));
+}
 function offset(line, column, starts, length, fallback) {
   if (!Number.isInteger(line) || !Number.isInteger(column) || column < 0) return fallback;
   const lineStart = starts[line - 1];

@@ -163,7 +163,7 @@ test('modern match syntax remains source-preserving whether Brython projects it 
 test('Brython tokenizer retains comments and reports visual indentation ranges', async ({page}) => {
   await page.goto('/test/ctest.html');
   await page.addScriptTag({url: '/playwright/node_modules/brython/brython.js'});
-  const source = '# heading\nif value:\n\tresult = value  # inline\n';
+  const source = '# heading\nif value:\n\t# nested\n\tresult = value  # inline\n';
   const result = await page.evaluate(async (python) => {
     window.brython();
     const importMap = document.createElement('script');
@@ -185,15 +185,17 @@ test('Brython tokenizer retains comments and reports visual indentation ranges',
   const {tokens, trivia} = result;
   expect(tokens).toEqual(expect.arrayContaining([
     expect.objectContaining({string: '# heading', lineno: 1, col_offset: 0, end_col_offset: 9}),
-    expect.objectContaining({string: '', type: 5, lineno: 3, col_offset: 0, end_col_offset: 8}),
-    expect.objectContaining({string: '# inline', lineno: 3, col_offset: 17, end_col_offset: 25})
+    expect.objectContaining({string: '# nested', lineno: 3, col_offset: 1, end_col_offset: 9}),
+    expect.objectContaining({string: '', type: 5, lineno: 4, col_offset: 0, end_col_offset: 8}),
+    expect.objectContaining({string: '# inline', lineno: 4, col_offset: 17, end_col_offset: 25})
   ]));
   expect(trivia).toEqual({
     comments: [
       {kind: 'comment', from: 0, to: 9, inline: false},
-      {kind: 'comment', from: 37, to: 45, inline: true}
+      {kind: 'comment', from: 21, to: 29, inline: false},
+      {kind: 'comment', from: 47, to: 55, inline: true}
     ],
-    indentation: [{kind: 'indentation', from: 20, to: 21, text: '\t'}]
+    indentation: [{kind: 'indentation', from: 30, to: 31, text: '\t'}]
   });
 });
 
@@ -214,6 +216,7 @@ test('CodeMirror block mode preserves Brython Python source in Chromium', async 
       '@codemirror/language': '/playwright/node_modules/@codemirror/language/dist/index.js',
       '@lezer/common': '/playwright/node_modules/@lezer/common/dist/index.js',
       '@lezer/highlight': '/playwright/node_modules/@lezer/highlight/dist/index.js',
+      '@lezer/lr': '/playwright/node_modules/@lezer/lr/dist/index.js',
       '@marijn/find-cluster-break': '/playwright/node_modules/@marijn/find-cluster-break/src/index.js',
       'crelt': '/playwright/node_modules/crelt/index.js',
       'style-mod': '/playwright/node_modules/style-mod/src/style-mod.js',
