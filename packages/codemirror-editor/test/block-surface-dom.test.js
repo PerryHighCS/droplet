@@ -109,6 +109,27 @@ test('uses the upper and lower halves of a container header as sibling drop targ
   ]);
 });
 
+test('extends sibling drop target rows to either side of their rendered blocks', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(nestedStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  drag(svg, dom.window, first, second.bounds.right + 12, second.bounds.top + 2);
+  drag(svg, dom.window, first, second.bounds.left - 8, second.bounds.bottom - 2);
+
+  assert.deepEqual(operations, [
+    {type: 'move-statement', source: {from: 26, to: 33}, destination: {from: 36, to: 36, indentation: '  '}},
+    {type: 'move-statement', source: {from: 26, to: 33}, destination: {from: 45, to: 45, indentation: '  '}}
+  ]);
+});
+
 test('accepts an outer sibling dropped in the lower interior of a nested container footer', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];

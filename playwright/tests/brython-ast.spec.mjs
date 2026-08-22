@@ -390,7 +390,8 @@ test('manual modern Python playground accepts statement drops above a standalone
   await page.mouse.move(secondBox.x + 4, secondBox.y + 4);
   await page.mouse.down();
   await page.mouse.move(secondBox.x + 12, secondBox.y + 12);
-  await page.mouse.move(commentBox.x + 4, commentBox.y + 2, {steps: 8});
+  // Use the row's right-hand gutter, rather than the comment rectangle.
+  await page.mouse.move(commentBox.x + commentBox.width + 12, commentBox.y + 2, {steps: 8});
   await expect(page.locator('.droplet-drop-guide')).toBeVisible();
   await page.mouse.up();
 

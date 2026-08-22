@@ -87,7 +87,7 @@ export class BlockSurface {
     const point = pointFor(this.#svg, event);
     if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
     this.#drag.moved = true;
-    const target = hitTestBlockLayout(this.#layout, point);
+    const target = dropTargetAtPoint(this.#layout, point);
     const resolved = destinationForTarget(this.#layout, target, point);
     this.#drag.destination = resolved?.destination;
     renderDragPreviews(this.#svg, this.#layout, this.#drag.node, point, resolved?.zone);
@@ -153,6 +153,29 @@ function destinationForTarget(layout, target, point) {
     destination: zone.destination,
     zone: {...zone, bounds: statementHalfBounds(targetBounds, before)}
   };
+}
+
+function dropTargetAtPoint(layout, point) {
+  const direct = hitTestBlockLayout(layout, point);
+  if (direct?.kind === 'insertion' || isSiblingDropTarget(direct)) return direct;
+  // renderLayout adds a 16px right gutter around the layout bounds.
+  if (point.x < 0 || point.x > layout.bounds.right + 16) return direct;
+  // The target row extends across the visible block-surface lane. This makes
+  // before/after dropping practical beside a narrow block, while preserving
+  // the more specific structural insertion zones inside container bodies.
+  const candidate = layout.nodes
+    .filter((node) => node.kind === 'statement' || node.kind === 'comment' || node.kind === 'container')
+    .map((node) => ({node, bounds: node.kind === 'container' ? node.regions.header : node.bounds}))
+    .filter(({bounds}) => point.y >= bounds.top && point.y <= bounds.bottom)
+    .sort((left, right) => (left.bounds.right - left.bounds.left) - (right.bounds.right - right.bounds.left))[0];
+  return candidate ? {
+    kind: candidate.node.kind === 'container' ? 'container-header' : candidate.node.kind,
+    node: candidate.node
+  } : direct;
+}
+
+function isSiblingDropTarget(target) {
+  return target?.node?.kind === 'statement' || target?.node?.kind === 'comment' || target?.kind === 'container-header';
 }
 
 function findParent(node, childId) {
