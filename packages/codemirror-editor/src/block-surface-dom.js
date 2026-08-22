@@ -38,6 +38,10 @@ export class BlockSurface {
     this.#svg.setAttribute('role', 'tree');
     this.#svg.setAttribute('aria-label', 'Droplet blocks');
     this.#svg.style.display = 'block';
+    // A snake-styled container's wavy edge can dip a pixel or two past its
+    // nominal bounds; let that overshoot paint instead of clipping at the
+    // SVG's own viewBox edge. A host page provides the surrounding padding.
+    this.#svg.style.overflow = 'visible';
     this.#dom.append(this.#svg);
     this.#dom.addEventListener('click', (event) => this.#handleClick(event));
     this.#dom.addEventListener('keydown', (event) => this.#handleKeydown(event));
@@ -483,28 +487,96 @@ function renderNode(node, document, options = {}) {
 
 function renderContainerFrame(group, node, document) {
   const {header, footer} = node.regions;
+  // A colon-terminated header (Python's `if x:`, `for y in z:`, ...) is the
+  // only shape this "snake" styling targets; brace-bodied languages such as
+  // JavaScript keep the plain frame.
+  const isSnake = isColonHeader(node);
   const path = document.createElementNS(SVG_NAMESPACE, 'path');
   const radius = 4;
+  // The box corners share the footer's fixed 10px height with each other, so
+  // their radius stays small; the wave-to-bar blends have a full body height
+  // to work with and can afford a much more generous curve.
+  const blendRadius = 12;
+  const spine = footer.left + 18;
   path.setAttribute('d', [
-    `M ${header.left + radius} ${header.top}`,
+    // The top-left corner is where the closing wavy edge blends back in, so
+    // it starts at blendRadius rather than the smaller box-corner radius.
+    `M ${header.left + (isSnake ? blendRadius : radius)} ${header.top}`,
     `H ${header.right - radius}`,
     `Q ${header.right} ${header.top} ${header.right} ${header.top + radius}`,
     `V ${header.bottom - radius}`,
     `Q ${header.right} ${header.bottom} ${header.right - radius} ${header.bottom}`,
-    `H ${footer.left + 18}`,
-    `V ${footer.top}`,
+    // Round each place a wavy edge meets a flat bar, so the wave blends into
+    // the top/bottom bars instead of turning a sharp corner into the curve.
+    isSnake ? `H ${spine + blendRadius}` : `H ${spine}`,
+    ...(isSnake ? [
+      `Q ${spine} ${header.bottom} ${spine} ${header.bottom + blendRadius}`,
+      ...wavySpine(spine, header.bottom + blendRadius, footer.top - blendRadius),
+      `Q ${spine} ${footer.top} ${spine + blendRadius} ${footer.top}`
+    ] : [`V ${footer.top}`]),
     `H ${footer.right - radius}`,
     `Q ${footer.right} ${footer.top} ${footer.right} ${footer.top + radius}`,
     `V ${footer.bottom - radius}`,
     `Q ${footer.right} ${footer.bottom} ${footer.right - radius} ${footer.bottom}`,
-    `H ${footer.left + 18}`
+    isSnake ? `H ${header.left + blendRadius}` : `H ${spine}`,
+    // Close the snake's body with a wavy outer-left edge back up to the header.
+    ...(isSnake ? [
+      `Q ${header.left} ${footer.bottom} ${header.left} ${footer.bottom - blendRadius}`,
+      ...wavySpine(header.left, footer.bottom - blendRadius, header.top + blendRadius),
+      `Q ${header.left} ${header.top} ${header.left + blendRadius} ${header.top}`,
+      'Z'
+    ] : [])
   ].join(' '));
-  path.setAttribute('fill', 'none');
-  path.setAttribute('stroke', '#246ca8');
+  path.setAttribute('fill', isSnake ? SNAKE_FILL : 'none');
+  path.setAttribute('stroke', isSnake ? SNAKE_STROKE : '#246ca8');
   path.setAttribute('stroke-width', '3');
   path.setAttribute('stroke-linecap', 'round');
   path.setAttribute('stroke-linejoin', 'round');
   group.append(path);
+  if (isSnake) renderSnakeFace(group, header, document);
+}
+
+function isColonHeader(node) {
+  return typeof node.text === 'string' && node.text.trimEnd().endsWith(':');
+}
+
+// A gentle wave down a body edge, in place of a straight line, so a wrapping
+// if/for block reads as a snake curled around its children. The offset is a
+// function of absolute document y (not distance travelled), so every edge —
+// including a nested container's own spine and left border — ripples in the
+// same phase instead of each restarting its own wave at a different height.
+function wavySpine(x, yFrom, yTo, amplitude = 1.1, wavelength = 40) {
+  if (yFrom === yTo) return [];
+  const direction = yTo > yFrom ? 1 : -1;
+  const sampleStep = wavelength / 6;
+  const commands = [];
+  let y = yFrom;
+  while (direction > 0 ? y < yTo : y > yTo) {
+    y = direction > 0 ? Math.min(y + sampleStep, yTo) : Math.max(y - sampleStep, yTo);
+    commands.push(`L ${x + amplitude * Math.sin((2 * Math.PI * y) / wavelength)} ${y}`);
+  }
+  return commands;
+}
+
+// The colon that ends the header already reads as the snake's eyes; add
+// only a small forked tongue flicking out past it.
+function renderSnakeFace(group, header, document) {
+  const centerY = (header.top + header.bottom) / 2;
+  const tongue = document.createElementNS(SVG_NAMESPACE, 'path');
+  const tongueLeft = header.right + 2;
+  const tongueY = centerY + 4;
+  tongue.setAttribute('d', [
+    `M ${tongueLeft} ${tongueY}`,
+    `L ${tongueLeft + 8} ${tongueY}`,
+    `L ${tongueLeft + 13} ${tongueY - 3}`,
+    `M ${tongueLeft + 8} ${tongueY}`,
+    `L ${tongueLeft + 13} ${tongueY + 3}`
+  ].join(' '));
+  tongue.setAttribute('fill', 'none');
+  tongue.setAttribute('stroke', SNAKE_TONGUE);
+  tongue.setAttribute('stroke-width', '1.5');
+  tongue.setAttribute('stroke-linecap', 'round');
+  group.append(tongue);
 }
 
 function renderAtomicFrame(group, node, document) {
@@ -584,3 +656,6 @@ function createLabel(text, x, y, document) {
 }
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const SNAKE_STROKE = '#5f8a41';
+const SNAKE_FILL = 'rgba(122, 163, 88, .12)';
+const SNAKE_TONGUE = '#c23b3b';
