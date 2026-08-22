@@ -19,6 +19,11 @@ runtime. Future Code.org changes are reviewed and selectively reimplemented as
 compatibility work. See [the modernization decision](docs/decisions/0001-full-modernization.md)
 and [the upstream review log](docs/upstream-codeorg.md).
 
+For manual modern-editor checks, start `npm run dev` and open
+[`example/modern-python.html`](example/modern-python.html) on port 8001. The
+playground exposes the live source snapshot and parsed projection alongside
+CodeMirror text/block mode and representative Python block operations.
+
 The first framework-independent editor package is
 [`packages/codemirror-editor`](packages/codemirror-editor/): it wraps one
 CodeMirror 6 document with controlled value synchronization and extension

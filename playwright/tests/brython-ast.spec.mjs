@@ -321,3 +321,11 @@ test('Python block movement preserves nested suites, comments, and blank lines',
     'if outer:\n  # standalone\n  second = 2\n\nif ready:\n  first = 1  # retain\nif created:\n  pass\ntail = 0\n'
   );
 });
+
+test('manual modern Python playground loads with its source and projection panels', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  await expect(page.locator('#modern-python-editor .cm-editor')).toBeVisible();
+  await expect(page.locator('#modern-python-source')).toContainText('if outer:');
+  await expect(page.locator('#modern-python-projection')).toContainText('Module');
+});

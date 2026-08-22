@@ -981,6 +981,15 @@ packages/
 
 Final package names can be chosen later.
 
+### Manual playground — 2026-08-22
+
+`example/modern-python.html` is an intentionally unbundled development page
+for the modern Python path. It runs from the normal port-8001 dev server and
+shows the authoritative source snapshot and current projection beside the
+CodeMirror editor. It is not a replacement for automated tests: Playwright
+smoke-tests that the page loads, while the page provides hands-on inspection of
+mode switching, opaque recovery, and representative block operations.
+
 ## Browser API
 
 Target usage:
