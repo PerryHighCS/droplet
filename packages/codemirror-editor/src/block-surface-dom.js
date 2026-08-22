@@ -186,7 +186,10 @@ function renderContainer(group, node, document) {
     `H ${footer.left + 18}`,
     `V ${footer.top}`,
     `H ${footer.right - radius}`,
-    `Q ${footer.right} ${footer.top} ${footer.right} ${footer.top + radius}`
+    `Q ${footer.right} ${footer.top} ${footer.right} ${footer.top + radius}`,
+    `V ${footer.bottom - radius}`,
+    `Q ${footer.right} ${footer.bottom} ${footer.right - radius} ${footer.bottom}`,
+    `H ${footer.left + 18}`
   ].join(' '));
   path.setAttribute('fill', 'none');
   path.setAttribute('stroke', '#246ca8');

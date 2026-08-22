@@ -190,9 +190,17 @@ function validHeaderTo(node, source) {
 }
 
 function insertionZone(destination, left, top, width, settings, role, details) {
+  const bodyEnd = role === 'body-end';
   return {
     kind: 'insertion-zone', role, destination: {from: destination, to: destination, ...details},
-    bounds: box(left, top - settings.insertionHeight / 2, Math.max(settings.minimumWidth, width), settings.insertionHeight)
+    // A container footer is a drop region, not a one-pixel separator. Its
+    // interior must accept a drop at the end of the suite.
+    bounds: box(
+      left,
+      top - (bodyEnd ? settings.insertionHeight : settings.insertionHeight / 2),
+      Math.max(settings.minimumWidth, width),
+      bodyEnd ? settings.insertionHeight * 2 : settings.insertionHeight
+    )
   };
 }
 

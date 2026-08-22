@@ -46,6 +46,29 @@ test('uses a layout insertion zone for one statement move intent and matching pr
   }]);
 });
 
+test('accepts an outer sibling dropped in the lower interior of a nested container footer', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(nestedStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const inner = surface.layout.nodes.find((node) => node.id === 'inner');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerdown', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointermove', {bubbles: true, button: 0,
+    clientX: inner.regions.body.left + 2, clientY: inner.regions.footer.top + 8}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerup', {bubbles: true, button: 0,
+    clientX: inner.regions.body.left + 2, clientY: inner.regions.footer.top + 8}));
+
+  assert.deepEqual(operations, [{type: 'move-statement', source: {from: 36, to: 44},
+    destination: {from: 34, to: 34, indentation: '    '}}]);
+});
+
 function projection() {
   const source = 'if ready:\n  first()\n\n';
   return {
@@ -70,5 +93,20 @@ function twoStatements() {
       {id: 'first', kind: 'statement', from: 0, to: 7, editable: true, metadata: {}, children: []},
       {id: 'second', kind: 'statement', from: 8, to: 16, editable: true, metadata: {}, children: []}
     ]
+  }};
+}
+
+function nestedStatements() {
+  const source = 'if outer:\n  if ready:\n    first()\n  second()\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'outer', kind: 'statement', from: 0, to: source.length, editable: true,
+      metadata: {blockRole: 'container', headerTo: 9, bodyEnd: source.length, bodyIndentation: '  '}, children: [{
+        id: 'inner', kind: 'statement', from: 12, to: 34, editable: true,
+        metadata: {blockRole: 'container', headerTo: 21, bodyEnd: 34, bodyIndentation: '    '},
+        children: [{id: 'first', kind: 'statement', from: 26, to: 33, editable: true, metadata: {}, children: []}
+        ]
+      }, {id: 'second', kind: 'statement', from: 36, to: 44, editable: true, metadata: {}, children: []}]
+    }]
   }};
 }

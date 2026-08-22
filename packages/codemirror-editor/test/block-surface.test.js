@@ -65,7 +65,9 @@ test('prefers an inner container insertion zone and retains its source indentati
     }])
   });
   const inner = layout.nodes.find((node) => node.id === 'inner');
-  const zone = hitTestBlockLayout(layout, {x: inner.regions.body.left, y: inner.regions.footer.top}).zone;
+  const zone = hitTestBlockLayout(layout, {
+    x: inner.regions.body.left, y: inner.regions.footer.top + 8
+  }).zone;
 
   assert.equal(zone.depth, 2);
   assert.deepEqual(zone.destination, {from: source.length, to: source.length, indentation: '    '});
