@@ -48,6 +48,12 @@ export class BlockSurface {
     this.#svg.addEventListener('pointerdown', (event) => this.#beginDrag(event));
     this.#svg.addEventListener('pointermove', (event) => this.#continueDrag(event));
     this.#svg.addEventListener('pointerup', (event) => this.#endDrag(event));
+    // A trackpad drag toward the canvas edge can end with the OS or browser
+    // delivering pointercancel instead of pointerup (a gesture interrupting
+    // the sequence, or the pointer briefly leaving the capturing element).
+    // Without handling it, the drag state never clears and the release the
+    // user just made is silently lost.
+    this.#svg.addEventListener('pointercancel', (event) => this.#endDrag(event));
     this.#dom.addEventListener('dragover', (event) => this.#continuePaletteDrag(event));
     this.#dom.addEventListener('dragleave', (event) => this.#leavePaletteDrag(event));
     this.#dom.addEventListener('drop', (event) => this.#dropPaletteBlock(event));
@@ -201,6 +207,7 @@ export class BlockSurface {
       node: target.node,
       copy: event.ctrlKey || event.metaKey,
       start: pointFor(this.#svg, event),
+      lastPoint: pointFor(this.#svg, event),
       moved: false,
       destination: undefined,
       operation: undefined
@@ -212,6 +219,7 @@ export class BlockSurface {
   #continueDrag(event) {
     if (!this.#drag) return;
     const point = pointFor(this.#svg, event);
+    this.#drag.lastPoint = point;
     if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
     this.#drag.moved = true;
     const target = dropTargetAtPoint(this.#layout, point);
@@ -244,7 +252,7 @@ export class BlockSurface {
         source: drag.node.source,
         destination: drag.destination
       });
-    } else if (!drag.copy && isOutsideCanvas(this.#layout, pointFor(this.#svg, event))) {
+    } else if (!drag.copy && isOutsideCanvas(this.#layout, drag.lastPoint ?? pointFor(this.#svg, event))) {
       this.#deleteNode(drag.node);
     }
     event.preventDefault();

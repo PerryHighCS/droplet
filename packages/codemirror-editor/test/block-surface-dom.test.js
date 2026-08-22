@@ -115,6 +115,29 @@ test('reorders a statement to the top or bottom when dropped above or below the 
   ]);
 });
 
+test('completes a drop on pointercancel instead of losing the release', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+
+  // A trackpad-driven drag can end with the browser delivering pointercancel
+  // instead of pointerup (a gesture interrupting the sequence). Its own
+  // coordinates are not trustworthy, so the drop must still resolve using
+  // the last known pointermove position rather than being silently dropped.
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerdown', {bubbles: true, button: 0,
+    clientX: first.bounds.left + 2, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointermove', {bubbles: true, button: 0, clientX: -400, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointercancel', {bubbles: true}));
+
+  assert.deepEqual(operations, [{type: 'delete-node', source: {from: 0, to: 7}, kind: 'statement'}]);
+});
+
 test('marks the selected block with a visible SVG outline', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
