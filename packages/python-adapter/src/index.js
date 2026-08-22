@@ -452,7 +452,7 @@ function childNodes(node) {
 function collectLocatedChildren(value, socketRole, children) {
   for (const child of Array.isArray(value) ? value : [value]) {
     if (!child || typeof child !== 'object') continue;
-    if (Number.isInteger(child.lineno)) {
+    if (isLocatedNode(child)) {
       children.push({node: child, socketRole});
       continue;
     }
@@ -461,6 +461,19 @@ function collectLocatedChildren(value, socketRole, children) {
       collectLocatedChildren(nestedValue, socketRole ?? socketRoleFor(child, key, nestedValue), children);
     }
   }
+}
+
+// Brython's `arguments` node carries a lineno but no col_offset at all,
+// since it isn't itself a real source-range AST node - only its own args
+// (each fully located) are. Requiring col_offset too, not just lineno,
+// keeps such structural wrappers from being socketed as though they were,
+// which previously fell back to their statement's full range as an
+// oversized, effectively-uneditable "socket" (e.g. def name(): swallowing
+// its entire header and body). end_lineno/end_col_offset are not required
+// here: a node with a real start but a missing or malformed end position
+// still gets its end clamped to the containing statement boundary below.
+function isLocatedNode(node) {
+  return Number.isInteger(node.lineno) && Number.isInteger(node.col_offset);
 }
 
 function socketRoleFor(parent, key, value) {
@@ -493,7 +506,7 @@ const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_off
 const bookkeepingKeys = new Set(['type_ignores']);
 const socketKeys = new Set([
   'args', 'defaults', 'ifs', 'iter', 'kw_defaults', 'kwonlyargs', 'left',
-  'posonlyargs', 'right', 'target', 'targets', 'test', 'value'
+  'operand', 'posonlyargs', 'right', 'target', 'targets', 'test', 'value'
 ]);
 function typeOf(node) { return node?.type ?? node?.$name ?? node?.constructor?.$name ?? node?.constructor?.name ?? 'Unknown'; }
 function lineStarts(source) {

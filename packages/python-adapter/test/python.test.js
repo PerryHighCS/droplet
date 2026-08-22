@@ -23,6 +23,29 @@ test('maps Brython line and column locations to exact source ranges', () => {
   });
 });
 
+test('sockets a function\'s individual parameters instead of its whole header and body', () => {
+  const source = 'def greet(a, b):\n  pass\n';
+  // Brython's `arguments` node carries a lineno but no col_offset - it isn't
+  // itself a source-range node, only its own args are. Reproduce that shape
+  // exactly: treating it as located anyway previously fell back to the
+  // enclosing statement's full range as one oversized "socket".
+  const ast = {type: 'Module', body: [
+    {type: 'FunctionDef', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6, name: 'greet',
+      args: {lineno: 1, posonlyargs: [], args: [
+        {type: 'arg', lineno: 1, col_offset: 10, end_lineno: 1, end_col_offset: 11, arg: 'a'},
+        {type: 'arg', lineno: 1, col_offset: 13, end_lineno: 1, end_col_offset: 14, arg: 'b'}
+      ], vararg: null, kwonlyargs: [], kw_defaults: [], kwarg: null, defaults: []},
+      body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}],
+      decorator_list: []}
+  ]};
+
+  const kids = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => source.slice(node.from, node.to));
+
+  assert.deepEqual(kids, ['a', 'b']);
+});
+
 test('labels assignment targets, assignment values, and if conditions as distinct sockets', () => {
   const source = 'target = value\nif ready:\n  pass\n';
   const ast = {type: 'Module', body: [
@@ -42,6 +65,27 @@ test('labels assignment targets, assignment values, and if conditions as distinc
     {text: 'target', role: 'assignment-target'},
     {text: 'value', role: 'assignment-value'},
     {text: 'ready', role: 'if-condition'}
+  ]);
+});
+
+test('labels a unary operator\'s operand as an editable socket', () => {
+  const source = 'value = not ready\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Assign', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 17,
+      targets: [{type: 'Name', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 5}],
+      value: {type: 'UnaryOp', lineno: 1, col_offset: 8, end_lineno: 1, end_col_offset: 17,
+        op: {type: 'Not'},
+        operand: {type: 'Name', lineno: 1, col_offset: 12, end_lineno: 1, end_col_offset: 17, id: 'ready'}}}
+  ]};
+
+  const sockets = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(sockets, [
+    {text: 'value', role: 'assignment-target'},
+    {text: 'not ready', role: 'assignment-value'},
+    {text: 'ready', role: 'expression'}
   ]);
 });
 
