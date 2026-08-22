@@ -26,6 +26,7 @@ export class DropletCodeMirrorEditor {
   #setProjection;
   #projectionField;
   #surface;
+  #socketRecovery;
 
   constructor(options) {
     if (typeof options?.parse !== 'function') {
@@ -58,7 +59,8 @@ export class DropletCodeMirrorEditor {
     this.#surface = new BlockSurface({
       parent: options.parent,
       onSelect: ({from, to}) => this.editor.setSelection({anchor: from, head: to}),
-      onOperation: (operation) => this.applyBlockOperation(operation)
+      onOperation: (operation) => this.applyBlockOperation(operation),
+      onSocketEdit: ({target, source}) => this.#replaceSocketText(target, source)
     });
 
     if (this.#blockMode) this.#publishProjection();
@@ -139,8 +141,22 @@ export class DropletCodeMirrorEditor {
   }
 
   #reparse() {
-    this.#projection = this.#parseSource(this.getValue());
+    const parsed = this.#parseSource(this.getValue());
+    if (this.#socketRecovery && collectOpaqueNodes(parsed.root).length) {
+      this.#projection = recoverSocketProjection(this.#socketRecovery.projection, this.getValue(), this.#socketRecovery.target, parsed.issues);
+    } else {
+      this.#projection = parsed;
+      this.#socketRecovery = undefined;
+    }
     this.#publishProjection();
+  }
+
+  #replaceSocketText(target, source) {
+    if (!Number.isInteger(target?.from) || !Number.isInteger(target?.to) || typeof source !== 'string') {
+      throw new TypeError('Socket editing requires a source range and string value');
+    }
+    this.#socketRecovery = {projection: this.#projection, target};
+    this.editor.dispatch({changes: {from: target.from, to: target.to, insert: source}});
   }
 
   #publishProjection() {
@@ -205,6 +221,31 @@ function collectProjectionNodes(node) {
 function intersects(node, from, to) {
   if (from === to) return from >= node.from && from < node.to;
   return from < node.to && to > node.from;
+}
+
+function recoverSocketProjection(previous, source, target, issues) {
+  const delta = source.length - previous.source.length;
+  const mapOffset = (offset) => offset >= target.to ? offset + delta : offset;
+  const mapNode = (node) => {
+    if (node.kind === 'socket' || node.kind === 'recovery-socket') {
+      if (node.from === target.from && node.to === target.to) {
+        return {
+          ...node,
+          kind: 'recovery-socket',
+          to: target.from + (target.to - target.from) + delta,
+          children: [],
+          metadata: {...node.metadata, recovery: true}
+        };
+      }
+    }
+    return {
+      ...node,
+      from: mapOffset(node.from),
+      to: mapOffset(node.to),
+      children: (node.children ?? []).map(mapNode)
+    };
+  };
+  return {source, root: mapNode(previous.root), issues};
 }
 
 function isPermittedChange(transaction) {

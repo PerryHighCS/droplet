@@ -102,6 +102,53 @@ test('clicking a rendered projection selects its exact source range', () => {
   editor.destroy();
 });
 
+test('editing a rendered socket commits one CodeMirror source change on Enter', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseSocketExample
+  });
+  const socket = parent.querySelector('.droplet-block-surface [data-droplet-layout-id="value:value"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  socket.dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0, clientX: 98, clientY: 5}));
+  const input = parent.querySelector('.droplet-socket-editor');
+  assert.equal(input.value, 'value');
+  input.value = 'answer';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+
+  assert.equal(editor.getValue(), 'target = answer\n');
+  assert.equal(parent.querySelector('.droplet-socket-editor'), null);
+  assert.equal(parent.querySelector('[data-droplet-layout-id="value:answer"]')?.dataset.dropletKind, 'socket');
+  editor.destroy();
+});
+
+test('an incomplete socket commit remains an editable recovery socket until it parses', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseRecoveringSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const edit = (selector, value) => {
+    parent.querySelector(selector).dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0, clientX: 98, clientY: 5}));
+    const input = parent.querySelector('.droplet-socket-editor');
+    input.value = value;
+    input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+  };
+
+  edit('[data-droplet-layout-id="value:value"]', '(');
+  assert.equal(editor.getValue(), 'target = (\n');
+  const recovery = parent.querySelector('[data-droplet-kind="recovery-socket"]');
+  assert.ok(recovery);
+
+  edit('[data-droplet-kind="recovery-socket"]', 'answer');
+  assert.equal(editor.getValue(), 'target = answer\n');
+  assert.equal(parent.querySelector('[data-droplet-kind="recovery-socket"]'), null);
+  assert.equal(parent.querySelector('[data-droplet-layout-id="value:answer"]')?.dataset.dropletKind, 'socket');
+  editor.destroy();
+});
+
 test('rendered block drops become source operations without a second document', () => {
   assert.deepEqual(
     projectionOperationFromDrop(
@@ -212,6 +259,36 @@ function parseExample(source) {
     },
     issues: []
   };
+}
+
+function parseSocketExample(source) {
+  const targetEnd = source.indexOf(' = ');
+  const valueFrom = targetEnd + 3;
+  const valueTo = source.indexOf('\n');
+  return {
+    source,
+    root: {
+      id: `document:0:${source.length}`, kind: 'document', from: 0, to: source.length, editable: false,
+      children: [{
+        id: 'assign', kind: 'statement', from: 0, to: source.length, editable: true, metadata: {}, children: [
+          {id: 'target', kind: 'socket', from: 0, to: targetEnd, editable: true, children: [], metadata: {socketRole: 'assignment-target'}},
+          {id: `value:${source.slice(valueFrom, valueTo)}`, kind: 'socket', from: valueFrom, to: valueTo,
+            editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
+        ]
+      }]
+    }, issues: []
+  };
+}
+
+function parseRecoveringSocketExample(source) {
+  if (source.includes('(')) {
+    const error = new Error('Expected an expression');
+    error.from = 0;
+    error.to = source.length;
+    error.opaqueKind = 'opaque-statement';
+    throw error;
+  }
+  return parseSocketExample(source);
 }
 
 function appendParent() {

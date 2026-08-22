@@ -85,8 +85,13 @@ function layoutAtomic(node, source, settings, left, top) {
   const textEnd = inlineComment ? inlineComment.from : node.kind === 'statement' ? lineEnd(source, node.to) : node.to;
   const text = source.slice(node.from, textEnd).trimEnd();
   const width = Math.max(settings.minimumWidth, settings.measureText(text) + settings.horizontalPadding * 2);
+  const sockets = node.kind === 'statement'
+    ? (node.children ?? []).filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
+      .map((child) => layoutSocket(child, node, source, settings, left, top))
+    : [];
   const children = [
     ...(inlineComment ? [layoutAtomic(inlineComment, source, settings, left + width + settings.inlineCommentGap, top)] : []),
+    ...sockets,
     ...(node.children ?? [])
     .filter((child) => child.kind?.startsWith('opaque-'))
     .map((child) => layoutAtomic(child, source, settings, left + 4, top + 4))
@@ -99,6 +104,23 @@ function layoutAtomic(node, source, settings, left, top) {
     text,
     bounds: box(left, top, width, settings.lineHeight),
     children,
+    insertionZones: []
+  };
+}
+
+function layoutSocket(node, statement, source, settings, left, top) {
+  const text = source.slice(node.from, node.to);
+  const prefix = source.slice(statement.from, node.from);
+  const socketLeft = left + settings.horizontalPadding + settings.measureText(prefix) - 2;
+  const width = Math.max(settings.socketMinimumWidth, settings.measureText(text) + 4);
+  return {
+    id: node.id,
+    kind: node.kind,
+    source: rangeOf(node),
+    metadata: node.metadata,
+    text,
+    bounds: box(socketLeft, top + 3, width, settings.lineHeight - 6),
+    children: [],
     insertionZones: []
   };
 }
@@ -119,6 +141,8 @@ function layoutContainer(node, source, settings, left, top) {
   const headerTo = validHeaderTo(node, source);
   const headerText = source.slice(node.from, headerTo);
   const headerWidth = Math.max(settings.minimumWidth, settings.measureText(headerText) + settings.horizontalPadding * 2);
+  const headerSockets = (node.children ?? []).filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
+    .map((child) => layoutSocket(child, node, source, settings, left, top));
   const bodyLeft = left + settings.indentWidth;
   const bodyTop = top + settings.lineHeight + settings.containerGap;
   const bodyEnd = Number.isInteger(node.metadata?.bodyEnd) ? node.metadata.bodyEnd : node.to;
@@ -142,7 +166,7 @@ function layoutContainer(node, source, settings, left, top) {
       body: {left: bodyLeft, top: bodyTop, right, bottom: footer.top},
       footer
     },
-    children: body.children,
+    children: [...headerSockets, ...body.children],
     insertionZones: body.insertionZones
   };
 }
@@ -289,7 +313,8 @@ function normalizeOptions(options) {
     insertionHeight: positiveNumber(options.insertionHeight, 12),
     minimumWidth: positiveNumber(options.minimumWidth, 56),
     whitespaceWidth: positiveNumber(options.whitespaceWidth, 72),
-    inlineCommentGap: positiveNumber(options.inlineCommentGap, 6)
+    inlineCommentGap: positiveNumber(options.inlineCommentGap, 6),
+    socketMinimumWidth: positiveNumber(options.socketMinimumWidth, 20)
   };
 }
 

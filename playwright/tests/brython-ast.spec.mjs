@@ -418,6 +418,67 @@ test('manual modern Python playground accepts statement drops inside a container
   await expect(page.locator('#modern-python-source')).toContainText('if outer:\n  # standalone note\n  if ready:\n    tail = 0\n    first = 1');
 });
 
+test('manual modern Python playground edits assignment target and value sockets', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  const socketFor = async (text) => {
+    const range = await page.evaluate((expected) => {
+      const source = document.querySelector('#modern-python-source').textContent;
+      const block = [...document.querySelectorAll('[data-droplet-kind="socket"]')].find((candidate) => source.slice(
+        Number(candidate.dataset.dropletFrom), Number(candidate.dataset.dropletTo)
+      ) === expected);
+      return {from: block.dataset.dropletFrom, to: block.dataset.dropletTo};
+    }, text);
+    return page.locator(`[data-droplet-kind="socket"][data-droplet-from="${range.from}"][data-droplet-to="${range.to}"]`);
+  };
+  const edit = async (socket, value, commit) => {
+    const box = await socket.boundingBox();
+    await page.mouse.click(box.x + 3, box.y + 3);
+    const input = page.locator('.droplet-socket-editor');
+    await input.fill(value);
+    if (commit === 'blur') await input.evaluate((element) => element.blur());
+    else await input.press('Enter');
+  };
+
+  await edit(await socketFor('first'), 'result', 'enter');
+  await expect(page.locator('#modern-python-source')).toContainText('    result = 1  # inline note');
+  await edit(await socketFor('1'), '2', 'blur');
+  await expect(page.locator('#modern-python-source')).toContainText('    result = 2  # inline note');
+  await edit(await socketFor('ready'), 'result > 0', 'enter');
+  await expect(page.locator('#modern-python-source')).toContainText('  if result > 0:');
+});
+
+test('manual modern Python playground keeps an incomplete socket editable', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  const range = await page.evaluate(() => {
+    const source = document.querySelector('#modern-python-source').textContent;
+    const socket = [...document.querySelectorAll('[data-droplet-kind="socket"]')].find((candidate) => source.slice(
+      Number(candidate.dataset.dropletFrom), Number(candidate.dataset.dropletTo)
+    ) === '1');
+    return {from: socket.dataset.dropletFrom, to: socket.dataset.dropletTo};
+  });
+  const value = page.locator(`[data-droplet-kind="socket"][data-droplet-from="${range.from}"][data-droplet-to="${range.to}"]`);
+  const valueBox = await value.boundingBox();
+  await page.mouse.click(valueBox.x + 3, valueBox.y + 3);
+  await page.locator('.droplet-socket-editor').fill('(');
+  await page.locator('.droplet-socket-editor').press('Enter');
+
+  await expect(page.locator('#modern-python-source')).toContainText('first = (  # inline note');
+  const recovery = page.locator('[data-droplet-kind="recovery-socket"]');
+  await expect(recovery).toBeVisible();
+  await expect(page.locator('[data-droplet-kind="opaque-statement"]')).toHaveCount(0);
+
+  const recoveryBox = await recovery.boundingBox();
+  await page.mouse.click(recoveryBox.x + 3, recoveryBox.y + 3);
+  await page.locator('.droplet-socket-editor').fill('2');
+  await page.locator('.droplet-socket-editor').press('Enter');
+  await expect(page.locator('#modern-python-source')).toContainText('first = 2  # inline note');
+  await expect(page.locator('[data-droplet-kind="recovery-socket"]')).toHaveCount(0);
+});
+
 test.skip('manual modern Python playground drops a statement at a container C-shape bottom', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);

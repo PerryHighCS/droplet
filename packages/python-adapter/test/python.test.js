@@ -19,8 +19,30 @@ test('maps Brython line and column locations to exact source ranges', () => {
   assert.equal(parsed.root.children[0].kind, 'statement');
   assert.deepEqual(parsed.root.children[0].children[0], {
     id: 'socket:Call:8:16', kind: 'socket', from: 8, to: 16, editable: true,
-    children: [], metadata: {type: 'Call'}
+    children: [], metadata: {type: 'Call', socketRole: 'assignment-value'}
   });
+});
+
+test('labels assignment targets, assignment values, and if conditions as distinct sockets', () => {
+  const source = 'target = value\nif ready:\n  pass\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Assign', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 14,
+      targets: [{type: 'Name', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 6}],
+      value: {type: 'Name', lineno: 1, col_offset: 9, end_lineno: 1, end_col_offset: 14}},
+    {type: 'If', lineno: 2, col_offset: 0, end_lineno: 3, end_col_offset: 6,
+      test: {type: 'Name', lineno: 2, col_offset: 3, end_lineno: 2, end_col_offset: 8},
+      body: [{type: 'Pass', lineno: 3, col_offset: 2, end_lineno: 3, end_col_offset: 6}]}
+  ]};
+
+  const sockets = parsePython(source, () => ast).root.children.flatMap((node) => node.children)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(sockets, [
+    {text: 'target', role: 'assignment-target'},
+    {text: 'value', role: 'assignment-value'},
+    {text: 'ready', role: 'if-condition'}
+  ]);
 });
 
 test('converts Brython syntax failures into an opaque source projection', () => {
@@ -109,7 +131,7 @@ test('contains child columns beyond their source line within their statement', (
   ]);
   assert.deepEqual(statements[0].children[0], {
     id: 'socket:Call:0:4', kind: 'socket', from: 0, to: 4, editable: true,
-    children: [], metadata: {type: 'Call'}
+    children: [], metadata: {type: 'Call', socketRole: 'expression'}
   });
 });
 

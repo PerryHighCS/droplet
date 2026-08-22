@@ -1086,6 +1086,23 @@ recovery state.
 - [ ] Source-range and undo/redo tests prove socket edits and dragged
   replacements are normal CodeMirror transactions.
 
+### Initial Python implementation — 2026-08-22
+
+The modern Python path now projects explicit `assignment-target`,
+`assignment-value`, and `if-condition` socket roles. The DOM/SVG BlockSurface
+renders each as a source-backed hit region, including condition sockets in a
+container header. Selecting one opens a scoped direct-edit field; Enter and
+focus loss dispatch an ordinary CodeMirror source transaction and reparse the
+current document.
+
+If a committed socket edit is incomplete, the editor retains the last
+structured projection outside that range and renders an editable
+`recovery-socket` instead of a non-editable opaque block. Correcting it
+restructures the projection. Browser regressions cover both assignment sides,
+an `if` condition, focus-loss commit, and the incomplete-to-structured
+recovery path. Expression drag replacement and assignment-target-specific
+invalidity coverage remain outstanding.
+
 ## Required rendering model
 
 - [x] Distinguish atomic statement blocks from container statement blocks in

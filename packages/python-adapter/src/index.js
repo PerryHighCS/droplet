@@ -157,7 +157,7 @@ export function collectPythonTrivia(source, tokenize, {indentTokenType = 5} = {}
   return {comments, indentation};
 }
 
-function project(node, source, lines, kind = kindFor(node), boundary = {from: 0, to: source.length}) {
+function project(node, source, lines, kind = kindFor(node), boundary = {from: 0, to: source.length}, socketRole) {
   const rawFrom = offset(node.lineno, node.col_offset, lines, source, null);
   const rawTo = offset(node.end_lineno, node.end_col_offset, lines, source, null);
   const range = kind === 'document' ? {from: 0, to: source.length} : rawFrom === null || rawTo === null
@@ -169,14 +169,15 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
     id: `${kind}:${typeOf(node)}:${from}:${to}`,
     kind, from, to, editable: kind !== 'document',
     children: childNodes(node).map((child) => project(
-      child.node, source, lines, child.socket ? 'socket' : kindFor(child.node), statementRange
+    child.node, source, lines, child.socketRole ? 'socket' : kindFor(child.node), statementRange, child.socketRole
     )).sort(compareProjectedNodes),
-    metadata: metadataFor(node, kind, source, rawFrom ?? from)
+    metadata: metadataFor(node, kind, source, rawFrom ?? from, socketRole)
   };
 }
 
-function metadataFor(node, kind, source, headerFrom) {
+function metadataFor(node, kind, source, headerFrom, socketRole) {
   const metadata = {type: typeOf(node)};
+  if (kind === 'socket') metadata.socketRole = socketRole ?? 'expression';
   if (kind === 'statement' && containerStatementTypes.has(typeOf(node))) {
     metadata.blockRole = 'container';
     metadata.headerTo = lineTextEnd(source, headerFrom);
@@ -400,23 +401,34 @@ function childNodes(node) {
   const children = [];
   for (const [key, value] of Object.entries(node ?? {})) {
     if (key.startsWith('$') || locationKeys.has(key) || bookkeepingKeys.has(key)) continue;
-    collectLocatedChildren(value, socketKeys.has(key), children);
+    collectLocatedChildren(value, socketRoleFor(node, key), children);
   }
   return children;
 }
 
-function collectLocatedChildren(value, socket, children) {
+function collectLocatedChildren(value, socketRole, children) {
   for (const child of Array.isArray(value) ? value : [value]) {
     if (!child || typeof child !== 'object') continue;
     if (Number.isInteger(child.lineno)) {
-      children.push({node: child, socket});
+      children.push({node: child, socketRole});
       continue;
     }
     for (const [key, nestedValue] of Object.entries(child)) {
       if (key.startsWith('$') || locationKeys.has(key)) continue;
-      collectLocatedChildren(nestedValue, socket || socketKeys.has(key), children);
+      collectLocatedChildren(nestedValue, socketRole ?? socketRoleFor(child, key), children);
     }
   }
+}
+
+function socketRoleFor(parent, key) {
+  const type = typeOf(parent);
+  if ((type === 'Assign' || type === 'AnnAssign' || type === 'AugAssign') &&
+      (key === 'target' || key === 'targets')) return 'assignment-target';
+  if ((type === 'Assign' || type === 'AnnAssign' || type === 'AugAssign') && key === 'value') {
+    return 'assignment-value';
+  }
+  if (type === 'If' && key === 'test') return 'if-condition';
+  return socketKeys.has(key) ? 'expression' : undefined;
 }
 
 const statementTypes = new Set([

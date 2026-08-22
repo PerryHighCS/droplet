@@ -51,6 +51,43 @@ test('renders an inline comment beside, rather than inside, its statement block'
   assert.ok(commentNode.bounds.left > statementNode.bounds.right);
 });
 
+test('lays out source-backed assignment sockets inside their statement block', () => {
+  const source = 'target = value\n';
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('assign', 0, 14),
+    children: [
+      {id: 'target', kind: 'socket', from: 0, to: 6, editable: true, children: [], metadata: {socketRole: 'assignment-target'}},
+      {id: 'value', kind: 'socket', from: 9, to: 14, editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+  const target = layout.nodes.find((node) => node.id === 'target');
+  const value = layout.nodes.find((node) => node.id === 'value');
+
+  assert.equal(target.kind, 'socket');
+  assert.equal(target.metadata.socketRole, 'assignment-target');
+  assert.equal(value.metadata.socketRole, 'assignment-value');
+  assert.ok(target.bounds.left < value.bounds.left);
+  assert.equal(hitTestBlockLayout(layout, {x: value.bounds.left + 2, y: value.bounds.top + 2}).node.id, 'value');
+});
+
+test('lays out an if condition socket in the container header', () => {
+  const source = 'if ready:\n  pass\n';
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('if', 0, 16, {blockRole: 'container', headerTo: 9}),
+    children: [
+      {id: 'condition', kind: 'socket', from: 3, to: 8, editable: true, children: [], metadata: {socketRole: 'if-condition'}},
+      statement('pass', 12, 16)
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+  const container = layout.nodes.find((node) => node.id === 'if');
+  const condition = layout.nodes.find((node) => node.id === 'condition');
+
+  assert.equal(condition.kind, 'socket');
+  assert.ok(condition.bounds.top >= container.regions.header.top);
+  assert.ok(condition.bounds.bottom <= container.regions.header.bottom);
+  assert.equal(hitTestBlockLayout(layout, {x: condition.bounds.left + 2, y: condition.bounds.top + 2}).node.id, 'condition');
+});
+
 test('uses the same subtree geometry for a drag preview and gives a nested child hit priority', () => {
   const source = 'if ready:\n  first()\nsecond()\n';
   const layout = createBlockLayout(projection(source));

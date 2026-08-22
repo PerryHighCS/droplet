@@ -10,18 +10,22 @@ export class BlockSurface {
   #svg;
   #onSelect;
   #onOperation;
+  #onSocketEdit;
   #layoutOptions;
   #layout;
   #drag;
+  #socketEditor;
   #suppressClick = false;
 
-  constructor({parent, onSelect, onOperation, layoutOptions = {}}) {
+  constructor({parent, onSelect, onOperation, onSocketEdit, layoutOptions = {}}) {
     if (!parent?.ownerDocument) throw new TypeError('A BlockSurface parent element is required');
     if (onSelect !== undefined && typeof onSelect !== 'function') throw new TypeError('onSelect must be a function');
     if (onOperation !== undefined && typeof onOperation !== 'function') throw new TypeError('onOperation must be a function');
+    if (onSocketEdit !== undefined && typeof onSocketEdit !== 'function') throw new TypeError('onSocketEdit must be a function');
     this.#parent = parent;
     this.#onSelect = onSelect;
     this.#onOperation = onOperation;
+    this.#onSocketEdit = onSocketEdit;
     this.#layoutOptions = layoutOptions;
     this.#dom = parent.ownerDocument.createElement('div');
     this.#dom.className = 'droplet-block-surface';
@@ -49,6 +53,7 @@ export class BlockSurface {
   }
 
   update(projection) {
+    this.#closeSocketEditor();
     this.#layout = createBlockLayout(projection, this.#layoutOptions);
     renderLayout(this.#svg, this.#layout, this.#dom.ownerDocument);
   }
@@ -58,6 +63,7 @@ export class BlockSurface {
   }
 
   destroy() {
+    this.#closeSocketEditor();
     this.#dom.remove();
     this.#layout = undefined;
   }
@@ -70,7 +76,57 @@ export class BlockSurface {
     if (!this.#layout || event.defaultPrevented) return;
     const bounds = this.#svg.getBoundingClientRect();
     const target = hitTestBlockLayout(this.#layout, {x: event.clientX - bounds.left, y: event.clientY - bounds.top});
+    if (target?.node?.kind === 'socket' || target?.node?.kind === 'recovery-socket') {
+      this.#openSocketEditor(target.node);
+      return;
+    }
     if (target?.node?.source) this.#onSelect?.(target.node.source);
+  }
+
+  #openSocketEditor(socket) {
+    if (!this.#onSocketEdit) return;
+    this.#closeSocketEditor();
+    const input = this.#dom.ownerDocument.createElement('input');
+    input.className = 'droplet-socket-editor';
+    input.value = this.#layout.source.slice(socket.source.from, socket.source.to);
+    input.setAttribute('aria-label', `${socket.metadata?.socketRole ?? 'expression'} socket`);
+    Object.assign(input.style, {
+      position: 'absolute', left: `${socket.bounds.left}px`, top: `${socket.bounds.top}px`,
+      width: `${Math.max(24, socket.bounds.right - socket.bounds.left)}px`,
+      height: `${socket.bounds.bottom - socket.bounds.top}px`, boxSizing: 'border-box',
+      border: '1px solid #246ca8', borderRadius: '3px', padding: '0 3px',
+      font: '16px ui-monospace, SFMono-Regular, Menlo, monospace', color: '#24344d', background: '#fff'
+    });
+    const editing = {input, source: socket.source, original: input.value};
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        this.#commitSocketEditor(editing);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        this.#closeSocketEditor();
+      }
+    });
+    input.addEventListener('blur', () => this.#commitSocketEditor(editing));
+    this.#socketEditor = editing;
+    this.#dom.append(input);
+    input.focus();
+    input.select();
+  }
+
+  #commitSocketEditor(editing) {
+    if (this.#socketEditor !== editing) return;
+    this.#socketEditor = undefined;
+    editing.input.remove();
+    if (editing.input.value !== editing.original) {
+      this.#onSocketEdit({target: editing.source, source: editing.input.value});
+    }
+  }
+
+  #closeSocketEditor() {
+    const editing = this.#socketEditor;
+    this.#socketEditor = undefined;
+    editing?.input.remove();
   }
 
   #beginDrag(event) {
@@ -250,6 +306,7 @@ function renderNode(node, document) {
   group.setAttribute('role', 'treeitem');
   if (node.kind === 'container') renderContainer(group, node, document);
   else if (node.kind === 'whitespace') renderWhitespace(group, node, document);
+  else if (node.kind === 'socket' || node.kind === 'recovery-socket') renderSocket(group, node, document);
   else renderAtomic(group, node, document);
   for (const child of node.children) group.append(renderNode(child, document));
   return group;
@@ -291,6 +348,19 @@ function renderAtomic(group, node, document) {
   rect.setAttribute('fill', node.kind === 'comment' ? '#f0f0f0' : '#fff');
   rect.setAttribute('stroke', node.kind === 'comment' ? '#999' : '#7a9ec4');
   group.append(rect, createLabel(node.text, node.bounds.left + 8, node.bounds.top + 20, document));
+}
+
+function renderSocket(group, node, document) {
+  const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
+  rect.setAttribute('x', String(node.bounds.left));
+  rect.setAttribute('y', String(node.bounds.top));
+  rect.setAttribute('width', String(node.bounds.right - node.bounds.left));
+  rect.setAttribute('height', String(node.bounds.bottom - node.bounds.top));
+  rect.setAttribute('rx', '3');
+  rect.setAttribute('fill', node.kind === 'recovery-socket' ? 'rgba(255, 236, 215, .5)' : 'rgba(226, 240, 255, .28)');
+  rect.setAttribute('stroke', node.kind === 'recovery-socket' ? '#b96b25' : '#4d7fb5');
+  rect.setAttribute('stroke-width', '1.25');
+  group.append(rect);
 }
 
 function renderWhitespace(group, node, document) {
