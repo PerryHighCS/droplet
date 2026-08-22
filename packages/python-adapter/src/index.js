@@ -185,6 +185,9 @@ function metadataFor(node, kind, source, headerFrom) {
       metadata.bodyFrom = firstFrom;
       metadata.bodyEnd = lineEndAfter(source, lastTo);
       metadata.bodyIndentation = indentationAt(source, firstFrom);
+      if (body.length === 1 && typeOf(first) === 'Pass') {
+        metadata.emptySuitePass = {from: firstFrom, to: lastTo};
+      }
     }
   }
   return metadata;

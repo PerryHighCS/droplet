@@ -264,13 +264,28 @@ function containerGeometry(view, node) {
   const headerBottom = headerFrom.bottom + 3;
   const bodyBottom = Math.max(headerBottom, bodyTo.bottom + 3);
   const inset = left + 15;
-  return {kind: 'container', from: node.from, left, headerRight, headerTop, headerBottom, bodyBottom, inset};
+  return {
+    kind: 'container', from: node.from, left, headerRight, headerTop, headerBottom, bodyBottom, inset,
+    bodyEnd: node.metadata.bodyEnd, bodyIndentation: node.metadata.bodyIndentation,
+    emptySuitePass: node.metadata.emptySuitePass
+  };
 }
 
 function createContainerPath(document, shape) {
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   path.setAttribute('data-droplet-role', 'container');
   path.setAttribute('data-droplet-from', String(shape.from));
+  if (Number.isInteger(shape.bodyEnd)) {
+    path.setAttribute('data-droplet-body-end', String(shape.bodyEnd));
+    path.setAttribute('data-droplet-body-indentation', shape.bodyIndentation ?? '');
+    path.setAttribute('data-droplet-bottom-left', String(shape.inset - 8));
+    path.setAttribute('data-droplet-bottom-right', String(shape.headerRight + 8));
+    path.setAttribute('data-droplet-bottom', String(shape.bodyBottom));
+    if (shape.emptySuitePass) {
+      path.setAttribute('data-droplet-empty-suite-pass-from', String(shape.emptySuitePass.from));
+      path.setAttribute('data-droplet-empty-suite-pass-to', String(shape.emptySuitePass.to));
+    }
+  }
   path.setAttribute('d', [
     `M ${shape.left + 4} ${shape.headerTop}`,
     `H ${shape.headerRight - 4} Q ${shape.headerRight} ${shape.headerTop} ${shape.headerRight} ${shape.headerTop + 4}`,
@@ -361,7 +376,7 @@ function createProjectionInteraction(onOperation) {
       pointerDrag.preview ??= createDragPreview(view, pointerDrag.source);
       updateDragPreview(pointerDrag.preview, event.clientX, event.clientY);
       const attachmentTarget = commentAttachmentTarget(pointerDrag.source, view, event);
-      const destination = attachmentTarget?.from ?? statementDestinationAtPointer(view, event);
+      const destination = attachmentTarget?.from ?? containerBottomDestinationAtPointer(pointerDrag.source, view, event) ?? statementDestinationAtPointer(view, event);
       updateDropTarget(pointerDrag, view, destination, event.clientX, event.clientY, attachmentTarget);
       event.preventDefault();
       return true;
@@ -384,7 +399,7 @@ function createProjectionInteraction(onOperation) {
         return true;
       }
       const attachmentTarget = commentAttachmentTarget(drag.source, view, event);
-      const destination = attachmentTarget?.from ?? statementDestinationAtPointer(view, event);
+      const destination = attachmentTarget?.from ?? containerBottomDestinationAtPointer(drag.source, view, event) ?? statementDestinationAtPointer(view, event);
       const operation = projectionOperationFromDestination(drag.source, attachmentTarget, destination, view.state.doc.toString());
       if (!operation) return true;
       event.preventDefault();
@@ -422,16 +437,23 @@ function updateDropTarget(drag, view, destination, clientX, clientY, attachmentT
     return;
   }
   drag.dropGuide ??= createDropGuide(drag.preview.ownerDocument);
+  const destinationFrom = typeof destination === 'object' ? destination.from : destination;
   const boundary = [...view.dom.querySelectorAll('[data-droplet-kind="statement"], [data-droplet-kind="comment"]')]
-    .find((block) => Number(block.dataset.dropletFrom) === destination);
+    .find((block) => Number(block.dataset.dropletFrom) === destinationFrom);
   const rect = boundary?.getBoundingClientRect();
   const attachment = attachmentTarget && elementForRange(view, attachmentTarget)?.getBoundingClientRect();
-  drag.dropGuide.style.left = `${attachment?.right ?? rect?.left ?? clientX - 70}px`;
-  drag.dropGuide.style.top = `${attachment?.top ?? (rect ? rect.top - 2 : clientY - 1)}px`;
-  drag.dropGuide.style.width = `${attachment ? 3 : rect?.width ?? 150}px`;
+  const container = typeof destination === 'object' && view.dom.querySelector(
+    `[data-droplet-role="container"][data-droplet-body-end="${destinationFrom}"]`
+  );
+  const containerLeft = Number(container?.dataset.dropletBottomLeft);
+  const containerRight = Number(container?.dataset.dropletBottomRight);
+  const containerBottom = Number(container?.dataset.dropletBottom);
+  drag.dropGuide.style.left = `${attachment?.right ?? rect?.left ?? (Number.isFinite(containerLeft) ? containerLeft : clientX - 70)}px`;
+  drag.dropGuide.style.top = `${attachment?.top ?? (rect ? rect.top - 2 : (Number.isFinite(containerBottom) ? containerBottom - 1 : clientY - 1))}px`;
+  drag.dropGuide.style.width = `${attachment ? 3 : rect?.width ?? (Number.isFinite(containerRight) ? containerRight - containerLeft : 150)}px`;
   drag.dropPreview ??= createDropPlacementPreview(drag.preview.ownerDocument, drag.preview.textContent);
-  drag.dropPreview.style.left = `${attachment?.right ?? rect?.left ?? clientX + 20}px`;
-  drag.dropPreview.style.top = `${attachment?.top ?? (rect ? rect.top - 28 : clientY + 20)}px`;
+  drag.dropPreview.style.left = `${attachment?.right ?? rect?.left ?? (Number.isFinite(containerLeft) ? containerLeft + 16 : clientX + 20)}px`;
+  drag.dropPreview.style.top = `${attachment?.top ?? (rect ? rect.top - 28 : (Number.isFinite(containerBottom) ? containerBottom - 26 : clientY + 20))}px`;
 }
 
 function clearDragPreview(drag) {
@@ -477,9 +499,35 @@ function statementDestinationAtPointer(view, event) {
   return statements.find((statement) => statement.from >= position)?.from ?? view.state.doc.length;
 }
 
+function containerBottomDestinationAtPointer(source, view, event) {
+  if (source.kind !== 'statement') return undefined;
+  const containers = [...view.dom.querySelectorAll('[data-droplet-role="container"][data-droplet-body-end]')].reverse();
+  for (const container of containers) {
+    const left = Number(container.dataset.dropletBottomLeft);
+    const right = Number(container.dataset.dropletBottomRight);
+    const bottom = Number(container.dataset.dropletBottom);
+    if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(bottom) ||
+        event.clientX < left || event.clientX > right || event.clientY < bottom - 18 || event.clientY > bottom + 18) continue;
+    const from = Number(container.dataset.dropletBodyEnd);
+    const destination = {from, to: from, indentation: container.dataset.dropletBodyIndentation ?? ''};
+    const passFrom = Number(container.dataset.dropletEmptySuitePassFrom);
+    const passTo = Number(container.dataset.dropletEmptySuitePassTo);
+    if (Number.isInteger(passFrom) && Number.isInteger(passTo)) destination.emptySuitePass = {from: passFrom, to: passTo};
+    return destination;
+  }
+  return undefined;
+}
+
 function commentAttachmentTarget(source, view, event) {
   if (source.kind !== 'comment') return undefined;
   if (movableRangeFromElement(event.target)?.kind === 'comment') return undefined;
+  const renderedCandidates = [...view.dom.querySelectorAll('[data-droplet-kind="statement"]')]
+    .map((block) => ({block, range: projectionRangeFromBlock(block)}))
+    .filter(({range}) => range)
+    .flatMap(({block, range}) => [...block.getClientRects()].map((rect) => ({range, rect})))
+    .filter(({rect}) => event.clientY >= rect.top && event.clientY <= rect.bottom && event.clientX >= rect.right - 3)
+    .sort((left, right) => (left.range.to - left.range.from) - (right.range.to - right.range.from));
+  if (renderedCandidates[0]) return renderedCandidates[0].range;
   const position = view.posAtCoords({x: event.clientX, y: event.clientY});
   if (position === null) return undefined;
   const line = view.state.doc.lineAt(position).number;
@@ -537,10 +585,13 @@ export function projectionOperationFromDrop(source, target, document) {
 
 function projectionOperationFromDestination(source, target, destination, document) {
   if (target) return projectionOperationFromDrop(source, target, document);
-  if ((source.kind === 'statement' || source.kind === 'comment') && Number.isInteger(destination)) {
+  const range = typeof destination === 'number'
+    ? {from: destination, to: destination}
+    : destination;
+  if ((source.kind === 'statement' || source.kind === 'comment') && Number.isInteger(range?.from)) {
     return {
       type: source.kind === 'statement' ? 'move-statement' : 'move-comment',
-      source: {from: source.from, to: source.to}, destination: {from: destination, to: destination}
+      source: {from: source.from, to: source.to}, destination: range
     };
   }
   return undefined;
