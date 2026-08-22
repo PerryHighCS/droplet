@@ -175,7 +175,7 @@ export class BlockSurface {
   }
 
   #continuePaletteDrag(event) {
-    if (!this.#layout || !this.#onOperation || !paletteSource(event)) return;
+    if (!this.#layout || !this.#onOperation || !isPaletteDrag(event)) return;
     const point = pointFor(this.#svg, event);
     const target = dropTargetAtPoint(this.#layout, point);
     const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
@@ -301,6 +301,10 @@ function sameRange(left, right) { return left?.from === right?.from && left?.to 
 function paletteSource(event) {
   const source = event.dataTransfer?.getData('application/x-droplet-statement');
   return typeof source === 'string' && source.length ? source : undefined;
+}
+
+function isPaletteDrag(event) {
+  return [...(event.dataTransfer?.types ?? [])].includes('application/x-droplet-statement');
 }
 
 function pointFor(svg, event) {
