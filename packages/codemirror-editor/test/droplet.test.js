@@ -120,6 +120,8 @@ test('editing a rendered socket commits one CodeMirror source change on Enter', 
   assert.equal(editor.getValue(), 'target = answer\n');
   assert.equal(parent.querySelector('.droplet-socket-editor'), null);
   assert.equal(parent.querySelector('[data-droplet-layout-id="value:answer"]')?.dataset.dropletKind, 'socket');
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), 'target = value\n');
   editor.destroy();
 });
 

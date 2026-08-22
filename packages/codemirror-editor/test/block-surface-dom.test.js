@@ -67,6 +67,25 @@ test('uses the upper and lower halves of a statement as before and after drop ta
   ]);
 });
 
+test('drags an expression socket onto another socket as a replacement operation', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(assignmentSockets());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const target = surface.layout.nodes.find((node) => node.id === 'target');
+  const value = surface.layout.nodes.find((node) => node.id === 'value');
+
+  drag(svg, dom.window, target, value.bounds.left + 2, value.bounds.top + 2);
+
+  assert.deepEqual(operations, [{
+    type: 'replace-socket', target: {from: 9, to: 14}, source: 'target'
+  }]);
+});
+
 test('uses the upper and lower halves of a standalone comment as sibling drop targets', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -203,6 +222,18 @@ function statementsWithStandaloneComment() {
       {id: 'comment', kind: 'comment', from: 8, to: 20, editable: true, metadata: {inline: false}, children: []},
       {id: 'second', kind: 'statement', from: 21, to: 29, editable: true, metadata: {}, children: []}
     ]
+  }};
+}
+
+function assignmentSockets() {
+  const source = 'target = value\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'assign', kind: 'statement', from: 0, to: 14, editable: true, metadata: {}, children: [
+        {id: 'target', kind: 'socket', from: 0, to: 6, editable: true, metadata: {socketRole: 'assignment-target'}, children: []},
+        {id: 'value', kind: 'socket', from: 9, to: 14, editable: true, metadata: {socketRole: 'assignment-value'}, children: []}
+      ]
+    }]
   }};
 }
 

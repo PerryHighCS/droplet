@@ -1075,13 +1075,13 @@ recovery state.
 
 ### Socket verification
 
-- [ ] Browser tests cover Enter and focus-loss commits for assignment target,
+- [x] Browser tests cover Enter and focus-loss commits for assignment target,
   assignment value, and `if` condition sockets.
 - [ ] Browser tests cover compatible expression drag replacement for each
   initial socket kind.
-- [ ] Tests prove an incomplete committed socket edit remains directly editable
+- [x] Tests prove an incomplete committed socket edit remains directly editable
   and re-structures after correction, without changing unrelated blocks.
-- [ ] Tests reject or visibly recover an invalid assignment target without
+- [x] Tests reject or visibly recover an invalid assignment target without
   making its source inaccessible.
 - [ ] Source-range and undo/redo tests prove socket edits and dragged
   replacements are normal CodeMirror transactions.
@@ -1100,8 +1100,16 @@ structured projection outside that range and renders an editable
 `recovery-socket` instead of a non-editable opaque block. Correcting it
 restructures the projection. Browser regressions cover both assignment sides,
 an `if` condition, focus-loss commit, and the incomplete-to-structured
-recovery path. Expression drag replacement and assignment-target-specific
-invalidity coverage remain outstanding.
+recovery path, including an invalid assignment target.
+
+Socket-to-socket expression dragging is now also wired through
+`replace-socket`: dragging the source-backed expression from one socket onto
+another emits a source-range replacement operation, uses the existing language
+transform and CodeMirror transaction, and reparses. Its floating and placement
+previews include the expression text. The first browser regression covers an
+assignment target expression replacing an assignment value; compatibility
+coverage for every socket role and richer nested expression block rendering
+remain outstanding.
 
 ## Required rendering model
 

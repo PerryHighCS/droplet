@@ -133,7 +133,7 @@ export class BlockSurface {
     if (event.button !== 0 || !this.#layout || !this.#onOperation) return;
     const target = hitTestBlockLayout(this.#layout, pointFor(this.#svg, event));
     if (!target?.node || !isMovable(target.node)) return;
-    this.#drag = {node: target.node, start: pointFor(this.#svg, event), moved: false, destination: undefined};
+    this.#drag = {node: target.node, start: pointFor(this.#svg, event), moved: false, destination: undefined, operation: undefined};
     this.#svg.setPointerCapture?.(event.pointerId);
     event.preventDefault();
   }
@@ -144,8 +144,9 @@ export class BlockSurface {
     if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
     this.#drag.moved = true;
     const target = dropTargetAtPoint(this.#layout, point);
-    const resolved = destinationForTarget(this.#layout, target, point);
+    const resolved = destinationForTarget(this.#layout, target, point, this.#drag.node);
     this.#drag.destination = resolved?.destination;
+    this.#drag.operation = resolved?.operation;
     renderDragPreviews(this.#svg, this.#layout, this.#drag.node, point, resolved?.zone);
     event.preventDefault();
   }
@@ -158,20 +159,32 @@ export class BlockSurface {
     clearDragPreviews(this.#svg);
     if (!drag.moved) return;
     this.#suppressClick = true;
-    if (drag.destination) {
-      const operation = {
+    if (drag.operation) {
+      this.#onOperation(drag.operation);
+    } else if (drag.destination) {
+      this.#onOperation({
         type: drag.node.kind === 'comment' ? 'move-comment' : 'move-statement',
         source: drag.node.source,
         destination: drag.destination
-      };
-      this.#onOperation(operation);
+      });
     }
     event.preventDefault();
   }
 }
 
-function destinationForTarget(layout, target, point) {
+function destinationForTarget(layout, target, point, dragNode) {
   if (target?.kind === 'insertion') return {destination: target.zone.destination, zone: target.zone};
+  if (isExpressionNode(dragNode) && isSocketNode(target?.node)) {
+    if (sameRange(dragNode.source, target.node.source)) return undefined;
+    return {
+      operation: {
+        type: 'replace-socket',
+        target: target.node.source,
+        source: layout.source.slice(dragNode.source.from, dragNode.source.to)
+      },
+      zone: {bounds: target.node.bounds}
+    };
+  }
   // Standalone comments and container headers participate in their suite's
   // vertical sibling order. A container body/footer retains its structural
   // insertion zones; only the header gets before/after behavior.
@@ -213,7 +226,7 @@ function destinationForTarget(layout, target, point) {
 
 function dropTargetAtPoint(layout, point) {
   const direct = hitTestBlockLayout(layout, point);
-  if (direct?.kind === 'insertion' || isSiblingDropTarget(direct)) return direct;
+  if (direct?.kind === 'insertion' || isSiblingDropTarget(direct) || isSocketNode(direct?.node)) return direct;
   // renderLayout adds a 16px right gutter around the layout bounds.
   if (point.x < 0 || point.x > layout.bounds.right + 16) return direct;
   // The target row extends across the visible block-surface lane. This makes
@@ -249,8 +262,12 @@ function statementHalfBounds(bounds, before) {
 }
 
 function isMovable(node) {
-  return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment';
+  return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment' || isExpressionNode(node);
 }
+
+function isExpressionNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
+function isSocketNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
+function sameRange(left, right) { return left?.from === right?.from && left?.to === right?.to; }
 
 function pointFor(svg, event) {
   const bounds = svg.getBoundingClientRect();
@@ -265,14 +282,14 @@ function renderDragPreviews(svg, layout, node, point, zone) {
   floating.classList.add('droplet-drag-preview');
   floating.setAttribute('transform', `translate(${point.x + 12} ${point.y + 12})`);
   floating.setAttribute('opacity', '.85');
-  floating.append(renderNode(preview, document));
+  floating.append(renderNode(preview, document, {showSocketText: true}));
   svg.append(floating);
   if (!zone) return;
   const placement = document.createElementNS(SVG_NAMESPACE, 'g');
   placement.classList.add('droplet-drop-preview');
   placement.setAttribute('transform', `translate(${zone.bounds.left} ${zone.bounds.top})`);
   placement.setAttribute('opacity', '.55');
-  placement.append(renderNode(preview, document));
+  placement.append(renderNode(preview, document, {showSocketText: true}));
   const guide = document.createElementNS(SVG_NAMESPACE, 'rect');
   guide.classList.add('droplet-drop-guide');
   guide.setAttribute('x', String(zone.bounds.left));
@@ -297,7 +314,7 @@ function renderLayout(svg, layout, document) {
   for (const child of layout.root.children) svg.append(renderNode(child, document));
 }
 
-function renderNode(node, document) {
+function renderNode(node, document, options = {}) {
   const group = document.createElementNS(SVG_NAMESPACE, 'g');
   group.setAttribute('data-droplet-layout-id', node.id);
   group.setAttribute('data-droplet-kind', node.kind);
@@ -306,9 +323,9 @@ function renderNode(node, document) {
   group.setAttribute('role', 'treeitem');
   if (node.kind === 'container') renderContainer(group, node, document);
   else if (node.kind === 'whitespace') renderWhitespace(group, node, document);
-  else if (node.kind === 'socket' || node.kind === 'recovery-socket') renderSocket(group, node, document);
+  else if (node.kind === 'socket' || node.kind === 'recovery-socket') renderSocket(group, node, document, options);
   else renderAtomic(group, node, document);
-  for (const child of node.children) group.append(renderNode(child, document));
+  for (const child of node.children) group.append(renderNode(child, document, options));
   return group;
 }
 
@@ -350,7 +367,7 @@ function renderAtomic(group, node, document) {
   group.append(rect, createLabel(node.text, node.bounds.left + 8, node.bounds.top + 20, document));
 }
 
-function renderSocket(group, node, document) {
+function renderSocket(group, node, document, {showSocketText = false} = {}) {
   const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
   rect.setAttribute('x', String(node.bounds.left));
   rect.setAttribute('y', String(node.bounds.top));
@@ -361,6 +378,7 @@ function renderSocket(group, node, document) {
   rect.setAttribute('stroke', node.kind === 'recovery-socket' ? '#b96b25' : '#4d7fb5');
   rect.setAttribute('stroke-width', '1.25');
   group.append(rect);
+  if (showSocketText) group.append(createLabel(node.text, node.bounds.left + 3, node.bounds.top + 20, document));
 }
 
 function renderWhitespace(group, node, document) {
