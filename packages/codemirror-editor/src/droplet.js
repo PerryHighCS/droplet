@@ -1,5 +1,5 @@
 import {Annotation, EditorState, StateEffect, StateField} from '@codemirror/state';
-import {Decoration, EditorView, ViewPlugin, WidgetType} from '@codemirror/view';
+import {EditorView} from '@codemirror/view';
 import {
   applySourceChanges,
   isOpaque,
@@ -8,6 +8,7 @@ import {
 } from '@droplet/core';
 
 import {createCodeMirrorEditor, externalValueAnnotation} from './index.js';
+import {BlockSurface} from './block-surface-dom.js';
 
 /** Marks a source transaction produced by a block operation. */
 export const blockOperationAnnotation = Annotation.define();
@@ -24,7 +25,7 @@ export class DropletCodeMirrorEditor {
   #blockMode;
   #setProjection;
   #projectionField;
-  #interaction;
+  #surface;
 
   constructor(options) {
     if (typeof options?.parse !== 'function') {
@@ -40,7 +41,6 @@ export class DropletCodeMirrorEditor {
     this.#projection = this.#parseSource(options.value ?? '');
     this.#setProjection = StateEffect.define();
     this.#projectionField = createProjectionField(this.#setProjection, this.#projection);
-    this.#interaction = createProjectionInteraction((operation) => this.applyBlockOperation(operation));
 
     this.editor = createCodeMirrorEditor({
       parent: options.parent,
@@ -48,12 +48,16 @@ export class DropletCodeMirrorEditor {
       language: options.language,
       theme: options.theme,
       readOnly: options.readOnly,
-      extensions: [this.#projectionField, this.#interaction, opaqueTheme, options.extensions ?? []],
+      extensions: [this.#projectionField, options.extensions ?? []],
       onChange: options.onChange,
       onUpdate: (update, metadata) => {
         if (update.docChanged) this.#reparse();
         options.onUpdate?.(update, metadata);
       }
+    });
+    this.#surface = new BlockSurface({
+      parent: options.parent,
+      onSelect: ({from, to}) => this.editor.setSelection({anchor: from, head: to})
     });
 
     if (this.#blockMode) this.#publishProjection();
@@ -118,8 +122,6 @@ export class DropletCodeMirrorEditor {
     if (Object.hasOwn(options, 'extensions')) {
       editorOptions.extensions = [
         this.#projectionField,
-        this.#interaction,
-        opaqueTheme,
         options.extensions ?? []
       ];
     }
@@ -127,6 +129,7 @@ export class DropletCodeMirrorEditor {
   }
 
   destroy() {
+    this.#surface.destroy();
     this.editor.destroy();
   }
 
@@ -146,6 +149,9 @@ export class DropletCodeMirrorEditor {
         blockMode: this.#blockMode
       })
     });
+    this.#surface?.update(this.#projection);
+    this.#surface?.setVisible(this.#blockMode);
+    if (this.editor?.view?.dom) this.editor.view.dom.style.display = this.#blockMode ? 'none' : '';
   }
 }
 
@@ -163,13 +169,6 @@ function createProjectionField(setProjection, initialProjection) {
       return value;
     },
     provide: (stateField) => [
-      EditorView.decorations.from(stateField, ({projection, blockMode}) =>
-        blockMode ? projectionDecorations(projection) : Decoration.none),
-      ViewPlugin.fromClass(class {
-        constructor(view) { this.renderer = new StructuralBlockRenderer(view, stateField); }
-        update() { this.renderer.draw(); }
-        destroy() { this.renderer.destroy(); }
-      }),
       EditorState.transactionFilter.of((transaction) => {
         const {projection, blockMode} = transaction.startState.field(stateField);
         if (!blockMode || !transaction.docChanged || isPermittedChange(transaction)) {
@@ -180,172 +179,6 @@ function createProjectionField(setProjection, initialProjection) {
     ]
   });
   return field;
-}
-
-function projectionDecorations(projection) {
-  const seen = new Set();
-  const nodes = collectProjectionNodes(projection.root)
-    .filter((node) => node.kind !== 'document' && node.from < node.to)
-    .filter((node) => {
-      const key = `${node.kind}:${node.from}:${node.to}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  const ranges = nodes.flatMap((node) => {
-    const mark = Decoration.mark({
-      class: isOpaque(node)
-        ? `droplet-block droplet-opaque droplet-block-${node.kind}`
-        : `droplet-block droplet-block-${node.kind}${node.metadata?.blockRole === 'container' ? ' droplet-block-container' : ''}`,
-      attributes: {
-        'data-droplet-from': String(node.from),
-        'data-droplet-to': String(node.to),
-        'data-droplet-kind': node.kind
-      }
-    }).range(node.from, node.to);
-    const bodyEnd = node.metadata?.bodyEnd;
-    const spacerAt = Number.isInteger(bodyEnd) ? bodyEnd : node.to;
-    const spacer = node.metadata?.blockRole === 'container' && spacerAt < projection.source.length
-      ? Decoration.widget({widget: new ContainerBottomSpacer(), block: true, side: 1}).range(spacerAt)
-      : undefined;
-    return spacer ? [mark, spacer] : [mark];
-  });
-  ranges.sort((left, right) => left.from - right.from || left.value.startSide - right.value.startSide || left.to - right.to);
-  return Decoration.set(ranges, true);
-}
-
-class ContainerBottomSpacer extends WidgetType {
-  toDOM() {
-    const spacer = document.createElement('div');
-    spacer.className = 'droplet-container-bottom-spacer';
-    spacer.style.height = '10px';
-    return spacer;
-  }
-
-  ignoreEvent() { return true; }
-}
-
-class StructuralBlockRenderer {
-  constructor(view, projectionField) {
-    this.view = view;
-    this.projectionField = projectionField;
-    this.dom = view.dom.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    this.dom.classList.add('droplet-structural-overlay');
-    Object.assign(this.dom.style, {
-      position: 'fixed', inset: '0', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: '2', overflow: 'visible'
-    });
-    view.dom.ownerDocument.body.append(this.dom);
-    this.draw();
-  }
-
-  update() { this.draw(); }
-
-  draw() {
-    this.view.requestMeasure({
-      read: () => this.measure(),
-      write: (shapes) => this.render(shapes)
-    });
-  }
-
-  destroy() { this.dom.remove(); }
-
-  measure() {
-    const {projection, blockMode} = this.view.state.field(this.projectionField);
-    if (!blockMode) return [];
-    return collectProjectionNodes(projection.root).flatMap((node) => {
-      if (node.kind === 'statement' && node.metadata?.blockRole === 'container') {
-        const shape = containerGeometry(this.view, node);
-        return shape ? [shape] : [];
-      }
-      if (node.kind === 'whitespace') {
-        const shape = whitespaceGeometry(this.view, node);
-        return shape ? [shape] : [];
-      }
-      return [];
-    });
-  }
-
-  render(shapes) {
-    this.dom.replaceChildren();
-    for (const shape of shapes) this.dom.append(shape.kind === 'container'
-      ? createContainerPath(this.view.dom.ownerDocument, shape)
-      : createWhitespaceRect(this.view.dom.ownerDocument, shape));
-  }
-}
-
-function containerGeometry(view, node) {
-  const headerFrom = view.coordsAtPos(node.from);
-  const headerTo = view.coordsAtPos(node.metadata.headerTo);
-  const bodyTo = view.coordsAtPos(node.to);
-  if (!headerFrom || !headerTo || !bodyTo) return undefined;
-  const left = headerFrom.left - 5;
-  const headerRight = Math.max(headerTo.right, headerFrom.right) + 5;
-  const headerTop = headerFrom.top - 3;
-  const headerBottom = headerFrom.bottom + 3;
-  const bodyBottom = Math.max(headerBottom, bodyTo.bottom + 3);
-  const bottomBarBottom = bodyBottom + 7;
-  const inset = left + 15;
-  return {
-    kind: 'container', from: node.from, left, headerRight, headerTop, headerBottom, bodyBottom: bottomBarBottom, inset,
-    bodyEnd: node.metadata.bodyEnd, bodyIndentation: node.metadata.bodyIndentation,
-    emptySuitePass: node.metadata.emptySuitePass
-  };
-}
-
-function createContainerPath(document, shape) {
-  const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-  group.setAttribute('data-droplet-role', 'container');
-  group.setAttribute('data-droplet-from', String(shape.from));
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  if (Number.isInteger(shape.bodyEnd)) {
-    group.setAttribute('data-droplet-body-end', String(shape.bodyEnd));
-    group.setAttribute('data-droplet-body-indentation', shape.bodyIndentation ?? '');
-    group.setAttribute('data-droplet-bottom-left', String(shape.left - 8));
-    group.setAttribute('data-droplet-bottom-right', String(shape.headerRight + 8));
-    group.setAttribute('data-droplet-bottom', String(shape.bodyBottom));
-    if (shape.emptySuitePass) {
-      group.setAttribute('data-droplet-empty-suite-pass-from', String(shape.emptySuitePass.from));
-      group.setAttribute('data-droplet-empty-suite-pass-to', String(shape.emptySuitePass.to));
-    }
-  }
-  path.setAttribute('d', [
-    `M ${shape.left + 4} ${shape.headerTop}`,
-    `H ${shape.headerRight - 4} Q ${shape.headerRight} ${shape.headerTop} ${shape.headerRight} ${shape.headerTop + 4}`,
-    `V ${shape.headerBottom - 4} Q ${shape.headerRight} ${shape.headerBottom} ${shape.headerRight - 4} ${shape.headerBottom}`,
-    `H ${shape.inset} V ${shape.bodyBottom - 7}`,
-    `H ${shape.headerRight - 4} Q ${shape.headerRight} ${shape.bodyBottom - 7} ${shape.headerRight} ${shape.bodyBottom - 3}`,
-    `V ${shape.bodyBottom - 4} Q ${shape.headerRight} ${shape.bodyBottom} ${shape.headerRight - 4} ${shape.bodyBottom}`,
-    `H ${shape.left + 4} Q ${shape.left} ${shape.bodyBottom} ${shape.left} ${shape.bodyBottom - 4}`,
-    `V ${shape.headerTop + 4} Q ${shape.left} ${shape.headerTop} ${shape.left + 4} ${shape.headerTop} Z`
-  ].join(' '));
-  path.setAttribute('fill', 'none');
-  path.setAttribute('stroke', '#246ca8');
-  path.setAttribute('stroke-width', '3');
-  path.setAttribute('stroke-linejoin', 'round');
-  group.append(path);
-
-  return group;
-}
-
-function whitespaceGeometry(view, node) {
-  const coords = view.coordsAtPos(node.from);
-  if (!coords) return undefined;
-  return {kind: 'whitespace', from: node.from, left: coords.left, top: coords.top, bottom: coords.bottom};
-}
-
-function createWhitespaceRect(document, shape) {
-  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  rect.setAttribute('data-droplet-role', 'whitespace');
-  rect.setAttribute('data-droplet-from', String(shape.from));
-  rect.setAttribute('x', String(shape.left));
-  rect.setAttribute('y', String(shape.top + 2));
-  rect.setAttribute('width', '56');
-  rect.setAttribute('height', String(Math.max(4, shape.bottom - shape.top - 4)));
-  rect.setAttribute('rx', '3');
-  rect.setAttribute('fill', 'rgba(196, 196, 196, .18)');
-  rect.setAttribute('stroke', '#9aa5b1');
-  rect.setAttribute('stroke-dasharray', '3 3');
-  return rect;
 }
 
 function changesTouchOpaqueNode(transaction, projection) {

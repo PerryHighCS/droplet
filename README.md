@@ -28,8 +28,10 @@ The first framework-independent editor package is
 [`packages/codemirror-editor`](packages/codemirror-editor/): it wraps one
 CodeMirror 6 document with controlled value synchronization and extension
 compartments. Its `@droplet/codemirror-editor/droplet` subpath adds the
-source-range Droplet projection adapter, including block-mode decorations and
-source-backed selection and drag/drop intents.
+source-range Droplet projection adapter and an early DOM/SVG BlockSurface.
+CodeMirror remains the source and history authority; the surface renders the
+current projection and maps block selections back to source ranges. Structural
+drag/drop parity is still in progress.
 
 The initial modern language path is
 [`packages/javascript-adapter`](packages/javascript-adapter/). It projects

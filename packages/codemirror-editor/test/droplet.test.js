@@ -22,13 +22,13 @@ test('block mode displays opaque source, prevents internal edits, and recovers a
   });
 
   assert.equal(editor.getProjection().root.children[0].kind, 'opaque-statement');
-  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
+  assert.equal(parent.querySelectorAll('[data-droplet-kind="opaque-statement"]').length, 1);
   editor.editor.dispatch({changes: {from: 5, insert: 'new '}});
   assert.equal(editor.getValue(), 'if score >');
 
   editor.setValue('if score > 10:\n    print(score)\n');
   assert.equal(editor.getProjection().root.children[0].kind, 'statement');
-  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 0);
+  assert.equal(parent.querySelectorAll('[data-droplet-kind="opaque-statement"]').length, 0);
   editor.destroy();
 });
 
@@ -40,23 +40,25 @@ test('text editing can become opaque without forcing a mode change', () => {
   assert.equal(editor.isUsingBlocks(), false);
   assert.equal(editor.getProjection().root.children[0].kind, 'opaque-statement');
   editor.setBlockMode(true);
-  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
+  assert.equal(parent.querySelectorAll('[data-droplet-kind="opaque-statement"]').length, 1);
   editor.destroy();
 });
 
-test('block mode visibly decorates structured statements', () => {
+test('block mode displays structured statements on the BlockSurface and hides the text view', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
     parent, value: 'score = 1\n', blockMode: true, parse: parseExample
   });
 
-  assert.equal(parent.querySelectorAll('.droplet-block-statement').length, 1);
+  assert.equal(parent.querySelectorAll('.droplet-block-surface [data-droplet-kind="statement"]').length, 1);
+  assert.equal(editor.editor.view.dom.style.display, 'none');
   editor.setBlockMode(false);
-  assert.equal(parent.querySelectorAll('.droplet-block-statement').length, 0);
+  assert.equal(parent.querySelector('.droplet-block-surface').style.display, 'none');
+  assert.equal(editor.editor.view.dom.style.display, '');
   editor.destroy();
 });
 
-test('block mode installs a structural overlay for container and whitespace rendering', () => {
+test('block mode installs a structural surface for container and whitespace rendering', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
     parent,
@@ -79,9 +81,11 @@ test('block mode installs a structural overlay for container and whitespace rend
     })
   });
 
-  assert.ok(document.querySelector('.droplet-structural-overlay'));
+  assert.ok(parent.querySelector('.droplet-block-surface'));
+  assert.equal(parent.querySelectorAll('.droplet-block-surface [data-droplet-kind="container"]').length, 1);
+  assert.equal(parent.querySelectorAll('.droplet-block-surface [data-droplet-kind="whitespace"]').length, 1);
   editor.destroy();
-  assert.equal(document.querySelector('.droplet-structural-overlay'), null);
+  assert.equal(parent.querySelector('.droplet-block-surface'), null);
 });
 
 test('clicking a rendered projection selects its exact source range', () => {
@@ -89,9 +93,11 @@ test('clicking a rendered projection selects its exact source range', () => {
   const editor = createDropletCodeMirrorEditor({
     parent, value: 'score = 1\n', blockMode: true, parse: parseExample
   });
-  const statement = parent.querySelector('.droplet-block-statement');
+  const statement = parent.querySelector('.droplet-block-surface [data-droplet-kind="statement"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
 
-  statement.dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0}));
+  statement.dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0, clientX: 1, clientY: 1}));
   assert.deepEqual(editor.editor.getSelection(), {anchor: 0, head: 'score = 1\n'.length});
   editor.destroy();
 });
@@ -154,7 +160,7 @@ test('consumer extension updates retain opaque projection behavior', () => {
   });
 
   editor.update({extensions: EditorView.lineWrapping});
-  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
+  assert.equal(parent.querySelectorAll('[data-droplet-kind="opaque-statement"]').length, 1);
   editor.editor.dispatch({changes: {from: 5, insert: 'new '}});
   assert.equal(editor.getValue(), 'if score >');
   editor.destroy();
@@ -183,7 +189,7 @@ test('opaque children of structured nodes are also displayed and protected', () 
     })
   });
 
-  assert.equal(parent.querySelectorAll('.droplet-opaque').length, 1);
+  assert.equal(parent.querySelectorAll('[data-droplet-kind="opaque-expression"]').length, 1);
   editor.editor.dispatch({changes: {from: 9, insert: '!'}});
   assert.equal(editor.getValue(), source);
   editor.destroy();

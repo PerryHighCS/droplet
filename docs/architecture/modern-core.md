@@ -130,10 +130,10 @@ without recreating the view, so later Droplet, collaboration, and framework
 extensions remain attached to the same canonical document.
 
 The package's `droplet` subpath adds the projection adapter. It reparses with
-`parseWithOpaqueRecovery` after every CodeMirror document change, renders
-structured statements, expressions, sockets, and opaque ranges with CodeMirror
-decorations in block mode, and filters direct changes that touch opaque internal
-source. Externally synchronized source and
+`parseWithOpaqueRecovery` after every CodeMirror document change and gives the
+modern DOM/SVG BlockSurface the current projection in block mode; CodeMirror's
+text surface is inactive while that surface is visible. It filters direct
+changes that touch opaque internal source. Externally synchronized source and
 explicit block-operation transactions are allowed through that filter, so
 repairing source automatically replaces the opaque projection. A language
 adapter's `transform` result is range-validated and dispatched as one ordinary

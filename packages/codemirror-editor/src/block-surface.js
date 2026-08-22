@@ -82,13 +82,16 @@ function layoutNode(node, source, settings, left, top) {
 function layoutAtomic(node, source, settings, left, top) {
   const text = source.slice(node.from, node.to);
   const width = Math.max(settings.minimumWidth, settings.measureText(text) + settings.horizontalPadding * 2);
+  const children = (node.children ?? [])
+    .filter((child) => child.kind?.startsWith('opaque-'))
+    .map((child) => layoutAtomic(child, source, settings, left + 4, top + 4));
   return {
     id: node.id,
-    kind: node.kind === 'comment' ? 'comment' : 'statement',
+    kind: node.kind === 'comment' ? 'comment' : node.kind.startsWith('opaque-') ? node.kind : 'statement',
     source: rangeOf(node),
     text,
     bounds: box(left, top, width, settings.lineHeight),
-    children: [],
+    children,
     insertionZones: []
   };
 }
@@ -135,7 +138,7 @@ function layoutContainer(node, source, settings, left, top) {
 
 function structuralChildren(node) {
   const children = (node.children ?? []).filter((child) =>
-    child.kind === 'statement' || child.kind === 'comment' || child.kind === 'whitespace');
+    child.kind === 'statement' || child.kind === 'comment' || child.kind === 'whitespace' || child.kind?.startsWith('opaque-'));
   // Acorn represents a JavaScript braced body as a BlockStatement child. It is
   // structural syntax, not a second user-visible C block inside an if/for.
   if (isContainer(node) && children.length === 1 && children[0].metadata?.type === 'BlockStatement') {

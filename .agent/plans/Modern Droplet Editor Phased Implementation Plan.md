@@ -1005,7 +1005,7 @@ Canvas is a later performance option, not an architectural requirement.
 1. [x] Define framework-independent block-layout types: measured block bounds,
    container header/body/footer regions, physical whitespace blocks, sibling
    insertion zones, and subtree preview geometry.
-2. Build a `BlockSurface` lifecycle owned by the modern adapter. It subscribes
+2. [x] Build a `BlockSurface` lifecycle owned by the modern adapter. It subscribes
    to CodeMirror document/projection updates but owns no editable source copy.
 3. Implement recursive layout from the projection tree. A container owns its
    header and child layout; blank lines and comments have explicit measured
