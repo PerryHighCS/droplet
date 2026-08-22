@@ -52,13 +52,22 @@ export function transformPython(operation, parsed, pythonToAST) {
     case 'insert-statement': {
       assertOperationSource(operation.source, 'Statement insertion');
       assertInsertionPoint(parsed.source, operation.destination);
-      changes = [insertStatementChange(parsed.source, operation.destination.from, operation.source)];
+      const emptyPass = emptySuitePass(parsed, operation.destination);
+      changes = emptyPass
+        ? [replaceEmptySuitePass(parsed.source, emptyPass, operation.source)]
+        : [insertStatementChange(parsed.source, operation.destination.from, operation.source)];
       break;
     }
     case 'move-statement': {
       const statement = findNode(parsed.root, operation.source, 'statement');
       if (!statement) throw new RangeError('Statement source is not present in the current projection');
       assertInsertionPoint(parsed.source, operation.destination);
+      const emptyPass = emptySuitePass(parsed, operation.destination);
+      if (emptyPass) {
+        const statementRange = lineRange(parsed.source, statement);
+        changes = moveStatementIntoEmptySuite(parsed.source, statementRange, emptyPass);
+        break;
+      }
       const statementRange = lineRange(parsed.source, statement);
       if (operation.destination.from >= statementRange.from && operation.destination.from <= statementRange.to) {
         const sourceIndentation = indentationAt(parsed.source, statementRange.from);
@@ -261,6 +270,42 @@ function containerEmptiedByMove(root, statement) {
 function emptySuiteReplacement(source, statementRange) {
   const indentation = indentationAt(source, statementRange.from);
   return `${indentation}pass${lineEndingAt(source, statementRange.to)}`;
+}
+
+function emptySuitePass(parsed, destination) {
+  if (!destination?.emptySuitePass) return undefined;
+  const pass = findNode(parsed.root, destination.emptySuitePass, 'statement');
+  if (pass?.metadata?.type !== 'Pass') throw new RangeError('Empty suite pass is not present in the current projection');
+  return pass;
+}
+
+function moveStatementIntoEmptySuite(source, statementRange, pass) {
+  const passRange = lineRange(source, pass);
+  if (statementRange.from >= passRange.from && statementRange.from <= passRange.to) return [];
+  const sourceIndentation = indentationAt(source, statementRange.from);
+  const targetIndentation = indentationAt(source, passRange.from);
+  const moved = reindentPythonLines(source.slice(statementRange.from, statementRange.to), sourceIndentation, targetIndentation);
+  return [
+    {from: statementRange.from, to: statementRange.to, insert: ''},
+    {from: passRange.from, to: passRange.to, insert: appendPassComment(source, pass, `${targetIndentation}${moved}`)}
+  ];
+}
+
+function replaceEmptySuitePass(source, pass, statementSource) {
+  const passRange = lineRange(source, pass);
+  const indentation = indentationAt(source, passRange.from);
+  const statement = reindentPythonLines(statementSource, leadingWhitespace(statementSource, 0), indentation);
+  return {from: passRange.from, to: passRange.to, insert: appendPassComment(source, pass, `${indentation}${statement}`)};
+}
+
+function appendPassComment(source, pass, statement) {
+  const lineEnd = lineTextEnd(source, pass.to);
+  const commentFrom = source.indexOf('#', pass.to);
+  if (commentFrom < 0 || commentFrom >= lineEnd) return statement;
+  const comment = source.slice(commentFrom, lineEnd);
+  const firstEnding = /\r\n|\r|\n/.exec(statement);
+  const at = firstEnding?.index ?? statement.length;
+  return `${statement.slice(0, at)}  ${comment}${statement.slice(at)}`;
 }
 
 function lineRange(source, statement) {

@@ -234,6 +234,25 @@ test('leaves an actual pass when moving the only Python suite statement out', ()
   assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nafter()\nonly()\n');
 });
 
+test('fills a pass-only suite while retaining its comments and blank lines', () => {
+  const source = 'if ready:\n  # explain the work\n  pass  # TODO\n\nnext()\n';
+  const ast = {type: 'Module', body: [
+    {type: 'If', lineno: 1, col_offset: 0, end_lineno: 3, end_col_offset: 6,
+      body: [{type: 'Pass', lineno: 3, col_offset: 2, end_lineno: 3, end_col_offset: 6}]},
+    {type: 'Expr', lineno: 5, col_offset: 0, end_lineno: 5, end_col_offset: 6}
+  ]};
+  const parsed = parsePython(source, () => ast);
+  const [container, next] = parsed.root.children.filter((node) => node.kind === 'statement');
+  const pass = container.children.find((node) => node.metadata?.type === 'Pass');
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: next.from, to: next.to},
+    destination: {from: container.metadata.bodyEnd, to: container.metadata.bodyEnd,
+      emptySuitePass: {from: pass.from, to: pass.to}}
+  }, parsed, () => ast);
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  # explain the work\n  next()  # TODO\n\n');
+});
+
 test('projects a blank Python suite line as a source-preserving whitespace node', () => {
   const source = 'if ready:\n  pass\n  \n';
   const ast = {type: 'Module', body: [{

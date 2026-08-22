@@ -1004,6 +1004,11 @@ corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
   insertion target. Its operation must retain the container's suite/body
   indentation (or JavaScript brace position), rather than borrowing indentation
   from the following sibling statement.
+- [ ] Treat a Python suite containing only `pass`, comments, and blank lines
+  as an empty container for an explicit first block insertion. Replace `pass`,
+  preserve standalone comments and whitespace, and carry an inline `pass`
+  comment to the inserted statement. A suite with any other executable
+  statement is not empty and retains its `pass`.
 - [ ] Retain the explicit comment-line-end gesture: the horizontal area to a
   statement's right attaches a dragged comment inline, while all other comment
   drops use insertion boundaries.
