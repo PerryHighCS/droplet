@@ -88,8 +88,9 @@ export class BlockSurface {
     if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
     this.#drag.moved = true;
     const target = hitTestBlockLayout(this.#layout, point);
-    this.#drag.destination = destinationForTarget(this.#layout, target, point);
-    renderDragPreviews(this.#svg, this.#layout, this.#drag.node, point, target?.zone);
+    const resolved = destinationForTarget(this.#layout, target, point);
+    this.#drag.destination = resolved?.destination;
+    renderDragPreviews(this.#svg, this.#layout, this.#drag.node, point, resolved?.zone);
     event.preventDefault();
   }
 
@@ -111,26 +112,39 @@ export class BlockSurface {
 }
 
 function destinationForTarget(layout, target, point) {
-  if (target?.kind === 'insertion') return target.zone.destination;
+  if (target?.kind === 'insertion') return {destination: target.zone.destination, zone: target.zone};
   // Containers have structural targets: their header moves the whole subtree,
   // their body/footer accepts children. Do not reduce them to before/after.
   if (target?.node?.kind !== 'statement') return undefined;
   const before = point.y < (target.node.bounds.top + target.node.bounds.bottom) / 2;
-  const from = before ? target.node.source.from : lineEndAfter(layout.source, target.node.source.to);
-  return {from, to: from, indentation: indentationAt(layout.source, target.node.source.from)};
+  const parent = findParent(layout.root, target.node.id);
+  if (!parent) return undefined;
+  const index = parent.children.findIndex((child) => child.id === target.node.id);
+  const zone = before
+    ? parent.insertionZones.find((candidate) => candidate.role === 'before-sibling' && candidate.destination.from === target.node.source.from)
+    : index + 1 < parent.children.length
+      ? parent.insertionZones.find((candidate) => candidate.role === 'before-sibling' &&
+        candidate.destination.from === parent.children[index + 1].source.from)
+      : parent.insertionZones.find((candidate) => candidate.role === 'body-end');
+  if (!zone) return undefined;
+  return {
+    destination: zone.destination,
+    zone: {...zone, bounds: statementHalfBounds(target.node.bounds, before)}
+  };
 }
 
-function lineEndAfter(source, offset) {
-  let position = offset;
-  while (position < source.length && source[position] !== '\r' && source[position] !== '\n') position += 1;
-  if (source[position] === '\r') position += source[position + 1] === '\n' ? 2 : 1;
-  else if (source[position] === '\n') position += 1;
-  return position;
+function findParent(node, childId) {
+  for (const child of node.children ?? []) {
+    if (child.id === childId) return node;
+    const parent = findParent(child, childId);
+    if (parent) return parent;
+  }
+  return undefined;
 }
 
-function indentationAt(source, offset) {
-  const start = source.lastIndexOf('\n', offset - 1) + 1;
-  return /^[\t \f]*/.exec(source.slice(start, offset))?.[0] ?? '';
+function statementHalfBounds(bounds, before) {
+  const middle = (bounds.top + bounds.bottom) / 2;
+  return {...bounds, top: before ? bounds.top : middle, bottom: before ? middle : bounds.bottom};
 }
 
 function isMovable(node) {
