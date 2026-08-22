@@ -1002,7 +1002,7 @@ Canvas is a later performance option, not an architectural requirement.
 
 ## Replanned implementation sequence
 
-1. Define framework-independent block-layout types: measured block bounds,
+1. [x] Define framework-independent block-layout types: measured block bounds,
    container header/body/footer regions, physical whitespace blocks, sibling
    insertion zones, and subtree preview geometry.
 2. Build a `BlockSurface` lifecycle owned by the modern adapter. It subscribes
