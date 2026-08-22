@@ -1,5 +1,5 @@
 import {Annotation, EditorState, StateEffect, StateField} from '@codemirror/state';
-import {Decoration, EditorView, ViewPlugin} from '@codemirror/view';
+import {Decoration, EditorView, ViewPlugin, WidgetType} from '@codemirror/view';
 import {
   applySourceChanges,
   isOpaque,
@@ -184,15 +184,16 @@ function createProjectionField(setProjection, initialProjection) {
 
 function projectionDecorations(projection) {
   const seen = new Set();
-  const ranges = collectProjectionNodes(projection.root)
+  const nodes = collectProjectionNodes(projection.root)
     .filter((node) => node.kind !== 'document' && node.from < node.to)
     .filter((node) => {
       const key = `${node.kind}:${node.from}:${node.to}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    })
-    .map((node) => Decoration.mark({
+    });
+  const ranges = nodes.flatMap((node) => {
+    const mark = Decoration.mark({
       class: isOpaque(node)
         ? `droplet-block droplet-opaque droplet-block-${node.kind}`
         : `droplet-block droplet-block-${node.kind}${node.metadata?.blockRole === 'container' ? ' droplet-block-container' : ''}`,
@@ -201,8 +202,25 @@ function projectionDecorations(projection) {
         'data-droplet-to': String(node.to),
         'data-droplet-kind': node.kind
       }
-    }).range(node.from, node.to));
+    }).range(node.from, node.to);
+    const spacer = node.metadata?.blockRole === 'container' && node.to < projection.source.length
+      ? Decoration.widget({widget: new ContainerBottomSpacer(), block: true, side: 1}).range(node.to)
+      : undefined;
+    return spacer ? [mark, spacer] : [mark];
+  });
+  ranges.sort((left, right) => left.from - right.from || left.value.startSide - right.value.startSide || left.to - right.to);
   return Decoration.set(ranges, true);
+}
+
+class ContainerBottomSpacer extends WidgetType {
+  toDOM() {
+    const spacer = document.createElement('div');
+    spacer.className = 'droplet-container-bottom-spacer';
+    spacer.style.height = '10px';
+    return spacer;
+  }
+
+  ignoreEvent() { return true; }
 }
 
 class StructuralBlockRenderer {
@@ -267,7 +285,6 @@ function containerGeometry(view, node) {
   const inset = left + 15;
   return {
     kind: 'container', from: node.from, left, headerRight, headerTop, headerBottom, bodyBottom: bottomBarBottom, inset,
-    headerText: view.state.doc.sliceString(node.from, node.metadata.headerTo).trimEnd(),
     bodyEnd: node.metadata.bodyEnd, bodyIndentation: node.metadata.bodyIndentation,
     emptySuitePass: node.metadata.emptySuitePass
   };
@@ -299,30 +316,12 @@ function createContainerPath(document, shape) {
     `H ${shape.left + 4} Q ${shape.left} ${shape.bodyBottom} ${shape.left} ${shape.bodyBottom - 4}`,
     `V ${shape.headerTop + 4} Q ${shape.left} ${shape.headerTop} ${shape.left + 4} ${shape.headerTop} Z`
   ].join(' '));
-  path.setAttribute('fill', '#d8ecff');
+  path.setAttribute('fill', 'none');
   path.setAttribute('stroke', '#246ca8');
   path.setAttribute('stroke-width', '3');
   path.setAttribute('stroke-linejoin', 'round');
   group.append(path);
 
-  const header = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  header.setAttribute('x', String(shape.left));
-  header.setAttribute('y', String(shape.headerTop));
-  header.setAttribute('width', String(shape.headerRight - shape.left));
-  header.setAttribute('height', String(shape.headerBottom - shape.headerTop));
-  header.setAttribute('rx', '4');
-  header.setAttribute('fill', '#246ca8');
-  group.append(header);
-
-  const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  label.setAttribute('data-droplet-container-label', '');
-  label.setAttribute('x', String(shape.left + 7));
-  label.setAttribute('y', String(shape.headerBottom - 6));
-  label.setAttribute('fill', '#fff');
-  label.setAttribute('font-family', 'monospace');
-  label.setAttribute('font-size', '14');
-  label.textContent = shape.headerText;
-  group.append(label);
   return group;
 }
 

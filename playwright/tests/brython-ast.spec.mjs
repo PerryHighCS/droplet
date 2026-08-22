@@ -338,10 +338,14 @@ test('manual modern Python playground renders suite containers and blank-line pl
   await expect(page.locator('.droplet-structural-overlay [data-droplet-role="whitespace"]')).toHaveCount(1);
   const outerContainer = page.locator('.droplet-structural-overlay [data-droplet-role="container"]').first();
   await expect(outerContainer.locator('path')).toHaveAttribute('stroke', '#246ca8');
-  await expect(outerContainer.locator('[data-droplet-container-label]')).toHaveText('if outer:');
+  await expect(outerContainer.locator('path')).toHaveAttribute('fill', 'none');
   const containerBox = await outerContainer.boundingBox();
   expect(containerBox.width).toBeGreaterThan(40);
   expect(containerBox.height).toBeGreaterThan(30);
+  const innerContainer = page.locator('[data-droplet-role="container"][data-droplet-from="32"]');
+  const secondStatement = page.locator('[data-droplet-kind="statement"][data-droplet-from="73"][data-droplet-to="83"]').first();
+  const [innerBox, secondBox] = await Promise.all([innerContainer.boundingBox(), secondStatement.boundingBox()]);
+  expect(innerBox.y + innerBox.height).toBeLessThanOrEqual(secondBox.y);
 });
 
 test('manual modern Python playground drops a statement at a container C-shape bottom', async ({page}) => {
