@@ -878,8 +878,8 @@ instead be read from the original leading line slice. This prevents tabs from
 being silently converted or assigned the wrong source range.
 
 `@droplet/python-adapter` exposes `collectPythonTrivia` for exact standalone
-and inline comment ranges plus raw indentation slices. Structural comment
-association beyond source preservation remains future work.
+and inline comment ranges plus raw indentation slices. Broader structural
+comment association remains future work.
 It determines an inline comment from non-whitespace source preceding `#` on
 the same line, so indented standalone comments remain standalone.
 
@@ -904,6 +904,10 @@ and allows drops into statement containers. The modern Python adapter follows
 that model when supplied Brython's tokenizer: standalone comments are projected
 as independently movable `comment` nodes, while nested statements retain their
 own source ranges rather than inheriting the enclosing suite's drag behavior.
+Statement drops resolve to insertion boundaries, with both a floating block and
+a translucent placement preview. A comment released at the right edge of a
+statement is instead attached as that statement's inline comment; a comment
+released elsewhere moves between statement boundaries.
 
 ## Newly generated indentation
 
@@ -940,7 +944,8 @@ and:
 x = 5
 ```
 
-Standalone comments may eventually become draggable comment blocks.
+Standalone comments are draggable comment blocks. Dropping one at a
+statement's right edge makes it that statement's inline comment.
 
 Inline comments should normally remain associated with their containing statement.
 

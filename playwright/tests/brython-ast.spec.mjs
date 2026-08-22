@@ -330,7 +330,7 @@ test('manual modern Python playground loads with its source and projection panel
   await expect(page.locator('#modern-python-projection')).toContainText('Module');
 });
 
-test('manual modern Python playground moves statement blocks into an editor gap', async ({page}) => {
+test('manual modern Python playground resolves a block hover to an insertion gap', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
 
@@ -357,14 +357,15 @@ test('manual modern Python playground moves statement blocks into an editor gap'
   await page.mouse.down();
   await page.mouse.move(sourceBox.x + sourceBox.width / 2 + 8, sourceBox.y + sourceBox.height / 2 + 8);
   await expect(page.locator('.droplet-drag-preview')).toBeVisible();
-  await page.mouse.move(targetBox.x + 8, targetBox.y - targetBox.height / 2, {steps: 10});
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height * .75, {steps: 10});
   await expect(page.locator('.droplet-drop-guide')).toBeVisible();
+  await expect(page.locator('.droplet-drop-preview')).toContainText('if ready:');
   await page.mouse.up();
 
-  await expect(page.locator('#modern-python-source')).toContainText('if ready:\n  first = 1  # inline note\ntail = 0');
+  await expect(page.locator('#modern-python-source')).toContainText('tail = 0\nif ready:\n  first = 1  # inline note');
 });
 
-test('manual modern Python playground moves a standalone comment without its containing suite', async ({page}) => {
+test('manual modern Python playground attaches a standalone comment without moving its containing suite', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
 
@@ -387,10 +388,11 @@ test('manual modern Python playground moves a standalone comment without its con
   await page.mouse.move(commentBox.x + commentBox.width / 2, commentBox.y + commentBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(commentBox.x + commentBox.width / 2 + 8, commentBox.y + commentBox.height / 2 + 8);
-  await page.mouse.move(tailBox.x + 8, tailBox.y - tailBox.height / 2, {steps: 10});
+  await page.mouse.move(tailBox.x + tailBox.width - 2, tailBox.y + tailBox.height / 2, {steps: 10});
+  await expect(page.locator('.droplet-drop-preview')).toContainText('# standalone note');
   await page.mouse.up();
 
   await expect(page.locator('#modern-python-source')).toContainText(
-    'if outer:\n  if ready:\n    first = 1  # inline note\n  second = 2\n\n# standalone note\ntail = 0'
+    'if outer:\n  if ready:\n    first = 1  # inline note\n  second = 2\n\ntail = 0  # standalone note'
   );
 });

@@ -238,12 +238,11 @@ function createProjectionInteraction(onOperation) {
       if (!source) return false;
       pointerDrag = {
         source,
-        sourceElement: event.target.closest('[data-droplet-kind="statement"]'),
         startX: event.clientX,
         startY: event.clientY,
         preview: undefined,
-        targetElement: undefined,
-        dropGuide: undefined
+        dropGuide: undefined,
+        dropPreview: undefined
       };
       event.preventDefault();
       return true;
@@ -255,9 +254,9 @@ function createProjectionInteraction(onOperation) {
       if (!moved) return true;
       pointerDrag.preview ??= createDragPreview(view, pointerDrag.source);
       updateDragPreview(pointerDrag.preview, event.clientX, event.clientY);
-      const target = movableRangeFromElement(event.target);
-      const destination = target?.from ?? statementDestinationAtPointer(view, event);
-      updateDropTarget(pointerDrag, event.target, destination, event.clientX, event.clientY);
+      const attachmentTarget = commentAttachmentTarget(pointerDrag.source, view, event);
+      const destination = attachmentTarget?.from ?? statementDestinationAtPointer(view, event);
+      updateDropTarget(pointerDrag, view, destination, event.clientX, event.clientY, attachmentTarget);
       event.preventDefault();
       return true;
     },
@@ -272,15 +271,15 @@ function createProjectionInteraction(onOperation) {
       const drag = pointerDrag;
       pointerDrag = undefined;
       if (!drag || event.button !== 0) return false;
-      const target = movableRangeFromElement(event.target);
       const moved = drag.preview !== undefined;
       clearDragPreview(drag);
       if (!moved) {
         view.dispatch({selection: {anchor: drag.source.from, head: drag.source.to}});
         return true;
       }
-      const destination = target?.from ?? statementDestinationAtPointer(view, event);
-      const operation = projectionOperationFromDestination(drag.source, target, destination, view.state.doc.toString());
+      const attachmentTarget = commentAttachmentTarget(drag.source, view, event);
+      const destination = attachmentTarget?.from ?? statementDestinationAtPointer(view, event);
+      const operation = projectionOperationFromDestination(drag.source, attachmentTarget, destination, view.state.doc.toString());
       if (!operation) return true;
       event.preventDefault();
       onOperation(operation);
@@ -308,27 +307,31 @@ function updateDragPreview(preview, clientX, clientY) {
   preview.style.top = `${clientY + 12}px`;
 }
 
-function updateDropTarget(drag, element, destination, clientX, clientY) {
-  const targetElement = element?.closest?.('[data-droplet-kind="statement"], [data-droplet-kind="comment"]');
-  if (drag.targetElement !== targetElement) {
-    drag.targetElement?.classList.remove('droplet-block-drop-target');
-    drag.targetElement = targetElement;
-    if (targetElement && targetElement !== drag.sourceElement) targetElement.classList.add('droplet-block-drop-target');
-  }
-  if (targetElement || destination === undefined) {
+function updateDropTarget(drag, view, destination, clientX, clientY, attachmentTarget) {
+  if (destination === undefined) {
     drag.dropGuide?.remove();
     drag.dropGuide = undefined;
+    drag.dropPreview?.remove();
+    drag.dropPreview = undefined;
     return;
   }
   drag.dropGuide ??= createDropGuide(drag.preview.ownerDocument);
-  drag.dropGuide.style.left = `${clientX - 70}px`;
-  drag.dropGuide.style.top = `${clientY - 1}px`;
+  const boundary = [...view.dom.querySelectorAll('[data-droplet-kind="statement"], [data-droplet-kind="comment"]')]
+    .find((block) => Number(block.dataset.dropletFrom) === destination);
+  const rect = boundary?.getBoundingClientRect();
+  const attachment = attachmentTarget && elementForRange(view, attachmentTarget)?.getBoundingClientRect();
+  drag.dropGuide.style.left = `${attachment?.right ?? rect?.left ?? clientX - 70}px`;
+  drag.dropGuide.style.top = `${attachment?.top ?? (rect ? rect.top - 2 : clientY - 1)}px`;
+  drag.dropGuide.style.width = `${attachment ? 3 : rect?.width ?? 150}px`;
+  drag.dropPreview ??= createDropPlacementPreview(drag.preview.ownerDocument, drag.preview.textContent);
+  drag.dropPreview.style.left = `${attachment?.right ?? rect?.left ?? clientX + 20}px`;
+  drag.dropPreview.style.top = `${attachment?.top ?? (rect ? rect.top - 28 : clientY + 20)}px`;
 }
 
 function clearDragPreview(drag) {
   drag.preview?.remove();
   drag.dropGuide?.remove();
-  drag.targetElement?.classList.remove('droplet-block-drop-target');
+  drag.dropPreview?.remove();
 }
 
 function createDropGuide(document) {
@@ -340,6 +343,20 @@ function createDropGuide(document) {
   });
   document.body.append(guide);
   return guide;
+}
+
+function createDropPlacementPreview(document, text) {
+  const preview = document.createElement('div');
+  preview.className = 'droplet-drop-preview';
+  preview.textContent = text;
+  Object.assign(preview.style, {
+    position: 'fixed', pointerEvents: 'none', zIndex: '998', maxWidth: '320px',
+    padding: '3px 6px', border: '1px dashed #4d7fb5', borderRadius: '4px',
+    background: '#eaf3ff', color: '#456', opacity: '.72', whiteSpace: 'pre-wrap',
+    font: 'inherit'
+  });
+  document.body.append(preview);
+  return preview;
 }
 
 function statementDestinationAtPointer(view, event) {
@@ -354,6 +371,24 @@ function statementDestinationAtPointer(view, event) {
   return statements.find((statement) => statement.from >= position)?.from ?? view.state.doc.length;
 }
 
+function commentAttachmentTarget(source, view, event) {
+  if (source.kind !== 'comment') return undefined;
+  if (movableRangeFromElement(event.target)?.kind === 'comment') return undefined;
+  const block = event.target?.closest?.('[data-droplet-kind="statement"]');
+  if (!block) return undefined;
+  const rect = [...block.getClientRects()].find((candidate) =>
+    event.clientY >= candidate.top && event.clientY <= candidate.bottom);
+  // A drop past the rendered end of the statement is an explicit request to
+  // attach the comment to that line. Drops elsewhere remain gap insertions.
+  if (!rect || event.clientX < rect.right - 3) return undefined;
+  return projectionRangeFromBlock(block);
+}
+
+function elementForRange(view, range) {
+  return [...view.dom.querySelectorAll('[data-droplet-from][data-droplet-to]')].find((element) =>
+    Number(element.dataset.dropletFrom) === range.from && Number(element.dataset.dropletTo) === range.to);
+}
+
 /** Derives a source operation from a supported rendered block drop. */
 export function projectionOperationFromDrop(source, target, document) {
   if (sameRange(source, target)) return undefined;
@@ -365,6 +400,12 @@ export function projectionOperationFromDrop(source, target, document) {
     };
   }
   if (source.kind === 'comment' && (target.kind === 'statement' || target.kind === 'comment')) {
+    if (target.kind === 'statement') {
+      return {
+        type: 'move-comment', source: {from: source.from, to: source.to},
+        destination: {from: target.from, to: target.to}, placement: 'line-end'
+      };
+    }
     return {
       type: 'move-comment',
       source: {from: source.from, to: source.to},
@@ -425,10 +466,6 @@ const opaqueTheme = EditorView.baseTheme({
     borderRadius: '4px',
     color: '#555',
     cursor: 'grab'
-  },
-  '.droplet-block-drop-target': {
-    outline: '2px solid #4d7fb5',
-    outlineOffset: '2px'
   },
   '.droplet-block-expression': {
     backgroundColor: '#f3edff',

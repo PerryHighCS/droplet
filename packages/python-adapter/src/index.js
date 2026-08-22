@@ -66,6 +66,12 @@ export function transformPython(operation, parsed, pythonToAST) {
     case 'move-comment': {
       const comment = findNode(parsed.root, operation.source, 'comment');
       if (!comment) throw new RangeError('Comment source is not present in the current projection');
+      if (operation.placement === 'line-end') {
+        const statement = findNode(parsed.root, operation.destination, 'statement');
+        if (!statement) throw new RangeError('Comment destination statement is not present in the current projection');
+        changes = attachCommentToStatement(parsed.source, comment, statement);
+        break;
+      }
       assertInsertionPoint(parsed.source, operation.destination);
       const commentRange = lineRange(parsed.source, comment);
       if (operation.destination.from >= commentRange.from && operation.destination.from <= commentRange.to) return [];
@@ -194,6 +200,28 @@ function lineRange(source, statement) {
   if (source[to] === '\r' && source[to + 1] === '\n') to += 2;
   else if (source[to] === '\r' || source[to] === '\n') to += 1;
   return {from, to};
+}
+
+function attachCommentToStatement(source, comment, statement) {
+  const removal = comment.metadata?.inline ? inlineCommentRange(source, comment) : lineRange(source, comment);
+  const destination = lineTextEnd(source, statement.from);
+  const text = source.slice(comment.from, comment.to);
+  return [
+    {from: removal.from, to: removal.to, insert: ''},
+    {from: destination, to: destination, insert: `  ${text}`}
+  ];
+}
+
+function lineTextEnd(source, position) {
+  let end = position;
+  while (end < source.length && source[end] !== '\r' && source[end] !== '\n') end += 1;
+  return end;
+}
+
+function inlineCommentRange(source, comment) {
+  let from = comment.from;
+  while (from > 0 && (source[from - 1] === ' ' || source[from - 1] === '\t')) from -= 1;
+  return {from, to: comment.to};
 }
 
 function reindentPythonLines(source, fromIndentation, toIndentation) {
