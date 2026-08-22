@@ -97,7 +97,7 @@ test('the modern Python adapter retains descendants of Brython AST containers', 
 
   expect(nodes).toEqual(expect.arrayContaining([
     {type: 'arg', kind: 'socket'},
-    {type: 'Constant', kind: 'expression'},
+    {type: 'Constant', kind: 'socket'},
     {type: 'Name', kind: 'socket'}
   ]));
 });

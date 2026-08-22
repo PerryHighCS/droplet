@@ -105,7 +105,10 @@ const statementTypes = new Set([
   'Pass', 'Raise', 'Return', 'Try', 'TryStar', 'TypeAlias', 'While', 'With'
 ]);
 const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_offset']);
-const socketKeys = new Set(['value', 'args', 'target', 'targets', 'test', 'iter', 'left', 'right']);
+const socketKeys = new Set([
+  'args', 'defaults', 'ifs', 'iter', 'kw_defaults', 'kwonlyargs', 'left',
+  'posonlyargs', 'right', 'target', 'targets', 'test', 'value'
+]);
 function typeOf(node) { return node?.type ?? node?.$name ?? node?.constructor?.$name ?? node?.constructor?.name ?? 'Unknown'; }
 function lineStarts(source) { const starts = [0]; for (let i = 0; i < source.length; i += 1) if (source[i] === '\n') starts.push(i + 1); return starts; }
 function leadingWhitespace(source, from) { return /^[\t ]*/.exec(source.slice(from))?.[0] ?? ''; }
