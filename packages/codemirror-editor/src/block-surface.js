@@ -134,6 +134,7 @@ function layoutContainer(node, source, settings, left, top) {
     id: node.id,
     kind: 'container',
     source: rangeOf(node),
+    metadata: node.metadata,
     text: headerText,
     bounds,
     regions: {

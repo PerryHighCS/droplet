@@ -102,11 +102,14 @@ export class BlockSurface {
     clearDragPreviews(this.#svg);
     if (!drag.moved) return;
     this.#suppressClick = true;
-    if (drag.destination) this.#onOperation({
-      type: drag.node.kind === 'comment' ? 'move-comment' : 'move-statement',
-      source: drag.node.source,
-      destination: drag.destination
-    });
+    if (drag.destination) {
+      const operation = {
+        type: drag.node.kind === 'comment' ? 'move-comment' : 'move-statement',
+        source: drag.node.source,
+        destination: drag.destination
+      };
+      this.#onOperation(operation);
+    }
     event.preventDefault();
   }
 }
@@ -119,10 +122,16 @@ function destinationForTarget(layout, target, point) {
   const before = point.y < (target.node.bounds.top + target.node.bounds.bottom) / 2;
   const parent = findParent(layout.root, target.node.id);
   if (!parent) return undefined;
-  if (target.node.metadata?.type === 'Pass') {
-    const zone = parent.insertionZones.find((candidate) =>
-      candidate.role === 'body-end' && candidate.destination.emptySuitePass?.from === target.node.source.from);
-    if (zone) return {destination: zone.destination, zone: {...zone, bounds: target.node.bounds}};
+  if (target.node.metadata?.type === 'Pass' && parent.metadata?.emptySuitePass) {
+    const from = parent.metadata.bodyEnd ?? parent.source.to;
+    return {
+      destination: {
+        from, to: from,
+        indentation: parent.metadata.bodyIndentation ?? '',
+        emptySuitePass: parent.metadata.emptySuitePass
+      },
+      zone: {bounds: target.node.bounds}
+    };
   }
   const index = parent.children.findIndex((child) => child.id === target.node.id);
   const zone = before

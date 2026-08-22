@@ -248,6 +248,23 @@ test('deindents a final nested statement when dropped at a root-level boundary',
   assert.equal(applySourceChanges(source, changes), 'if ready:\nsecond()\n');
 });
 
+test('moves the statement immediately after a synthetic pass into that suite', () => {
+  const source = 'if ready:\n  pass\nfirst()\n';
+  const pass = {id: 'statement:pass', kind: 'statement', from: 12, to: 16, metadata: {type: 'Pass'}, children: []};
+  const first = {id: 'statement:first', kind: 'statement', from: 17, to: 24, children: []};
+  const parsed = projection(source, [{
+    id: 'statement:ready', kind: 'statement', from: 0, to: 17,
+    metadata: {blockRole: 'container'}, children: [pass]
+  }, first]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: first.from, to: first.to},
+    destination: {from: 17, to: 17, emptySuitePass: {from: pass.from, to: pass.to}}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  first()\n');
+});
+
 test('leaves an actual pass when moving the only Python suite statement out', () => {
   const source = 'if ready:\n  only()\nafter()\n';
   const ast = {type: 'Module', body: [

@@ -288,7 +288,9 @@ function emptySuitePass(parsed, destination) {
 
 function moveStatementIntoEmptySuite(source, statementRange, pass) {
   const passRange = lineRange(source, pass);
-  if (statementRange.from >= passRange.from && statementRange.from <= passRange.to) return [];
+  // `passRange.to` includes the line ending. The next statement begins at
+  // exactly that offset and is outside the pass, not already in the suite.
+  if (statementRange.from >= passRange.from && statementRange.from < passRange.to) return [];
   const sourceIndentation = indentationAt(source, statementRange.from);
   const targetIndentation = indentationAt(source, passRange.from);
   const moved = reindentPythonLines(source.slice(statementRange.from, statementRange.to), sourceIndentation, targetIndentation);

@@ -360,7 +360,9 @@ test('manual modern Python playground replaces a synthetic pass with a dropped o
   await page.mouse.down();
   await page.mouse.move(firstBox.x + 12, firstBox.y + 12);
   const secondBox = await second.boundingBox();
-  await page.mouse.move(secondBox.x + 4, secondBox.y + secondBox.height - 3, {steps: 8});
+  // This is the outer-scope gap immediately after `if ready:`. It differs
+  // from moving below `second = 2` and must still round-trip through `pass`.
+  await page.mouse.move(secondBox.x + 4, secondBox.y + 2, {steps: 8});
   await page.mouse.up();
 
   const pass = block('pass');
