@@ -63,7 +63,7 @@ test('clicking a rendered projection selects its exact source range', () => {
   });
   const statement = parent.querySelector('.droplet-block-statement');
 
-  statement.dispatchEvent(new window.MouseEvent('mousedown', {bubbles: true, button: 0}));
+  statement.dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0}));
   assert.deepEqual(editor.editor.getSelection(), {anchor: 0, head: 'score = 1\n'.length});
   editor.destroy();
 });

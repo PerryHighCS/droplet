@@ -187,8 +187,7 @@ function projectionDecorations(projection) {
       attributes: {
         'data-droplet-from': String(node.from),
         'data-droplet-to': String(node.to),
-        'data-droplet-kind': node.kind,
-        draggable: 'true'
+        'data-droplet-kind': node.kind
       }
     }).range(node.from, node.to));
   return Decoration.set(ranges, true);
@@ -225,30 +224,24 @@ function isPermittedChange(transaction) {
 }
 
 function createProjectionInteraction(onOperation) {
+  let pointerSource;
   return EditorView.domEventHandlers({
-    mousedown(event, view) {
+    mousedown(event) {
+      if (event.button === 0) pointerSource = statementRangeFromElement(event.target);
+      return false;
+    },
+    click(event, view) {
       if (event.button !== 0) return false;
       const range = projectionRangeFromElement(event.target);
       if (!range) return false;
       view.dispatch({selection: {anchor: range.from, head: range.to}});
       return true;
     },
-    dragstart(event) {
-      const range = projectionRangeFromElement(event.target);
-      if (!range || !event.dataTransfer) return false;
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('application/x-droplet-projection', JSON.stringify(range));
-      return true;
-    },
-    dragover(event) {
-      if (!hasProjectionData(event.dataTransfer)) return false;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'move';
-      return true;
-    },
-    drop(event, view) {
-      const target = projectionRangeFromElement(event.target);
-      const source = readDraggedRange(event.dataTransfer);
+    mouseup(event, view) {
+      const source = pointerSource;
+      pointerSource = undefined;
+      if (!source || event.button !== 0) return false;
+      const target = statementRangeFromElement(event.target);
       if (!source || !target) return false;
       const operation = projectionOperationFromDrop(source, target, view.state.doc.toString());
       if (!operation) return false;
@@ -281,28 +274,20 @@ export function projectionOperationFromDrop(source, target, document) {
 
 function projectionRangeFromElement(element) {
   const block = element?.closest?.('[data-droplet-from][data-droplet-to][data-droplet-kind]');
+  return projectionRangeFromBlock(block);
+}
+
+function statementRangeFromElement(element) {
+  const block = element?.closest?.('[data-droplet-kind="statement"]');
+  return projectionRangeFromBlock(block);
+}
+
+function projectionRangeFromBlock(block) {
   if (!block) return undefined;
   const from = Number(block.dataset.dropletFrom);
   const to = Number(block.dataset.dropletTo);
   if (!Number.isInteger(from) || !Number.isInteger(to) || from > to) return undefined;
   return {from, to, kind: block.dataset.dropletKind};
-}
-
-function readDraggedRange(dataTransfer) {
-  try {
-    const value = JSON.parse(dataTransfer?.getData('application/x-droplet-projection') ?? '');
-    if (!Number.isInteger(value?.from) || !Number.isInteger(value?.to) ||
-        value.from > value.to || typeof value.kind !== 'string') return undefined;
-    return value;
-  } catch {
-    return undefined;
-  }
-}
-
-function hasProjectionData(dataTransfer) {
-  const types = dataTransfer?.types;
-  return types?.includes?.('application/x-droplet-projection') === true ||
-    types?.contains?.('application/x-droplet-projection') === true;
 }
 
 function sameRange(left, right) {

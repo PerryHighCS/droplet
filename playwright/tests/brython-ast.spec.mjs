@@ -334,7 +334,7 @@ test('manual modern Python playground moves statement blocks by drag and drop', 
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
 
-  await page.evaluate(() => {
+  const {nestedSuite, tail} = await page.evaluate(() => {
     const source = document.querySelector('#modern-python-source').textContent;
     const blocks = [...document.querySelectorAll('[data-droplet-kind="statement"]')];
     const nestedSuite = blocks.find((block) => source.slice(
@@ -343,11 +343,20 @@ test('manual modern Python playground moves statement blocks by drag and drop', 
     const tail = blocks.find((block) => source.slice(
       Number(block.dataset.dropletFrom), Number(block.dataset.dropletTo)
     ) === 'tail = 0');
-    const dataTransfer = new DataTransfer();
-    nestedSuite.dispatchEvent(new DragEvent('dragstart', {bubbles: true, dataTransfer}));
-    tail.dispatchEvent(new DragEvent('dragover', {bubbles: true, dataTransfer}));
-    tail.dispatchEvent(new DragEvent('drop', {bubbles: true, dataTransfer}));
+    return {
+      nestedSuite: {from: nestedSuite.dataset.dropletFrom, to: nestedSuite.dataset.dropletTo},
+      tail: {from: tail.dataset.dropletFrom, to: tail.dataset.dropletTo}
+    };
   });
+  const block = ({from, to}) => page.locator(
+    `[data-droplet-kind="statement"][data-droplet-from="${from}"][data-droplet-to="${to}"]`
+  ).first();
+  const sourceBox = await block(nestedSuite).boundingBox();
+  const targetBox = await block(tail).boundingBox();
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {steps: 10});
+  await page.mouse.up();
 
   await expect(page.locator('#modern-python-source')).toContainText('if ready:\n  first = 1  # inline note\ntail = 0');
 });
