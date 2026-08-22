@@ -38,8 +38,8 @@ export function collectPythonTrivia(source, tokenize, {indentTokenType = 5} = {}
   const indentation = [];
   for (const token of tokenize(source, 'droplet.py', 'file')) {
     if (typeof token?.string === 'string' && token.string.startsWith('#')) {
-      const from = offset(token.lineno, token.col_offset, starts, source.length, 0);
-      const to = offset(token.end_lineno, token.end_col_offset, starts, source.length, source.length);
+      const from = offset(token.lineno, token.col_offset, starts, source, 0);
+      const to = offset(token.end_lineno, token.end_col_offset, starts, source, source.length);
       comments.push({kind: 'comment', from, to, inline: hasCodeBeforeComment(source, from)});
     }
     if (token?.type === indentTokenType && Number.isInteger(token.lineno)) {
@@ -52,11 +52,11 @@ export function collectPythonTrivia(source, tokenize, {indentTokenType = 5} = {}
 }
 
 function project(node, source, lines, kind = kindFor(node), boundary = {from: 0, to: source.length}) {
-  const range = kind === 'document' ? {from: 0, to: source.length} : boundedRange(
-    offset(node.lineno, node.col_offset, lines, source.length, boundary.from),
-    offset(node.end_lineno, node.end_col_offset, lines, source.length, boundary.to),
-    boundary
-  );
+  const rawFrom = offset(node.lineno, node.col_offset, lines, source, null);
+  const rawTo = offset(node.end_lineno, node.end_col_offset, lines, source, null);
+  const range = kind === 'document' ? {from: 0, to: source.length} : rawFrom === null || rawTo === null
+    ? boundary
+    : boundedRange(rawFrom, rawTo, boundary);
   const statementRange = kind === 'statement' ? expandDecoratorRange(node, source, lines, range) : range;
   const {from, to} = statementRange;
   return {
@@ -71,7 +71,7 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
 
 function expandDecoratorRange(node, source, lines, range) {
   const decoratorFrom = (node.decorator_list ?? []).reduce((from, decorator) => {
-    const offsetFrom = offset(decorator?.lineno, decorator?.col_offset, lines, source.length, -1);
+    const offsetFrom = offset(decorator?.lineno, decorator?.col_offset, lines, source, -1);
     const lineStart = lines[(decorator?.lineno ?? 0) - 1];
     return offsetFrom < 0 || !Number.isInteger(lineStart) ? from : Math.min(from, lineStart);
   }, range.from);
@@ -125,10 +125,17 @@ const socketKeys = new Set([
   'posonlyargs', 'right', 'target', 'targets', 'test', 'value'
 ]);
 function typeOf(node) { return node?.type ?? node?.$name ?? node?.constructor?.$name ?? node?.constructor?.name ?? 'Unknown'; }
-function lineStarts(source) { const starts = [0]; for (let i = 0; i < source.length; i += 1) if (source[i] === '\n') starts.push(i + 1); return starts; }
+function lineStarts(source) {
+  const starts = [0];
+  for (let i = 0; i < source.length; i += 1) {
+    if (source[i] === '\r' && source[i + 1] === '\n') i += 1;
+    if (source[i] === '\r' || source[i] === '\n') starts.push(i + 1);
+  }
+  return starts;
+}
 function leadingWhitespace(source, from) { return /^[\t \f]*/.exec(source.slice(from))?.[0] ?? ''; }
 function hasCodeBeforeComment(source, from) {
-  const lineStart = source.lastIndexOf('\n', from - 1) + 1;
+  const lineStart = Math.max(source.lastIndexOf('\n', from - 1), source.lastIndexOf('\r', from - 1)) + 1;
   return /\S/.test(source.slice(lineStart, from));
 }
 function boundedRange(from, to, boundary) {
@@ -137,11 +144,15 @@ function boundedRange(from, to, boundary) {
   }
   return {from, to};
 }
-function offset(line, column, starts, length, fallback) {
+function offset(line, column, starts, source, fallback) {
   if (!Number.isInteger(line) || !Number.isInteger(column) || column < 0) return fallback;
   const lineStart = starts[line - 1];
   if (!Number.isInteger(lineStart)) return fallback;
-  const lineEnd = sourceLineEnd(starts, line, length);
+  const lineEnd = sourceLineEnd(starts, line, source);
   return column <= lineEnd - lineStart ? lineStart + column : fallback;
 }
-function sourceLineEnd(starts, line, length) { return starts[line] === undefined ? length : starts[line] - 1; }
+function sourceLineEnd(starts, line, source) {
+  let end = starts[line] ?? source.length;
+  while (end > starts[line - 1] && (source[end - 1] === '\r' || source[end - 1] === '\n')) end -= 1;
+  return end;
+}

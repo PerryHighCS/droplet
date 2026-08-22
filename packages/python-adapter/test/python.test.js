@@ -110,6 +110,35 @@ test('contains child columns beyond their source line within their statement', (
   });
 });
 
+test('uses the containing boundary when either AST endpoint is invalid', () => {
+  const source = 'first\nsecond\n';
+  const ast = {type: 'Module', body: [{
+    type: 'Expr', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 5,
+    values: [
+      {type: 'Name', lineno: 9, col_offset: 0, end_lineno: 1, end_col_offset: 5},
+      {type: 'Name', lineno: 1, col_offset: 0, end_lineno: 9, end_col_offset: 5}
+    ]
+  }]};
+
+  assert.deepEqual(parsePython(source, () => ast).root.children[0].children.map(({from, to}) => ({from, to})), [
+    {from: 0, to: 5}, {from: 0, to: 5}
+  ]);
+});
+
+test('maps CR and CRLF physical lines for AST locations and comments', () => {
+  const source = 'first\r# comment\r\npass\r';
+  const ast = {type: 'Module', body: [{
+    type: 'Pass', lineno: 3, col_offset: 0, end_lineno: 3, end_col_offset: 4
+  }]};
+  const tokens = [{type: 65, string: '# comment', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 9}];
+
+  assert.deepEqual(parsePython(source, () => ast).root.children[0].from, 17);
+  assert.deepEqual(parsePython(source, () => ast).root.children[0].to, 21);
+  assert.deepEqual(collectPythonTrivia(source, () => tokens).comments, [
+    {kind: 'comment', from: 6, to: 15, inline: false}
+  ]);
+});
+
 test('uses raw source indentation while retaining inline and standalone comments', () => {
   const source = '# heading\nif value:\n\t# nested\n\tresult = value  # inline\n';
   const tokens = [
@@ -156,10 +185,13 @@ test('classifies the complete modern Python statement set as statements', () => 
 
 test('projects descendants of unlocated Brython argument and comprehension containers', () => {
   const source = 'def f(value=1):\n  return [item for item in values]\n';
-  const located = (type, from, to, extra = {}) => ({
-    type, lineno: 1, col_offset: from, end_lineno: 1, end_col_offset: to, ...extra
-  });
-  const ast = {type: 'Module', body: [located('FunctionDef', 0, 15, {
+  const position = (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (type, from, to, extra = {}) => ({type, ...position(from), end_lineno: position(to).lineno,
+    end_col_offset: position(to).col_offset, ...extra});
+  const ast = {type: 'Module', body: [located('FunctionDef', 0, source.length - 1, {
     args: {
       args: [located('arg', 6, 11)],
       defaults: [located('Constant', 12, 13)]
@@ -180,8 +212,11 @@ test('projects descendants of unlocated Brython argument and comprehension conta
   const descendants = collectProjectedNodes(projected.root);
   assert.deepEqual(
     descendants.filter((node) => ['arg', 'Constant', 'Name'].includes(node.metadata?.type))
-      .map((node) => [node.metadata.type, node.kind]).sort(),
-    [['arg', 'socket'], ['Constant', 'socket'], ['Name', 'expression'], ['Name', 'socket'], ['Name', 'socket']].sort()
+      .map((node) => [node.metadata.type, node.kind, node.from, node.to]),
+    [
+      ['arg', 'socket', 6, 11], ['Constant', 'socket', 12, 13],
+      ['Name', 'expression', 26, 30], ['Name', 'socket', 35, 39], ['Name', 'socket', 43, 49]
+    ]
   );
 });
 
