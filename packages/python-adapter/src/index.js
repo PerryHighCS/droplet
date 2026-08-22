@@ -199,12 +199,34 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
     child.node, source, lines, child.socketRole ? 'socket' : kindFor(child.node), statementRange, child.socketRole
   ));
   addEmptyPrintArgumentSocket(children, node, source, rawFrom, rawTo);
+  addNameSocket(children, node, source, rawFrom ?? from);
   return {
     id: `${kind}:${typeOf(node)}:${from}:${to}`,
     kind, from, to, editable: kind !== 'document',
     children: children.sort(compareProjectedNodes),
     metadata: metadataFor(node, kind, source, rawFrom ?? from, socketRole)
   };
+}
+
+// Brython gives a def/class statement's own name as a bare string with no
+// source location, unlike every other part of it, so it can never reach a
+// socket through the normal located-child walk. A container should only let
+// the user edit the parts they actually supplied (the name, the
+// parameters), not the surrounding keyword/parenthesis/colon structure that
+// makes it the statement kind it is - so find the name's exact range in its
+// own header line and add it as a socket by hand.
+function addNameSocket(children, node, source, from) {
+  const type = typeOf(node);
+  const keyword = type === 'ClassDef' ? 'class' : type === 'FunctionDef' || type === 'AsyncFunctionDef' ? 'def' : undefined;
+  if (!keyword || typeof node.name !== 'string' || !node.name || from === null) return;
+  const match = new RegExp(`\\b${keyword}\\s+(${node.name})\\b`).exec(source.slice(from, lineTextEnd(source, from)));
+  if (!match) return;
+  const nameFrom = from + match.index + match[0].length - match[1].length;
+  children.push({
+    id: `socket:name:${nameFrom}:${nameFrom + node.name.length}`,
+    kind: 'socket', from: nameFrom, to: nameFrom + node.name.length, editable: true, children: [],
+    metadata: {type: 'Name', socketRole: 'name'}
+  });
 }
 
 function addEmptyPrintArgumentSocket(children, node, source, from, to) {

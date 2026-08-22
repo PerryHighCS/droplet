@@ -23,7 +23,7 @@ test('maps Brython line and column locations to exact source ranges', () => {
   });
 });
 
-test('sockets a function\'s individual parameters instead of its whole header and body', () => {
+test('sockets a function\'s name and individual parameters instead of its whole header and body', () => {
   const source = 'def greet(a, b):\n  pass\n';
   // Brython's `arguments` node carries a lineno but no col_offset - it isn't
   // itself a source-range node, only its own args are. Reproduce that shape
@@ -41,9 +41,28 @@ test('sockets a function\'s individual parameters instead of its whole header an
 
   const kids = collectProjectedNodes(parsePython(source, () => ast).root)
     .filter((node) => node.kind === 'socket')
-    .map((node) => source.slice(node.from, node.to));
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
 
-  assert.deepEqual(kids, ['a', 'b']);
+  assert.deepEqual(kids, [
+    {text: 'greet', role: 'name'},
+    {text: 'a', role: 'expression'},
+    {text: 'b', role: 'expression'}
+  ]);
+});
+
+test('sockets a class\'s name without letting the class keyword itself be edited', () => {
+  const source = 'class Widget:\n  pass\n';
+  const ast = {type: 'Module', body: [
+    {type: 'ClassDef', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6, name: 'Widget',
+      bases: [], keywords: [], body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}],
+      decorator_list: []}
+  ]};
+
+  const kids = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(kids, [{text: 'Widget', role: 'name'}]);
 });
 
 test('labels assignment targets, assignment values, and if conditions as distinct sockets', () => {
