@@ -307,6 +307,13 @@ export class BlockSurface {
     event.dataTransfer.dropEffect = 'move';
     const point = pointFor(this.#svg, event);
     const target = dropTargetAtPoint(this.#layout, point);
+    // An expression block (an operator, a value) is meant to replace a
+    // socket's contents, not sit beside it as a new statement.
+    if (paletteDragKind(event) === 'expression' && isSocketNode(target?.node)) {
+      renderExternalDropGuide(this.#svg, {bounds: target.node.bounds});
+      event.preventDefault();
+      return;
+    }
     const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
     renderExternalDropGuide(this.#svg, resolved?.zone);
     event.preventDefault();
@@ -317,13 +324,21 @@ export class BlockSurface {
   }
 
   #dropPaletteBlock(event) {
-    const source = paletteSource(event);
-    if (!this.#layout || !this.#onOperation || !source) return;
+    const dropped = paletteSource(event);
+    if (!this.#layout || !this.#onOperation || !dropped) return;
     const point = pointFor(this.#svg, event);
     const target = dropTargetAtPoint(this.#layout, point);
-    const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
     clearDragPreviews(this.#svg);
+    if (dropped.kind === 'expression' && isSocketNode(target?.node)) {
+      this.#onOperation({type: 'replace-socket', target: target.node.source, source: dropped.source});
+      event.preventDefault();
+      return;
+    }
+    const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
     if (resolved?.destination) {
+      // A bare expression is only valid Python as its own statement line;
+      // palette statement sources already carry their own trailing newline.
+      const source = dropped.kind === 'expression' ? `${dropped.source}\n` : dropped.source;
       this.#onOperation({type: 'insert-statement', destination: resolved.destination, source});
     }
     event.preventDefault();
@@ -477,13 +492,26 @@ function layoutNodeForElement(layout, element) {
   return id ? layout.nodes.find((node) => node.id === id) : undefined;
 }
 
+// dragover can't read dataTransfer.getData (only .types) in most browsers, so
+// the expression/statement distinction needed while a palette drag is still
+// in flight comes from which MIME type is present, not its value.
+function paletteDragKind(event) {
+  const types = [...(event.dataTransfer?.types ?? [])];
+  if (types.includes('application/x-droplet-expression')) return 'expression';
+  if (types.includes('application/x-droplet-statement')) return 'statement';
+  return undefined;
+}
+
 function paletteSource(event) {
-  const source = event.dataTransfer?.getData('application/x-droplet-statement');
-  return typeof source === 'string' && source.length ? source : undefined;
+  const kind = paletteDragKind(event);
+  if (!kind) return undefined;
+  const type = kind === 'expression' ? 'application/x-droplet-expression' : 'application/x-droplet-statement';
+  const source = event.dataTransfer.getData(type);
+  return typeof source === 'string' && source.length ? {source, kind} : undefined;
 }
 
 function isPaletteDrag(event) {
-  return [...(event.dataTransfer?.types ?? [])].includes('application/x-droplet-statement');
+  return paletteDragKind(event) !== undefined;
 }
 
 function pointFor(svg, event) {

@@ -15,8 +15,32 @@ const palette = [
   {
     name: 'Values & output', blocks: [
       {id: 'assignment', label: 'value = 1', source: 'value = 1\n'},
-      {id: 'augmented-assignment', label: 'value += 1', source: 'value += 1\n'},
+      {id: 'augmented-assignment-add', label: 'value += 1', source: 'value += 1\n'},
+      {id: 'augmented-assignment-sub', label: 'value -= 1', source: 'value -= 1\n'},
+      {id: 'augmented-assignment-mul', label: 'value *= 1', source: 'value *= 1\n'},
+      {id: 'augmented-assignment-div', label: 'value /= 1', source: 'value /= 1\n'},
+      {id: 'augmented-assignment-floordiv', label: 'value //= 1', source: 'value //= 1\n'},
+      {id: 'augmented-assignment-mod', label: 'value %= 1', source: 'value %= 1\n'},
+      {id: 'augmented-assignment-pow', label: 'value **= 1', source: 'value **= 1\n'},
       {id: 'print', label: 'print()', source: 'print()\n'}
+    ]
+  },
+  {
+    name: 'Operators', blocks: [
+      {id: 'add', label: 'value + value', source: 'value + value', kind: 'expression'},
+      {id: 'sub', label: 'value - value', source: 'value - value', kind: 'expression'},
+      {id: 'mul', label: 'value * value', source: 'value * value', kind: 'expression'},
+      {id: 'div', label: 'value / value', source: 'value / value', kind: 'expression'},
+      {id: 'floordiv', label: 'value // value', source: 'value // value', kind: 'expression'},
+      {id: 'mod', label: 'value % value', source: 'value % value', kind: 'expression'},
+      {id: 'pow', label: 'value ** value', source: 'value ** value', kind: 'expression'},
+      {id: 'eq', label: 'value == value', source: 'value == value', kind: 'expression'},
+      {id: 'ne', label: 'value != value', source: 'value != value', kind: 'expression'},
+      {id: 'lt', label: 'value < value', source: 'value < value', kind: 'expression'},
+      {id: 'gt', label: 'value > value', source: 'value > value', kind: 'expression'},
+      {id: 'and', label: 'value and value', source: 'value and value', kind: 'expression'},
+      {id: 'or', label: 'value or value', source: 'value or value', kind: 'expression'},
+      {id: 'not', label: 'not value', source: 'not value', kind: 'expression'}
     ]
   },
   {
@@ -124,10 +148,13 @@ suiteButton.addEventListener('click', () => {
 });
 
 function renderPalette() {
-  for (const category of palette) {
-    const section = document.createElement('section');
+  palette.forEach((category, index) => {
+    // The palette has grown past a dozen categories of blocks; only the
+    // first opens by default so the panel starts at a manageable height.
+    const section = document.createElement('details');
     section.className = 'palette-category';
-    const heading = document.createElement('h3');
+    section.open = index === 0;
+    const heading = document.createElement('summary');
     heading.textContent = category.name;
     const blocks = document.createElement('div');
     blocks.className = 'palette-blocks';
@@ -139,7 +166,7 @@ function renderPalette() {
       button.draggable = true;
       button.textContent = block.label;
       button.addEventListener('dragstart', (event) => {
-        event.dataTransfer.setData('application/x-droplet-statement', block.source);
+        event.dataTransfer.setData(paletteMimeType(block), block.source);
         event.dataTransfer.effectAllowed = 'move';
       });
       button.addEventListener('click', () => insertPaletteBlock(block));
@@ -147,17 +174,30 @@ function renderPalette() {
     }
     section.append(heading, blocks);
     palettePanel.append(section);
-  }
+  });
+}
+
+function paletteMimeType(block) {
+  return block.kind === 'expression' ? 'application/x-droplet-expression' : 'application/x-droplet-statement';
 }
 
 function insertPaletteBlock(block) {
   const {anchor, head} = editor.editor.getSelection();
-  const selected = anchor === head ? undefined : collectNodes(editor.getProjection().root).find((node) =>
-    node.kind === 'statement' && node.from === Math.min(anchor, head) && node.to === Math.max(anchor, head));
+  const range = anchor === head ? undefined : {from: Math.min(anchor, head), to: Math.max(anchor, head)};
+  const nodes = range ? collectNodes(editor.getProjection().root) : [];
+  if (block.kind === 'expression') {
+    const socket = range && nodes.find((node) =>
+      (node.kind === 'socket' || node.kind === 'recovery-socket') && node.from === range.from && node.to === range.to);
+    if (socket) {
+      editor.applyBlockOperation({type: 'replace-socket', target: {from: socket.from, to: socket.to}, source: block.source});
+      setStatus(`Replaced the selected socket with ${block.label}.`);
+      return;
+    }
+  }
+  const selected = range && nodes.find((node) => node.kind === 'statement' && node.from === range.from && node.to === range.to);
   const at = selected?.from ?? editor.getValue().length;
-  editor.applyBlockOperation({
-    type: 'insert-statement', destination: {from: at, to: at}, source: block.source
-  });
+  const source = block.kind === 'expression' ? `${block.source}\n` : block.source;
+  editor.applyBlockOperation({type: 'insert-statement', destination: {from: at, to: at}, source});
   setStatus(`Inserted ${block.label}.`);
 }
 

@@ -18,8 +18,10 @@
     .panel h2 { margin: 0 0 .6rem; font-size: 1rem; }
     #modern-python-editor { min-height: 360px; }
     #modern-python-editor .droplet-block-surface { padding: 14px 10px 10px 10px; }
-    #modern-python-palette { display: grid; gap: .85rem; }
-    .palette-category h3 { margin: 0 0 .35rem; color: #246ca8; font-size: .9rem; }
+    #modern-python-palette { display: grid; gap: .5rem; }
+    .palette-category summary { margin: 0 0 .35rem; padding: .15rem 0; color: #246ca8; font-size: .9rem; font-weight: 600; cursor: pointer; }
+    .palette-category summary:hover, .palette-category summary:focus-visible { color: #17466f; }
+    .palette-category[open] summary { margin-bottom: .5rem; }
     .palette-blocks { display: grid; gap: .4rem; }
     .palette-block { border: 1px solid #7a9ec4; border-left: 5px solid #246ca8; border-radius: 4px; background: #fff; color: #24344d; cursor: grab; font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; }
     .palette-block:hover, .palette-block:focus-visible { background: #eaf4ff; outline: 2px solid #9ec4eb; outline-offset: 1px; }

@@ -219,6 +219,42 @@ test('drags an expression socket onto another socket as a replacement operation'
   }]);
 });
 
+test('drops an expression palette block onto a socket as a replacement operation', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(assignmentSockets());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const value = surface.layout.nodes.find((node) => node.id === 'value');
+
+  dropPaletteBlock(surface, dom.window, 'application/x-droplet-expression', 'value + value',
+    value.bounds.left + 2, value.bounds.top + 2);
+
+  assert.deepEqual(operations, [{type: 'replace-socket', target: {from: 9, to: 14}, source: 'value + value'}]);
+});
+
+test('drops an expression palette block into a gap as a standalone statement line', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const bodyEnd = surface.layout.insertionZones.find((zone) => zone.role === 'body-end');
+
+  dropPaletteBlock(surface, dom.window, 'application/x-droplet-expression', 'value + value',
+    bodyEnd.bounds.left + 2, bodyEnd.bounds.top + 2);
+
+  // A bare expression is only valid Python as its own statement line, unlike
+  // palette statement sources, which already carry a trailing newline.
+  assert.deepEqual(operations, [{type: 'insert-statement', destination: bodyEnd.destination, source: 'value + value\n'}]);
+});
+
 test('uses the upper and lower halves of a standalone comment as sibling drop targets', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -508,4 +544,15 @@ function drag(svg, window, source, x, y, modifiers = {}) {
     clientX: source.bounds.left + 2, clientY: source.bounds.top + 2, ...modifiers}));
   svg.dispatchEvent(new window.MouseEvent('pointermove', {bubbles: true, button: 0, clientX: x, clientY: y}));
   svg.dispatchEvent(new window.MouseEvent('pointerup', {bubbles: true, button: 0, clientX: x, clientY: y}));
+}
+
+// JSDOM doesn't implement DataTransfer/DragEvent, so mimic the parts the
+// palette-drop handlers actually read: dataTransfer.types (checked during
+// dragover, before getData is reliably readable in real browsers) and
+// dataTransfer.getData (read at drop).
+function dropPaletteBlock(surface, window, mimeType, source, x, y) {
+  const event = new window.Event('drop', {bubbles: true, cancelable: true});
+  Object.assign(event, {clientX: x, clientY: y});
+  event.dataTransfer = {types: [mimeType], getData: (type) => (type === mimeType ? source : '')};
+  surface.element.dispatchEvent(event);
 }
