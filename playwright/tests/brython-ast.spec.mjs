@@ -355,6 +355,8 @@ test('manual modern Python playground moves statement blocks by drag and drop', 
   const targetBox = await block(tail).boundingBox();
   await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
   await page.mouse.down();
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2 + 8, sourceBox.y + sourceBox.height / 2 + 8);
+  await expect(page.locator('.droplet-drag-preview')).toBeVisible();
   await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {steps: 10});
   await page.mouse.up();
 

@@ -224,11 +224,32 @@ function isPermittedChange(transaction) {
 }
 
 function createProjectionInteraction(onOperation) {
-  let pointerSource;
+  let pointerDrag;
   return EditorView.domEventHandlers({
-    mousedown(event) {
-      if (event.button === 0) pointerSource = statementRangeFromElement(event.target);
-      return false;
+    mousedown(event, view) {
+      const source = event.button === 0 && statementRangeFromElement(event.target);
+      if (!source) return false;
+      pointerDrag = {
+        source,
+        sourceElement: event.target.closest('[data-droplet-kind="statement"]'),
+        startX: event.clientX,
+        startY: event.clientY,
+        preview: undefined,
+        targetElement: undefined
+      };
+      event.preventDefault();
+      return true;
+    },
+    mousemove(event, view) {
+      if (!pointerDrag) return false;
+      const moved = Math.abs(event.clientX - pointerDrag.startX) > 4 ||
+        Math.abs(event.clientY - pointerDrag.startY) > 4;
+      if (!moved) return true;
+      pointerDrag.preview ??= createDragPreview(view, pointerDrag.source);
+      updateDragPreview(pointerDrag.preview, event.clientX, event.clientY);
+      updateDropTarget(pointerDrag, event.target);
+      event.preventDefault();
+      return true;
     },
     click(event, view) {
       if (event.button !== 0) return false;
@@ -238,18 +259,56 @@ function createProjectionInteraction(onOperation) {
       return true;
     },
     mouseup(event, view) {
-      const source = pointerSource;
-      pointerSource = undefined;
-      if (!source || event.button !== 0) return false;
+      const drag = pointerDrag;
+      pointerDrag = undefined;
+      if (!drag || event.button !== 0) return false;
       const target = statementRangeFromElement(event.target);
-      if (!source || !target) return false;
-      const operation = projectionOperationFromDrop(source, target, view.state.doc.toString());
-      if (!operation) return false;
+      const moved = drag.preview !== undefined;
+      clearDragPreview(drag);
+      if (!moved) {
+        view.dispatch({selection: {anchor: drag.source.from, head: drag.source.to}});
+        return true;
+      }
+      if (!target) return true;
+      const operation = projectionOperationFromDrop(drag.source, target, view.state.doc.toString());
+      if (!operation) return true;
       event.preventDefault();
       onOperation(operation);
       return true;
     }
   });
+}
+
+function createDragPreview(view, source) {
+  const preview = view.dom.ownerDocument.createElement('div');
+  preview.className = 'droplet-drag-preview';
+  preview.textContent = view.state.doc.sliceString(source.from, source.to);
+  Object.assign(preview.style, {
+    position: 'fixed', pointerEvents: 'none', zIndex: '1000', maxWidth: '320px',
+    padding: '4px 7px', border: '1px solid #608cc1', borderRadius: '4px',
+    background: '#eaf3ff', boxShadow: '0 3px 10px #0003', whiteSpace: 'pre-wrap',
+    font: 'inherit', opacity: '.92'
+  });
+  view.dom.ownerDocument.body.append(preview);
+  return preview;
+}
+
+function updateDragPreview(preview, clientX, clientY) {
+  preview.style.left = `${clientX + 12}px`;
+  preview.style.top = `${clientY + 12}px`;
+}
+
+function updateDropTarget(drag, element) {
+  const targetElement = element?.closest?.('[data-droplet-kind="statement"]');
+  if (drag.targetElement === targetElement) return;
+  drag.targetElement?.classList.remove('droplet-block-drop-target');
+  drag.targetElement = targetElement;
+  if (targetElement && targetElement !== drag.sourceElement) targetElement.classList.add('droplet-block-drop-target');
+}
+
+function clearDragPreview(drag) {
+  drag.preview?.remove();
+  drag.targetElement?.classList.remove('droplet-block-drop-target');
 }
 
 /** Derives a source operation from a supported rendered block drop. */
@@ -297,7 +356,12 @@ function sameRange(left, right) {
 const opaqueTheme = EditorView.baseTheme({
   '.droplet-block-statement': {
     backgroundColor: '#eaf3ff',
-    borderRadius: '4px'
+    borderRadius: '4px',
+    cursor: 'grab'
+  },
+  '.droplet-block-drop-target': {
+    outline: '2px solid #4d7fb5',
+    outlineOffset: '2px'
   },
   '.droplet-block-expression': {
     backgroundColor: '#f3edff',
