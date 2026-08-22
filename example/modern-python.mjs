@@ -31,7 +31,7 @@ const pythonToAST = window.__BRYTHON__.pythonToAST;
 const editor = createDropletCodeMirrorEditor({
   parent: document.querySelector('#modern-python-editor'),
   value: samples[sampleSelect.value],
-  blockMode: false,
+  blockMode: true,
   parse: createBrythonPythonParser(pythonToAST),
   transform: createBrythonPythonTransformer(pythonToAST),
   onUpdate: refresh
@@ -45,7 +45,9 @@ sampleSelect.addEventListener('change', () => {
 modeButton.addEventListener('click', () => {
   editor.setBlockMode(!editor.isUsingBlocks());
   modeButton.textContent = editor.isUsingBlocks() ? 'Use text mode' : 'Use block mode';
-  setStatus(editor.isUsingBlocks() ? 'Block mode preserves the same source snapshot.' : 'Text mode active.');
+  setStatus(editor.isUsingBlocks()
+    ? 'Block mode active. Drag a blue statement block onto another blue statement block to move it.'
+    : 'Text mode active.');
   refresh();
 });
 
@@ -88,5 +90,6 @@ function collectNodes(node) {
 
 function setStatus(message) { status.value = message; status.textContent = message; }
 
+modeButton.textContent = 'Use text mode';
 refresh();
-setStatus('Ready. Toggle modes, edit source, or use a focused block operation.');
+setStatus('Ready. Block mode is active; drag a blue statement block onto another to move it.');
