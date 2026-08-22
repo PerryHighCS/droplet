@@ -17,10 +17,13 @@ packages and a thin React wrapper.
 2. Preserve the legacy file layout, CoffeeScript sources, Grunt/Browserify
    build path, QUnit pages, and baseline fixtures unless a task explicitly
    changes the reference implementation.
-3. When a Code.org upstream change matters, first identify its observable
-   behavior, capture it in a modern regression test, then selectively
-   reimplement it. Do not assume upstream patches can be merged mechanically
-   after modernization.
+3. During initial modernization, use the legacy editor as the behavioral
+   specification for the agreed compatibility scope. Do not package or call
+   the modern editor production-ready while required block rendering and
+   interaction behaviors are still only source-range prototypes. For a future
+   Code.org upstream change, first identify its observable behavior, capture
+   it in a modern regression test, then selectively reimplement it; do not
+   assume upstream patches can be merged mechanically after modernization.
 4. Keep CodeMirror 6 as the modern text source of truth. Block actions must be
    expressed as source-range transformations and normal editor transactions;
    do not maintain competing mutable legacy and CodeMirror documents.

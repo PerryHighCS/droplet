@@ -960,6 +960,64 @@ Inline comments should normally remain associated with their containing statemen
 
 ---
 
+# Phase 8.5: Reach Block Rendering and Drag Parity Before Packaging
+
+The source-range projection established in Phases 4–8 is a foundation, not the
+finished block editor. Before public packaging, the modern CodeMirror 6 editor
+must match the agreed observable block behavior of Code.org Droplet's
+JavaScript editor. The legacy renderer/controller remains the specification;
+the modern implementation remains independent and source-authoritative.
+`example/example-python.html` is also a concrete visual fixture: its `for`
+container wraps `print(item)` through an indent container.
+
+## Required rendering model
+
+- [ ] Distinguish atomic statement blocks from container statement blocks in
+  language projections.
+- [ ] Render a container as one multi-line block outline that wraps its header
+  and nested child statement blocks, rather than as a rectangular decoration
+  over one source range.
+- [ ] Preserve nested block ownership: dragging a child statement moves only
+  that child; dragging the container header moves the container and its body.
+- [ ] Represent every blank or whitespace-only physical line as a distinct,
+  source-preserving `whitespace` projection node and visible block-mode line.
+- [ ] Keep standalone and inline comments as independent source-range nodes;
+  moving an inline comment to a gap must not move its statement.
+
+## Required rendering and interaction work
+
+- [ ] Introduce a modern structural block renderer, using DOM, SVG, or a
+  deliberate combination, that derives all geometry from the projection and
+  CodeMirror line layout. It must not reuse the legacy Ace view at runtime.
+- [ ] Give the renderer one subtree layout path used for the editor, the drag
+  preview, and placement previews, so a container drag preview retains its
+  header, nested children, indentation, comments, and whitespace lines.
+- [ ] Render insertion affordances between sibling statements and whitespace
+  lines; do not model a statement drop as dropping "onto" another statement.
+- [ ] Retain the explicit comment-line-end gesture: the horizontal area to a
+  statement's right attaches a dragged comment inline, while all other comment
+  drops use insertion boundaries.
+- [ ] Make hit testing select the innermost rendered block, matching the
+  legacy controller's tree walk rather than relying on overlapping text marks.
+
+## Verification and acceptance criteria
+
+- [ ] A nested JavaScript container visually wraps its child statement blocks
+  in the modern renderer.
+- [ ] A nested Python suite visually wraps its child statement blocks in the
+  modern renderer.
+- [ ] Blank and whitespace-only lines survive a block/text round trip and are
+  individually visible in block mode.
+- [ ] Browser tests verify inner-statement versus container drag ownership,
+  comment-only movement, and insertion placement.
+- [ ] Browser screenshot or geometry tests verify that a dragged container
+  preview has the same nested structure as its on-canvas block.
+
+Only after these criteria are complete should Phase 9 package the editor's
+public browser API.
+
+---
+
 # Phase 9: Package the Editor for Non React Use
 
 The primary editor must be usable without React.
