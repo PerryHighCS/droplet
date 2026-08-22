@@ -1020,6 +1020,72 @@ Canvas is a later performance option, not an architectural requirement.
 7. Use the legacy JavaScript corpus and the Python playground as browser
    parity fixtures before resuming packaging work.
 
+## Socket editing and expression replacement
+
+Statement drag parity alone is not sufficient for a usable Droplet editor.
+Before packaging, the BlockSurface must support direct editing and source-range
+replacement of expression sockets. This remains source-authoritative: a socket
+does not own a second mutable expression tree or document.
+
+### Initial socket vertical slice
+
+Implement and test these independently editable expression ranges first:
+
+- [ ] Assignment target (left-value) socket.
+- [ ] Assignment value (right-value) socket.
+- [ ] `if` condition socket.
+
+The assignment target is not merely a label. It must accept direct text edits
+and expression-block replacement, then let the language parser validate that
+the resulting expression is assignable. Initial adapters should support the
+common assignable forms they can project (names, attributes, subscripts, and
+supported unpacking) without making the target visually or behaviorally
+read-only. The assignment value and `if` condition accept general expressions.
+
+### Direct-edit lifecycle
+
+1. Selecting a socket opens a focused text editor scoped to that exact source
+   range; its initial value is the exact source slice.
+2. Enter or focus loss commits the edited value through one normal CodeMirror
+   transaction, maps the source range through that transaction, and reparses.
+   Escape may explicitly cancel a still-uncommitted draft.
+3. A successful parse replaces the editor with the newly projected structured
+   socket/block geometry while preserving the document's exact surrounding
+   source representation.
+4. Dragging a compatible expression block onto a socket uses the same
+   source-range replacement transaction and reparse path as a committed text
+   edit.
+
+### Incomplete and invalid expression recovery
+
+An incomplete expression must never turn a user-editable socket into a
+non-editable opaque block. When a committed socket edit prevents a full parse,
+the renderer must retain the last known structural layout outside the affected
+range and render that range as an **editable recovery socket**. It displays the
+exact committed source text and a lightweight invalid/incomplete state; it
+continues to accept direct edits and attempts reparse after each commit. Once
+valid, it returns to ordinary structured socket rendering.
+
+Generic opaque source recovery remains appropriate for malformed pasted text,
+unsupported syntax, or a parse failure whose editable range cannot be
+attributed. It must still offer an explicit text-edit route; opaque rendering
+is never an interaction dead end. CodeMirror remains the canonical document,
+selection mapping, transaction history, and undo/redo authority in every
+recovery state.
+
+### Socket verification
+
+- [ ] Browser tests cover Enter and focus-loss commits for assignment target,
+  assignment value, and `if` condition sockets.
+- [ ] Browser tests cover compatible expression drag replacement for each
+  initial socket kind.
+- [ ] Tests prove an incomplete committed socket edit remains directly editable
+  and re-structures after correction, without changing unrelated blocks.
+- [ ] Tests reject or visibly recover an invalid assignment target without
+  making its source inaccessible.
+- [ ] Source-range and undo/redo tests prove socket edits and dragged
+  replacements are normal CodeMirror transactions.
+
 ## Required rendering model
 
 - [x] Distinguish atomic statement blocks from container statement blocks in
