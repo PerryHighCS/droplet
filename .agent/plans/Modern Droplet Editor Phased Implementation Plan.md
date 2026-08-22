@@ -975,6 +975,9 @@ call, value, and inline-comment blocks are the primary modern-renderer parity
 corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
 (projection), `src/view.coffee` (geometry), and `src/controller.coffee`
 (innermost hit testing and subtree drag rendering).
+`docs/architecture/codeorg-javascript-parity.md` directly compares those
+implementations with the modern Acorn/CodeMirror path and is the detailed
+acceptance specification for the BlockSurface work.
 
 ## Rendering decision — 2026-08-22
 
