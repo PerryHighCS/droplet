@@ -27,6 +27,11 @@ packages and a thin React wrapper.
 4. Keep CodeMirror 6 as the modern text source of truth. Block actions must be
    expressed as source-range transformations and normal editor transactions;
    do not maintain competing mutable legacy and CodeMirror documents.
+5. Treat CodeMirror decoration or SVG-over-text rendering only as a prototype,
+   not the production block UI. Production block mode must use a modern
+   projection-derived Droplet surface with its own recursive geometry, hit
+   testing, insertion zones, and subtree previews; it still emits only normal
+   CodeMirror source transactions.
 5. Preserve exact source representation by default. Any intentional source
    rewrite must be narrow, test-covered, and attributable to an explicit block
    operation.

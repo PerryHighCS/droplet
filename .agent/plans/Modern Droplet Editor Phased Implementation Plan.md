@@ -976,6 +976,47 @@ corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
 (projection), `src/view.coffee` (geometry), and `src/controller.coffee`
 (innermost hit testing and subtree drag rendering).
 
+## Rendering decision — 2026-08-22
+
+The initial CodeMirror decoration/SVG-overlay experiment established that the
+projection and source-range transforms can drive visible block affordances. It
+does **not** provide a production block editor: CodeMirror's text-line layout
+cannot own C-container geometry, physical blank-line blocks, structural
+insertion gaps, or subtree drag previews. Do not extend that experiment with
+additional coordinate heuristics.
+
+Block mode will instead present a modern Droplet block surface. CodeMirror
+remains the sole source, transaction, selection-mapping, and history authority;
+the block surface reads its current document/projection and emits only
+source-range operation intents. In text mode the CodeMirror text surface is
+visible. In block mode the modern block surface is visible and CodeMirror's
+text surface is inactive or hidden. This is a reimplementation of the legacy
+renderer/controller behavior, not reuse of the legacy CoffeeScript/Ace runtime.
+
+The first renderer should use DOM/SVG layout rather than Canvas so source labels,
+hit regions, accessibility semantics, and screenshot tests remain inspectable.
+Canvas is a later performance option, not an architectural requirement.
+
+## Replanned implementation sequence
+
+1. Define framework-independent block-layout types: measured block bounds,
+   container header/body/footer regions, physical whitespace blocks, sibling
+   insertion zones, and subtree preview geometry.
+2. Build a `BlockSurface` lifecycle owned by the modern adapter. It subscribes
+   to CodeMirror document/projection updates but owns no editable source copy.
+3. Implement recursive layout from the projection tree. A container owns its
+   header and child layout; blank lines and comments have explicit measured
+   nodes. Geometry must not be inferred from CodeMirror mark rectangles.
+4. Implement hit testing against layout nodes and insertion zones. Child,
+   container, socket, comment-line-end, and sibling-gap targets must be
+   mutually explicit and precedence-tested.
+5. Implement one subtree renderer for the on-surface block, floating drag
+   preview, and stationary placement preview.
+6. Connect accepted block intents to existing language-adapter transforms and
+   one CodeMirror transaction. Reparse and relayout after every transaction.
+7. Use the legacy JavaScript corpus and the Python playground as browser
+   parity fixtures before resuming packaging work.
+
 ## Required rendering model
 
 - [x] Distinguish atomic statement blocks from container statement blocks in
@@ -992,9 +1033,9 @@ corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
 
 ## Required rendering and interaction work
 
-- [ ] Introduce a modern structural block renderer, using DOM, SVG, or a
-  deliberate combination, that derives all geometry from the projection and
-  CodeMirror line layout. It must not reuse the legacy Ace view at runtime.
+- [ ] Introduce a modern `BlockSurface` renderer, using DOM/SVG, that derives
+  geometry from the projection tree and its own recursive layout—not CodeMirror
+  line-layout decorations. It must not reuse the legacy Ace view at runtime.
 - [ ] Give the renderer one subtree layout path used for the editor, the drag
   preview, and placement previews, so a container drag preview retains its
   header, nested children, indentation, comments, and whitespace lines.

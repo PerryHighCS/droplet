@@ -21,6 +21,13 @@ or normalize its source.
 | CodeMirror integration | Canonical text document, transactions, selections, history, extensions | Block-specific grammar policy |
 | Framework integration | Mounting, lifecycle, and framework-specific bindings | Core editing behavior |
 
+In text mode, CodeMirror is the visible text surface. In block mode, a modern
+Droplet `BlockSurface` is the visible surface while CodeMirror continues to own
+the canonical document, transaction history, and source-to-selection mapping.
+The `BlockSurface` has its own projection-derived recursive layout, hit testing,
+insertion zones, and subtree previews. It must not infer block geometry from
+CodeMirror text-mark rectangles or retain a mutable copy of source.
+
 ## Core types
 
 ```ts
