@@ -80,7 +80,7 @@ function layoutNode(node, source, settings, left, top) {
 }
 
 function layoutAtomic(node, source, settings, left, top) {
-  const text = source.slice(node.from, node.to);
+  const text = node.kind === 'statement' ? source.slice(node.from, lineEnd(source, node.to)) : source.slice(node.from, node.to);
   const width = Math.max(settings.minimumWidth, settings.measureText(text) + settings.horizontalPadding * 2);
   const children = (node.children ?? [])
     .filter((child) => child.kind?.startsWith('opaque-'))
@@ -115,7 +115,7 @@ function layoutContainer(node, source, settings, left, top) {
   const bodyLeft = left + settings.indentWidth;
   const bodyTop = top + settings.lineHeight + settings.containerGap;
   const bodyEnd = Number.isInteger(node.metadata?.bodyEnd) ? node.metadata.bodyEnd : node.to;
-  const body = layoutChildren(structuralChildren(node), source, settings, bodyLeft, bodyTop, bodyEnd, {
+  const body = layoutChildren(structuralChildren(node, source), source, settings, bodyLeft, bodyTop, bodyEnd, {
     ...(node.metadata?.bodyIndentation === undefined ? {} : {indentation: node.metadata.bodyIndentation}),
     ...(node.metadata?.emptySuitePass ? {emptySuitePass: node.metadata.emptySuitePass} : {})
   });
@@ -139,15 +139,43 @@ function layoutContainer(node, source, settings, left, top) {
   };
 }
 
-function structuralChildren(node) {
+function structuralChildren(node, source) {
   const children = (node.children ?? []).filter((child) =>
-    child.kind === 'statement' || child.kind === 'comment' || child.kind === 'whitespace' || child.kind?.startsWith('opaque-'));
+    child.kind === 'statement' || (child.kind === 'comment' && !child.metadata?.inline) || child.kind === 'whitespace' || child.kind?.startsWith('opaque-'));
+  if (source && typeof node.metadata?.bodyIndentation === 'string') {
+    // Brython can retain an outer-scope statement beneath an earlier suite in
+    // its object tree. Source indentation is the authoritative suite boundary.
+    return descendantStructuralNodes(node)
+      .filter((child) => leadingIndentation(source, child.from) === node.metadata.bodyIndentation)
+      .sort(compareSourceRanges);
+  }
   // Acorn represents a JavaScript braced body as a BlockStatement child. It is
   // structural syntax, not a second user-visible C block inside an if/for.
   if (isContainer(node) && children.length === 1 && children[0].metadata?.type === 'BlockStatement') {
-    return structuralChildren(children[0]);
+    return structuralChildren(children[0], source);
   }
-  return children;
+  return children.sort(compareSourceRanges);
+}
+
+function descendantStructuralNodes(node) {
+  return (node.children ?? []).flatMap((child) => [
+    ...(child.kind === 'statement' || (child.kind === 'comment' && !child.metadata?.inline) || child.kind === 'whitespace' ? [child] : []),
+    ...descendantStructuralNodes(child)
+  ]);
+}
+
+function leadingIndentation(source, from) {
+  const start = Math.max(0, source.lastIndexOf('\n', from - 1) + 1);
+  return /^[\t \f]*/.exec(source.slice(start, from))?.[0] ?? '';
+}
+
+function compareSourceRanges(left, right) {
+  return left.from - right.from || left.to - right.to || left.id.localeCompare(right.id);
+}
+
+function lineEnd(source, offset) {
+  const ending = source.slice(offset).search(/[\r\n]/);
+  return ending === -1 ? source.length : offset + ending;
 }
 
 function isContainer(node) {
@@ -216,7 +244,7 @@ function rangeOf(node) {
 }
 
 function normalizeOptions(options) {
-  const measureText = options.measureText ?? ((text) => text.length * 8);
+  const measureText = options.measureText ?? ((text) => text.length * 10);
   if (typeof measureText !== 'function') throw new TypeError('measureText must be a function');
   return {
     measureText,
