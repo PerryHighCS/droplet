@@ -969,6 +969,12 @@ JavaScript editor. The legacy renderer/controller remains the specification;
 the modern implementation remains independent and source-authoritative.
 `example/example-python.html` is also a concrete visual fixture: its `for`
 container wraps `print(item)` through an indent container.
+For broad JavaScript coverage, use the legacy Code.org-derived renderer with
+`test/data/javascript-compatibility.js`; its `if`, `for`, `while`, function,
+call, value, and inline-comment blocks are the primary modern-renderer parity
+corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
+(projection), `src/view.coffee` (geometry), and `src/controller.coffee`
+(innermost hit testing and subtree drag rendering).
 
 ## Required rendering model
 
