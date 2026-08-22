@@ -86,7 +86,7 @@ function layoutAtomic(node, source, settings, left, top) {
   const text = source.slice(node.from, textEnd).trimEnd();
   const width = Math.max(settings.minimumWidth, settings.measureText(text) + settings.horizontalPadding * 2);
   const sockets = node.kind === 'statement'
-    ? (node.children ?? []).filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
+    ? sourceSockets(node)
       .map((child) => layoutSocket(child, node, source, settings, left, top))
     : [];
   const children = [
@@ -141,7 +141,7 @@ function layoutContainer(node, source, settings, left, top) {
   const headerTo = validHeaderTo(node, source);
   const headerText = source.slice(node.from, headerTo);
   const headerWidth = Math.max(settings.minimumWidth, settings.measureText(headerText) + settings.horizontalPadding * 2);
-  const headerSockets = (node.children ?? []).filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
+  const headerSockets = sourceSockets(node)
     .map((child) => layoutSocket(child, node, source, settings, left, top));
   const bodyLeft = left + settings.indentWidth;
   const bodyTop = top + settings.lineHeight + settings.containerGap;
@@ -187,6 +187,16 @@ function structuralChildren(node, source) {
     return structuralChildren(children[0], source);
   }
   return children.sort(compareSourceRanges);
+}
+
+function sourceSockets(node) {
+  return (node.children ?? []).flatMap((child) => {
+    if (child.kind === 'socket' || child.kind === 'recovery-socket') return [child];
+    // JavaScript expression wrappers (for example VariableDeclarator and
+    // AssignmentExpression) are structural AST detail, not visible blocks.
+    // Their directly projected sockets still belong on the enclosing statement.
+    return child.kind === 'expression' ? sourceSockets(child) : [];
+  });
 }
 
 function descendantStructuralNodes(node) {

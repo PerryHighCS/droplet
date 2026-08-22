@@ -76,21 +76,22 @@ export function transformJavaScript(operation, parsed) {
   return normalizedChanges;
 }
 
-function projectNode(node, kind = nodeKind(node), source) {
+function projectNode(node, kind = nodeKind(node), source, socketRole) {
   return {
     id: `${kind}:${node.type}:${node.start}:${node.end}`,
     kind,
     from: node.start,
     to: node.end,
     editable: kind !== 'document',
-    children: childNodes(node).map(({node: child, socket}) =>
-      projectNode(child, socket ? 'socket' : nodeKind(child), source)),
-    metadata: metadataFor(node, kind, source)
+    children: childNodes(node).map(({node: child, socketRole: childSocketRole}) =>
+      projectNode(child, childSocketRole ? 'socket' : nodeKind(child), source, childSocketRole)),
+    metadata: metadataFor(node, kind, source, socketRole)
   };
 }
 
-function metadataFor(node, kind, source) {
+function metadataFor(node, kind, source, socketRole) {
   const metadata = {type: node.type};
+  if (kind === 'socket') metadata.socketRole = socketRole ?? 'expression';
   if (kind === 'statement' && containerStatementTypes.has(node.type)) {
     metadata.blockRole = 'container';
     metadata.headerTo = lineTextEnd(source, node.start);
@@ -109,23 +110,27 @@ function childNodes(node) {
   for (const [key, value] of Object.entries(node)) {
     if (key === 'start' || key === 'end' || key === 'loc' || key === 'type') continue;
     if (isAstNode(value)) {
-      children.push({node: value, socket: isSocketPosition(node, key)});
+      children.push({node: value, socketRole: socketRoleFor(node, key)});
     } else if (Array.isArray(value)) {
       for (const entry of value) {
-        if (isAstNode(entry)) children.push({node: entry, socket: isSocketPosition(node, key)});
+        if (isAstNode(entry)) children.push({node: entry, socketRole: socketRoleFor(node, key)});
       }
     }
   }
   return children;
 }
 
-function isSocketPosition(parent, key) {
-  return (parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'arguments' ||
-    (parent.type === 'VariableDeclarator' && key === 'init') ||
-    (parent.type === 'AssignmentExpression' && key === 'right') ||
-    ((parent.type === 'BinaryExpression' || parent.type === 'LogicalExpression') &&
-      (key === 'left' || key === 'right')) ||
-    (parent.type === 'ReturnStatement' && key === 'argument');
+function socketRoleFor(parent, key) {
+  if (parent.type === 'AssignmentExpression' && key === 'left') return 'assignment-target';
+  if (parent.type === 'VariableDeclarator' && key === 'id') return 'assignment-target';
+  if ((parent.type === 'VariableDeclarator' || parent.type === 'AssignmentExpression') &&
+      (key === 'init' || key === 'right')) return 'assignment-value';
+  if (parent.type === 'IfStatement' && key === 'test') return 'if-condition';
+  if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'arguments') return 'expression';
+  if ((parent.type === 'BinaryExpression' || parent.type === 'LogicalExpression') &&
+      (key === 'left' || key === 'right')) return 'expression';
+  if (parent.type === 'ReturnStatement' && key === 'argument') return 'expression';
+  return undefined;
 }
 
 function isAstNode(value) {

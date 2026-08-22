@@ -51,6 +51,20 @@ test('replaces only a known call argument socket', () => {
   );
 });
 
+test('labels JavaScript assignment sides and if conditions as distinct sockets', () => {
+  const source = 'let target = value;\ntarget = next;\nif (ready) { run(); }\n';
+  const sockets = collectNodes(parseJavaScript(source).root).filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(sockets, [
+    {text: 'target', role: 'assignment-target'},
+    {text: 'value', role: 'assignment-value'},
+    {text: 'target', role: 'assignment-target'},
+    {text: 'next', role: 'assignment-value'},
+    {text: 'ready', role: 'if-condition'}
+  ]);
+});
+
 test('syntax errors retain their source location for opaque recovery', () => {
   const source = 'if (score >';
   const parsed = parseWithOpaqueRecovery(source, parseJavaScript);

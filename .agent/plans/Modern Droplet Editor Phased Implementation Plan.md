@@ -1111,6 +1111,12 @@ assignment target expression replacing an assignment value; compatibility
 coverage for every socket role and richer nested expression block rendering
 remain outstanding.
 
+The modern JavaScript adapter now emits the same explicit roles for variable
+declaration and assignment sides plus `if` conditions. The shared BlockSurface
+flattens non-visible JavaScript AST expression wrappers so these sockets render
+on their enclosing statement or container header; JavaScript-specific browser
+playground and interaction parity coverage remains outstanding.
+
 ## Required rendering model
 
 - [x] Distinguish atomic statement blocks from container statement blocks in
