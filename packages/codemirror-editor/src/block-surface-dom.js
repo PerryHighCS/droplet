@@ -116,13 +116,18 @@ export class BlockSurface {
 
 function destinationForTarget(layout, target, point) {
   if (target?.kind === 'insertion') return {destination: target.zone.destination, zone: target.zone};
-  // Containers have structural targets: their header moves the whole subtree,
-  // their body/footer accepts children. Do not reduce them to before/after.
-  // Standalone comments participate in their suite's vertical sibling order.
-  // Like statements, their upper and lower halves mean before and after;
-  // inline comments remain children of their statement and are not targets here.
-  if (target?.node?.kind !== 'statement' && target?.node?.kind !== 'comment') return undefined;
-  const before = point.y < (target.node.bounds.top + target.node.bounds.bottom) / 2;
+  // Standalone comments and container headers participate in their suite's
+  // vertical sibling order. A container body/footer retains its structural
+  // insertion zones; only the header gets before/after behavior.
+  // Inline comments remain children of their statement and are not targets here.
+  if (target?.node?.kind !== 'statement' && target?.node?.kind !== 'comment' && target?.kind !== 'container-header') return undefined;
+  const targetBounds = target.kind === 'container-header' ? target.node.regions.header : target.node.bounds;
+  const before = point.y < (targetBounds.top + targetBounds.bottom) / 2;
+  if (target.kind === 'container-header' && !before) {
+    const zone = target.node.insertionZones.find((candidate) => candidate.role === 'before-sibling') ??
+      target.node.insertionZones.find((candidate) => candidate.role === 'body-end');
+    return zone ? {destination: zone.destination, zone} : undefined;
+  }
   const parent = findParent(layout.root, target.node.id);
   if (!parent) return undefined;
   if (target.node.metadata?.type === 'Pass' && parent.metadata?.emptySuitePass) {
@@ -146,7 +151,7 @@ function destinationForTarget(layout, target, point) {
   if (!zone) return undefined;
   return {
     destination: zone.destination,
-    zone: {...zone, bounds: statementHalfBounds(target.node.bounds, before)}
+    zone: {...zone, bounds: statementHalfBounds(targetBounds, before)}
   };
 }
 

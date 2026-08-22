@@ -88,6 +88,27 @@ test('uses the upper and lower halves of a standalone comment as sibling drop ta
   ]);
 });
 
+test('uses the upper and lower halves of a container header as sibling drop targets', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(nestedStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const inner = surface.layout.nodes.find((node) => node.id === 'inner');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  drag(svg, dom.window, second, inner.regions.header.left + 2, inner.regions.header.top + 2);
+  drag(svg, dom.window, second, inner.regions.header.left + 2, inner.regions.header.bottom - 2);
+
+  assert.deepEqual(operations, [
+    {type: 'move-statement', source: {from: 36, to: 44}, destination: {from: 12, to: 12, indentation: '  '}},
+    {type: 'move-statement', source: {from: 36, to: 44}, destination: {from: 26, to: 26, indentation: '    '}}
+  ]);
+});
+
 test('accepts an outer sibling dropped in the lower interior of a nested container footer', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];

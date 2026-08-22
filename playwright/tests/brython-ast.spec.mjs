@@ -397,6 +397,26 @@ test('manual modern Python playground accepts statement drops above a standalone
   await expect(page.locator('#modern-python-source')).toContainText('if outer:\n  second = 2\n  # standalone note\n  if ready:');
 });
 
+test('manual modern Python playground accepts statement drops inside a container header', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
+  const ready = page.locator('.droplet-block-surface [data-droplet-kind="container"][data-droplet-from="32"]');
+  const [tailBox, readyBox] = await Promise.all([tail.boundingBox(), ready.boundingBox()]);
+
+  await page.mouse.move(tailBox.x + 4, tailBox.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(tailBox.x + 12, tailBox.y + 12);
+  // The SVG group's bounding box includes the whole C-shaped body. Target the
+  // lower half of its 28px header line, not its footer.
+  await page.mouse.move(readyBox.x + 4, readyBox.y + 22, {steps: 8});
+  await expect(page.locator('.droplet-drop-guide')).toBeVisible();
+  await page.mouse.up();
+
+  await expect(page.locator('#modern-python-source')).toContainText('if outer:\n  # standalone note\n  if ready:\n    tail = 0\n    first = 1');
+});
+
 test.skip('manual modern Python playground drops a statement at a container C-shape bottom', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
