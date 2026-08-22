@@ -978,7 +978,7 @@ corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
 
 ## Required rendering model
 
-- [ ] Distinguish atomic statement blocks from container statement blocks in
+- [x] Distinguish atomic statement blocks from container statement blocks in
   language projections.
 - [ ] Render a container as one multi-line block outline that wraps its header
   and nested child statement blocks, rather than as a rectangular decoration

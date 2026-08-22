@@ -22,6 +22,7 @@ export function parsePython(source, pythonToAST, tokenize) {
     const lines = lineStarts(source);
     const root = project(ast, source, lines, 'document');
     if (tokenize) addCommentNodes(root, collectPythonTrivia(source, tokenize).comments);
+    addWhitespaceNodes(root, source);
     return {source, root, issues: []};
   });
 }
@@ -138,13 +139,22 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
     children: childNodes(node).map((child) => project(
       child.node, source, lines, child.socket ? 'socket' : kindFor(child.node), statementRange
     )).sort(compareProjectedNodes),
-    metadata: {type: typeOf(node)}
+    metadata: metadataFor(node, kind, source, rawFrom ?? from)
   };
+}
+
+function metadataFor(node, kind, source, headerFrom) {
+  const metadata = {type: typeOf(node)};
+  if (kind === 'statement' && containerStatementTypes.has(typeOf(node))) {
+    metadata.blockRole = 'container';
+    metadata.headerTo = lineTextEnd(source, headerFrom);
+  }
+  return metadata;
 }
 
 function addCommentNodes(root, comments) {
   for (const comment of comments) {
-    const parent = commentParent(root, comment);
+    const parent = triviaParent(root, comment);
     parent.children.push({
       id: `comment:${comment.from}:${comment.to}`,
       kind: 'comment', from: comment.from, to: comment.to, editable: true, children: [],
@@ -154,10 +164,23 @@ function addCommentNodes(root, comments) {
   }
 }
 
-function commentParent(node, comment) {
+function addWhitespaceNodes(root, source) {
+  for (const line of physicalLines(source)) {
+    if (!/^[\t \f]*$/.test(line.text)) continue;
+    const parent = triviaParent(root, line);
+    parent.children.push({
+      id: `whitespace:${line.from}:${line.to}`,
+      kind: 'whitespace', from: line.from, to: line.to, editable: false, children: [],
+      metadata: {text: line.text, lineEnding: line.ending}
+    });
+    parent.children.sort(compareProjectedNodes);
+  }
+}
+
+function triviaParent(node, range) {
   const child = (node.children ?? []).find((candidate) => candidate.kind === 'statement' &&
-    candidate.from <= comment.from && candidate.to >= comment.to);
-  return child ? commentParent(child, comment) : node;
+    candidate.from <= range.from && candidate.to >= range.to);
+  return child ? triviaParent(child, range) : node;
 }
 
 function expandDecoratorRange(node, source, lines, range) {
@@ -298,6 +321,10 @@ const statementTypes = new Set([
   'FunctionDef', 'Global', 'If', 'Import', 'ImportFrom', 'Match', 'Nonlocal',
   'Pass', 'Raise', 'Return', 'Try', 'TryStar', 'TypeAlias', 'While', 'With'
 ]);
+const containerStatementTypes = new Set([
+  'AsyncFor', 'AsyncFunctionDef', 'AsyncWith', 'ClassDef', 'For', 'FunctionDef',
+  'If', 'Match', 'Try', 'TryStar', 'While', 'With'
+]);
 const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_offset']);
 const bookkeepingKeys = new Set(['type_ignores']);
 const socketKeys = new Set([
@@ -312,6 +339,21 @@ function lineStarts(source) {
     if (source[i] === '\r' || source[i] === '\n') starts.push(i + 1);
   }
   return starts;
+}
+function physicalLines(source) {
+  const lines = [];
+  let from = 0;
+  for (let index = 0; index < source.length;) {
+    const match = /\r\n|\r|\n/.exec(source.slice(index));
+    if (!match) break;
+    const endingFrom = index + match.index;
+    const to = endingFrom + match[0].length;
+    lines.push({from, to, text: source.slice(from, endingFrom), ending: match[0]});
+    from = to;
+    index = to;
+  }
+  if (from < source.length) lines.push({from, to: source.length, text: source.slice(from), ending: ''});
+  return lines;
 }
 function leadingWhitespace(source, from) { return /^[\t \f]*/.exec(source.slice(from))?.[0] ?? ''; }
 function hasCodeBeforeComment(source, from) {

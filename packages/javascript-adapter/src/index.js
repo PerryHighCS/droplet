@@ -26,9 +26,11 @@ export function parseJavaScript(source, options = {}) {
     throw error;
   }
 
+  const root = projectNode(tree, 'document', source);
+  addWhitespaceNodes(root, source);
   return {
     source,
-    root: projectNode(tree, 'document'),
+    root,
     issues: []
   };
 }
@@ -74,7 +76,7 @@ export function transformJavaScript(operation, parsed) {
   return normalizedChanges;
 }
 
-function projectNode(node, kind = nodeKind(node)) {
+function projectNode(node, kind = nodeKind(node), source) {
   return {
     id: `${kind}:${node.type}:${node.start}:${node.end}`,
     kind,
@@ -82,9 +84,18 @@ function projectNode(node, kind = nodeKind(node)) {
     to: node.end,
     editable: kind !== 'document',
     children: childNodes(node).map(({node: child, socket}) =>
-      projectNode(child, socket ? 'socket' : nodeKind(child))),
-    metadata: {type: node.type}
+      projectNode(child, socket ? 'socket' : nodeKind(child), source)),
+    metadata: metadataFor(node, kind, source)
   };
+}
+
+function metadataFor(node, kind, source) {
+  const metadata = {type: node.type};
+  if (kind === 'statement' && containerStatementTypes.has(node.type)) {
+    metadata.blockRole = 'container';
+    metadata.headerTo = lineTextEnd(source, node.start);
+  }
+  return metadata;
 }
 
 function nodeKind(node) {
@@ -121,6 +132,57 @@ function isAstNode(value) {
   return value && typeof value.type === 'string' &&
     Number.isInteger(value.start) && Number.isInteger(value.end);
 }
+
+function lineTextEnd(source, position) {
+  let end = position;
+  while (end < source.length && source[end] !== '\r' && source[end] !== '\n') end += 1;
+  return end;
+}
+
+function addWhitespaceNodes(root, source) {
+  for (const line of physicalLines(source)) {
+    if (!/^[\t \f]*$/.test(line.text)) continue;
+    const parent = triviaParent(root, line);
+    parent.children.push({
+      id: `whitespace:${line.from}:${line.to}`,
+      kind: 'whitespace', from: line.from, to: line.to, editable: false, children: [],
+      metadata: {text: line.text, lineEnding: line.ending}
+    });
+    parent.children.sort(compareProjectedNodes);
+  }
+}
+
+function triviaParent(node, range) {
+  const child = (node.children ?? []).find((candidate) => candidate.kind === 'statement' &&
+    candidate.from <= range.from && candidate.to >= range.to);
+  return child ? triviaParent(child, range) : node;
+}
+
+function physicalLines(source) {
+  const lines = [];
+  let from = 0;
+  for (let index = 0; index < source.length;) {
+    const match = /\r\n|\r|\n/.exec(source.slice(index));
+    if (!match) break;
+    const endingFrom = index + match.index;
+    const to = endingFrom + match[0].length;
+    lines.push({from, to, text: source.slice(from, endingFrom), ending: match[0]});
+    from = to;
+    index = to;
+  }
+  if (from < source.length) lines.push({from, to: source.length, text: source.slice(from), ending: ''});
+  return lines;
+}
+
+function compareProjectedNodes(left, right) {
+  return left.from - right.from || left.to - right.to || left.id.localeCompare(right.id);
+}
+
+const containerStatementTypes = new Set([
+  'BlockStatement', 'ClassDeclaration', 'DoWhileStatement', 'ForInStatement',
+  'ForOfStatement', 'ForStatement', 'FunctionDeclaration', 'IfStatement',
+  'SwitchStatement', 'TryStatement', 'WhileStatement', 'WithStatement'
+]);
 
 function findNode(node, range, kind) {
   if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;

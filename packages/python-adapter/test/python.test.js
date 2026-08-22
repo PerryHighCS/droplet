@@ -185,6 +185,34 @@ test('projects tokenizer comments as independent movable nodes', () => {
   });
 });
 
+test('identifies Python suites and their header lines for structural rendering', () => {
+  const source = 'for item in items:\n  use(item)\n';
+  const ast = {type: 'Module', body: [{
+    type: 'For', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 11,
+    body: [{type: 'Expr', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 11}]
+  }]};
+  const loop = parsePython(source, () => ast).root.children[0];
+
+  assert.deepEqual(loop.metadata, {
+    type: 'For', blockRole: 'container', headerTo: source.indexOf('\n')
+  });
+});
+
+test('projects a blank Python suite line as a source-preserving whitespace node', () => {
+  const source = 'if ready:\n  pass\n  \n';
+  const ast = {type: 'Module', body: [{
+    type: 'If', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6,
+    body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}]
+  }]};
+  const whitespace = collectProjectedNodes(parsePython(source, () => ast).root)
+    .find((node) => node.kind === 'whitespace');
+
+  assert.deepEqual(whitespace, {
+    id: 'whitespace:17:20', kind: 'whitespace', from: 17, to: 20, editable: false, children: [],
+    metadata: {text: '  ', lineEnding: '\n'}
+  });
+});
+
 test('moves an independent comment line without moving its containing statement', () => {
   const source = 'if ready:\n  # note\n  pass\nnext()\n';
   const ifStatement = {

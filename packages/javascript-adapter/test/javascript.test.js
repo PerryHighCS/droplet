@@ -15,6 +15,26 @@ test('projects the compatibility fixture without changing any source character',
   assert.ok(parsed.root.children.some((node) => node.metadata.type === 'ForStatement'));
 });
 
+test('identifies JavaScript containers and their header lines for structural rendering', () => {
+  const source = 'for (let item of items) {\n  use(item);\n}\n';
+  const loop = parseJavaScript(source).root.children[0];
+
+  assert.deepEqual(loop.metadata, {
+    type: 'ForOfStatement', blockRole: 'container', headerTo: source.indexOf('\n')
+  });
+  assert.ok(loop.children.some((node) => node.metadata.type === 'BlockStatement'));
+});
+
+test('projects blank and whitespace-only JavaScript lines for block layout', () => {
+  const source = 'first();\n \t\n\nsecond();\n';
+  const whitespace = collectNodes(parseJavaScript(source).root).filter((node) => node.kind === 'whitespace');
+
+  assert.deepEqual(whitespace.map(({from, to, metadata}) => ({from, to, metadata})), [
+    {from: 9, to: 12, metadata: {text: ' \t', lineEnding: '\n'}},
+    {from: 12, to: 13, metadata: {text: '', lineEnding: '\n'}}
+  ]);
+});
+
 test('replaces only a known call argument socket', () => {
   const source = 'announce("total", total);\n';
   const parsed = parseJavaScript(source);
@@ -78,4 +98,8 @@ function findFirst(node, predicate) {
     if (found) return found;
   }
   return undefined;
+}
+
+function collectNodes(node) {
+  return [node, ...(node.children ?? []).flatMap(collectNodes)];
 }
