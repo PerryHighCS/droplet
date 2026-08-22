@@ -46,7 +46,7 @@ operations preserve untouched source exactly, including comments, blank lines,
 and tabs; moved statements adopt only the target line's existing indentation.
 When Brython's tokenizer is supplied, standalone comments are rendered as
 independent gray blocks and can move without moving their containing suite. A
-comment dropped at a statement's rendered line end becomes that line's inline
+comment dropped anywhere to a statement's rendered line right becomes that line's inline
 comment; drops elsewhere use normal statement-boundary insertion.
 
 How to Embed

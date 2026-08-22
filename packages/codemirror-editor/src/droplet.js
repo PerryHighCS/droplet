@@ -374,14 +374,21 @@ function statementDestinationAtPointer(view, event) {
 function commentAttachmentTarget(source, view, event) {
   if (source.kind !== 'comment') return undefined;
   if (movableRangeFromElement(event.target)?.kind === 'comment') return undefined;
-  const block = event.target?.closest?.('[data-droplet-kind="statement"]');
-  if (!block) return undefined;
-  const rect = [...block.getClientRects()].find((candidate) =>
-    event.clientY >= candidate.top && event.clientY <= candidate.bottom);
-  // A drop past the rendered end of the statement is an explicit request to
-  // attach the comment to that line. Drops elsewhere remain gap insertions.
-  if (!rect || event.clientX < rect.right - 3) return undefined;
-  return projectionRangeFromBlock(block);
+  const position = view.posAtCoords({x: event.clientX, y: event.clientY});
+  if (position === null) return undefined;
+  const line = view.state.doc.lineAt(position).number;
+  const candidates = [...view.dom.querySelectorAll('[data-droplet-kind="statement"]')]
+    .map((block) => ({block, range: projectionRangeFromBlock(block)}))
+    .filter(({range}) => range && view.state.doc.lineAt(range.from).number === line)
+    .sort((left, right) => (left.range.to - left.range.from) - (right.range.to - right.range.from));
+  for (const {block, range} of candidates) {
+    const rect = [...block.getClientRects()].find((candidate) =>
+      event.clientY >= candidate.top && event.clientY <= candidate.bottom);
+    // The full horizontal area after a statement line attaches a comment to it.
+    // Releasing above, below, or over the statement remains a gap insertion.
+    if (rect && event.clientX >= rect.right - 3) return range;
+  }
+  return undefined;
 }
 
 function elementForRange(view, range) {

@@ -388,7 +388,7 @@ test('manual modern Python playground attaches a standalone comment without movi
   await page.mouse.move(commentBox.x + commentBox.width / 2, commentBox.y + commentBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(commentBox.x + commentBox.width / 2 + 8, commentBox.y + commentBox.height / 2 + 8);
-  await page.mouse.move(tailBox.x + tailBox.width - 2, tailBox.y + tailBox.height / 2, {steps: 10});
+  await page.mouse.move(tailBox.x + tailBox.width + 100, tailBox.y + tailBox.height / 2, {steps: 10});
   await expect(page.locator('.droplet-drop-preview')).toContainText('# standalone note');
   await page.mouse.up();
 

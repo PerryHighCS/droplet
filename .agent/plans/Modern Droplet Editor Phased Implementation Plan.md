@@ -905,7 +905,7 @@ that model when supplied Brython's tokenizer: standalone comments are projected
 as independently movable `comment` nodes, while nested statements retain their
 own source ranges rather than inheriting the enclosing suite's drag behavior.
 Statement drops resolve to insertion boundaries, with both a floating block and
-a translucent placement preview. A comment released at the right edge of a
+a translucent placement preview. A comment released anywhere to the right of a
 statement is instead attached as that statement's inline comment; a comment
 released elsewhere moves between statement boundaries.
 
@@ -944,8 +944,8 @@ and:
 x = 5
 ```
 
-Standalone comments are draggable comment blocks. Dropping one at a
-statement's right edge makes it that statement's inline comment.
+Standalone comments are draggable comment blocks. Dropping one anywhere to a
+statement's right makes it that statement's inline comment.
 
 Inline comments should normally remain associated with their containing statement.
 
