@@ -168,6 +168,23 @@ test('uses the upper and lower halves of a standalone comment as sibling drop ta
   ]);
 });
 
+test('starts a drag by picking up an inline comment directly', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(statementWithInlineComment());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const note = surface.layout.nodes.find((node) => node.id === 'note');
+  const bodyEnd = surface.layout.insertionZones.find((zone) => zone.role === 'body-end');
+
+  drag(svg, dom.window, note, bodyEnd.bounds.left + 2, bodyEnd.bounds.top + 2);
+
+  assert.deepEqual(operations, [{type: 'move-comment', source: {from: 11, to: 17}, destination: bodyEnd.destination}]);
+});
+
 test('drops a statement onto an inline comment using its owning statement position', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -201,6 +218,25 @@ test('drags a comment to the right of a bare statement to attach it inline', () 
 
   assert.deepEqual(operations, [{
     type: 'move-comment', source: {from: 17, to: 24}, destination: {from: 0, to: 7}, placement: 'line-end'
+  }]);
+});
+
+test('drags a comment to the right of a container header to attach it inline', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(containerWithTrailingComment());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const ready = surface.layout.nodes.find((node) => node.id === 'ready');
+  const comment = surface.layout.nodes.find((node) => node.id === 'comment');
+
+  drag(svg, dom.window, comment, ready.regions.header.right + 4, ready.regions.header.top + 2);
+
+  assert.deepEqual(operations, [{
+    type: 'move-comment', source: {from: 20, to: 27}, destination: {from: 0, to: 20}, placement: 'line-end'
   }]);
 });
 
@@ -341,6 +377,18 @@ function statementWithTrailingComment() {
       {id: 'first', kind: 'statement', from: 0, to: 7, editable: true, metadata: {}, children: []},
       {id: 'second', kind: 'statement', from: 8, to: 16, editable: true, metadata: {}, children: []},
       {id: 'comment', kind: 'comment', from: 17, to: 24, editable: true, metadata: {inline: false}, children: []}
+    ]
+  }};
+}
+
+function containerWithTrailingComment() {
+  const source = 'if ready:\n  first()\n# aside\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [
+      {id: 'ready', kind: 'statement', from: 0, to: 20, editable: true,
+        metadata: {blockRole: 'container', headerTo: 9, bodyEnd: 20, bodyIndentation: '  '},
+        children: [{id: 'first', kind: 'statement', from: 12, to: 19, editable: true, metadata: {}, children: []}]},
+      {id: 'comment', kind: 'comment', from: 20, to: 27, editable: true, metadata: {inline: false}, children: []}
     ]
   }};
 }

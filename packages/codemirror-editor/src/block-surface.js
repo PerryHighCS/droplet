@@ -273,11 +273,15 @@ function insertionZone(destination, left, top, width, settings, role, details) {
 }
 
 function hitTestNode(node, point) {
-  if (!node || !contains(node.bounds, point)) return undefined;
+  if (!node) return undefined;
+  // An inline comment renders to the right of its statement's own text, so
+  // its bounds sit outside its statement's bounds. Try children before
+  // gating on the node's own box, or an inline comment could never be hit.
   for (const child of node.children ?? []) {
     const result = hitTestNode(child, point);
     if (result) return result;
   }
+  if (!contains(node.bounds, point)) return undefined;
   if (node.kind === 'container' && !contains(node.regions.header, point)) return undefined;
   return node.kind === 'document' ? undefined : node;
 }

@@ -277,18 +277,21 @@ function destinationForTarget(layout, target, point, dragNode) {
       zone: {bounds: target.node.bounds}
     };
   }
-  // Dropping a comment to the right of a bare statement's own text attaches
-  // it inline instead of reordering it as a sibling line.
-  if (dragNode?.kind === 'comment' && target?.node?.kind === 'statement' &&
-      point.x >= target.node.bounds.right && !sameRange(dragNode.source, target.node.source)) {
-    return {
-      operation: {
-        type: 'move-comment', source: dragNode.source,
-        destination: {from: target.node.source.from, to: target.node.source.to},
-        placement: 'line-end'
-      },
-      zone: {bounds: target.node.bounds}
-    };
+  // Dropping a comment to the right of a bare statement, or a container's
+  // header line (`if x:`, `for y in z:`, ...), attaches it inline instead of
+  // reordering it as a sibling line.
+  if (dragNode?.kind === 'comment' && (target?.node?.kind === 'statement' || target?.kind === 'container-header')) {
+    const headerBounds = target.kind === 'container-header' ? target.node.regions.header : target.node.bounds;
+    if (point.x >= headerBounds.right && !sameRange(dragNode.source, target.node.source)) {
+      return {
+        operation: {
+          type: 'move-comment', source: dragNode.source,
+          destination: {from: target.node.source.from, to: target.node.source.to},
+          placement: 'line-end'
+        },
+        zone: {bounds: headerBounds}
+      };
+    }
   }
   // Standalone comments and container headers participate in their suite's
   // vertical sibling order. A container body/footer retains its structural
