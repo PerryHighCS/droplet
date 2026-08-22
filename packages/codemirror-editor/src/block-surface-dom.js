@@ -323,7 +323,7 @@ function renderNode(node, document, options = {}) {
   group.setAttribute('role', 'treeitem');
   if (node.kind === 'container') renderContainer(group, node, document);
   else if (node.kind === 'whitespace') renderWhitespace(group, node, document);
-  else if (node.kind === 'socket' || node.kind === 'recovery-socket') renderSocket(group, node, document, options);
+  else if (node.kind === 'socket' || node.kind === 'recovery-socket') renderSocket(group, node, document);
   else renderAtomic(group, node, document);
   for (const child of node.children) group.append(renderNode(child, document, options));
   return group;
@@ -367,18 +367,20 @@ function renderAtomic(group, node, document) {
   group.append(rect, createLabel(node.text, node.bounds.left + 8, node.bounds.top + 20, document));
 }
 
-function renderSocket(group, node, document, {showSocketText = false} = {}) {
+function renderSocket(group, node, document) {
   const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
   rect.setAttribute('x', String(node.bounds.left));
   rect.setAttribute('y', String(node.bounds.top));
   rect.setAttribute('width', String(node.bounds.right - node.bounds.left));
   rect.setAttribute('height', String(node.bounds.bottom - node.bounds.top));
   rect.setAttribute('rx', '3');
-  rect.setAttribute('fill', node.kind === 'recovery-socket' ? 'rgba(255, 236, 215, .5)' : 'rgba(226, 240, 255, .28)');
+  rect.setAttribute('fill', node.kind === 'recovery-socket' ? '#ffecd7' : '#eaf4ff');
   rect.setAttribute('stroke', node.kind === 'recovery-socket' ? '#b96b25' : '#4d7fb5');
   rect.setAttribute('stroke-width', '1.25');
   group.append(rect);
-  if (showSocketText) group.append(createLabel(node.text, node.bounds.left + 3, node.bounds.top + 20, document));
+  const label = createLabel(node.text, (node.bounds.left + node.bounds.right) / 2, node.bounds.top + 20, document);
+  label.setAttribute('text-anchor', 'middle');
+  group.append(label);
 }
 
 function renderWhitespace(group, node, document) {

@@ -111,8 +111,8 @@ function layoutAtomic(node, source, settings, left, top) {
 function layoutSocket(node, statement, source, settings, left, top) {
   const text = source.slice(node.from, node.to);
   const prefix = source.slice(statement.from, node.from);
-  const socketLeft = left + settings.horizontalPadding + settings.measureText(prefix) - 2;
-  const width = Math.max(settings.socketMinimumWidth, settings.measureText(text) + 4);
+  const socketLeft = left + settings.horizontalPadding + settings.measureText(prefix);
+  const width = Math.max(settings.socketMinimumWidth, settings.measureText(text));
   return {
     id: node.id,
     kind: node.kind,
@@ -324,7 +324,7 @@ function normalizeOptions(options) {
     minimumWidth: positiveNumber(options.minimumWidth, 56),
     whitespaceWidth: positiveNumber(options.whitespaceWidth, 72),
     inlineCommentGap: positiveNumber(options.inlineCommentGap, 6),
-    socketMinimumWidth: positiveNumber(options.socketMinimumWidth, 20)
+    socketMinimumWidth: positiveNumber(options.socketMinimumWidth, 12)
   };
 }
 

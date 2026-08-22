@@ -44,7 +44,7 @@ export function transformPython(operation, parsed, pythonToAST) {
   switch (operation?.type) {
     case 'replace-socket': {
       assertOperationSource(operation.source, 'Socket replacement');
-      const socket = findNode(parsed.root, operation.target, 'socket');
+      const socket = findSocket(parsed.root, operation.target);
       if (!socket) throw new RangeError('Socket target is not present in the current projection');
       changes = [{from: socket.from, to: socket.to, insert: operation.source}];
       break;
@@ -500,6 +500,18 @@ function findNode(node, range, kind) {
   if (node.kind === kind && node.from === range.from && node.to === range.to) return node;
   for (const child of node.children ?? []) {
     const found = findNode(child, range, kind);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function findSocket(node, range) {
+  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
+  if ((node.kind === 'socket' || node.kind === 'recovery-socket') && node.from === range.from && node.to === range.to) {
+    return node;
+  }
+  for (const child of node.children ?? []) {
+    const found = findSocket(child, range);
     if (found) return found;
   }
   return undefined;

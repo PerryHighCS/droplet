@@ -1117,6 +1117,52 @@ flattens non-visible JavaScript AST expression wrappers so these sockets render
 on their enclosing statement or container header; JavaScript-specific browser
 playground and interaction parity coverage remains outstanding.
 
+## Expandable conditional containers
+
+An `if` chain is one conditional construct with multiple branches, not several
+unrelated C blocks. The BlockSurface should render `if`, zero or more `elif`,
+and an optional `else` as connected branch headers with their own C-shaped
+suite bodies. The original `if` condition and each `elif` condition use the
+same direct-edit/recovery socket model; `else` has no condition socket.
+
+### Initial conditional controls
+
+- [ ] Render an `if` container's branch structure explicitly in projection
+  metadata and DOM/SVG layout.
+- [ ] Show an `Add elif` affordance while an additional conditional branch is
+  syntactically legal.
+- [ ] Show an `Add else` affordance only when no `else` branch exists.
+- [ ] Adding `else` inserts a valid empty suite using local indentation and
+  the language's valid placeholder (`pass` for Python).
+- [ ] Adding `elif` inserts a valid default condition and empty suite, then
+  selects the default condition's socket for immediate replacement. The first
+  Python default is `True`; it is explicit source, never a hidden secondary
+  document value.
+
+The affordances belong at the conditional's final branch/footer, so a beginner
+sees that they extend the same decision rather than create a nested statement.
+They must generate narrow source-range transformations and one CodeMirror
+transaction, followed by reparse and relayout.
+
+### Removing a branch
+
+Removing `else` or `elif` is destructive whenever that branch contains source.
+Do not expose a one-click remove control until the editor has an explicit
+deletion/relocation interaction with undo and a clear user-visible outcome.
+The initial safe behavior is therefore: omit a remove control for non-empty
+branches; permit removal only for a newly inserted, untouched synthetic branch
+or present an explicit confirmation that names the source which will be
+removed. Re-adding an `else` after a removal is the normal `Add else`
+transformation, not hidden branch state.
+
+### Conditional verification
+
+- [ ] Browser tests cover `if` → `if/else` and `if` → `if/elif/else` while
+  preserving comments, blank lines, indentation, and surrounding source.
+- [ ] Tests cover direct editing and recovery of an inserted `elif` condition.
+- [ ] Tests prove the controls are unavailable after `else` and that any
+  removable synthetic branch round-trips through CodeMirror undo/redo.
+
 ## Required rendering model
 
 - [x] Distinguish atomic statement blocks from container statement blocks in
