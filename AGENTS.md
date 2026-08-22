@@ -51,16 +51,8 @@ Before changing code, read the relevant material:
 
 ## Repository layout
 
-- `src/`: editor implementation. `main.coffee` is the Browserify entry point;
-  `model.coffee`, `view.coffee`, `draw.coffee`, `controller.coffee`, and
-  `parser.coffee` are the central editor layers.
 - `src/languages/`: language-specific parsers and block definitions. Register
   modes in `src/modes.coffee`.
-- `test/src/`: CoffeeScript unit and browser-test sources.
-- `test/*.html`: QUnit browser-test entry pages.
-- `example/`: runnable embedding examples.
-- `css/`: source stylesheet.
-- `antlr/`: checked-in grammar sources and generated parser artifacts.
 - `vendor/`: checked-in third-party browser assets; do not hand-edit them.
 - `packages/core/`: dependency-free modern source-range and opaque-projection
   foundation. It is ESM and tested independently with Node's test runner.
