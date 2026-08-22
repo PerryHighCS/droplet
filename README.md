@@ -22,7 +22,8 @@ and [the upstream review log](docs/upstream-codeorg.md).
 For manual modern-editor checks, start `npm run dev` and open
 [`example/modern-python.html`](example/modern-python.html) on port 8001. The
 playground exposes the live source snapshot and parsed projection alongside
-CodeMirror text/block mode and representative Python block operations.
+CodeMirror text/block mode, a small Python starter-block palette, and
+representative Python block operations.
 
 The first framework-independent editor package is
 [`packages/codemirror-editor`](packages/codemirror-editor/): it wraps one

@@ -330,6 +330,15 @@ test('manual modern Python playground loads with its source and projection panel
   await expect(page.locator('#modern-python-projection')).toContainText('Module');
 });
 
+test('manual modern Python playground inserts a Python palette block through the source transformer', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  await page.locator('[data-palette-block="assignment"]').click();
+
+  await expect(page.locator('#modern-python-source')).toContainText('tail = 0\nvalue = 1');
+  await expect(page.locator('#modern-python-status')).toHaveText('Inserted value = 1.');
+});
+
 test('manual modern Python playground renders suite containers and blank-line placeholders', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);

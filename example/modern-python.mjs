@@ -11,6 +11,15 @@ const samples = {
   'Opaque recovery': 'if score >\n'
 };
 
+const palette = [{
+  name: 'Python', blocks: [
+    {id: 'print', label: 'print("hello")', source: 'print("hello")\n'},
+    {id: 'assignment', label: 'value = 1', source: 'value = 1\n'},
+    {id: 'if', label: 'if True:', source: 'if True:\n  pass\n'},
+    {id: 'for', label: 'for item in range(3):', source: 'for item in range(3):\n  pass\n'}
+  ]
+}];
+
 const sampleSelect = document.querySelector('#modern-python-sample');
 const modeButton = document.querySelector('#modern-python-mode');
 const moveButton = document.querySelector('#modern-python-move');
@@ -18,6 +27,7 @@ const suiteButton = document.querySelector('#modern-python-suite');
 const status = document.querySelector('#modern-python-status');
 const sourcePanel = document.querySelector('#modern-python-source');
 const projectionPanel = document.querySelector('#modern-python-projection');
+const palettePanel = document.querySelector('#modern-python-palette');
 
 for (const name of Object.keys(samples)) {
   const option = document.createElement('option');
@@ -37,6 +47,8 @@ editor = createDropletCodeMirrorEditor({
   transform: createBrythonPythonTransformer(pythonToAST),
   onUpdate: refresh
 });
+
+renderPalette();
 
 sampleSelect.addEventListener('change', () => {
   editor.setValue(samples[sampleSelect.value]);
@@ -77,6 +89,39 @@ suiteButton.addEventListener('click', () => {
   });
   setStatus('Inserted a valid empty suite using pass.');
 });
+
+function renderPalette() {
+  for (const category of palette) {
+    const section = document.createElement('section');
+    section.className = 'palette-category';
+    const heading = document.createElement('h3');
+    heading.textContent = category.name;
+    const blocks = document.createElement('div');
+    blocks.className = 'palette-blocks';
+    for (const block of category.blocks) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'palette-block';
+      button.dataset.paletteBlock = block.id;
+      button.textContent = block.label;
+      button.addEventListener('click', () => insertPaletteBlock(block));
+      blocks.append(button);
+    }
+    section.append(heading, blocks);
+    palettePanel.append(section);
+  }
+}
+
+function insertPaletteBlock(block) {
+  const {anchor, head} = editor.editor.getSelection();
+  const selected = anchor === head ? undefined : collectNodes(editor.getProjection().root).find((node) =>
+    node.kind === 'statement' && node.from === Math.min(anchor, head) && node.to === Math.max(anchor, head));
+  const at = selected?.from ?? editor.getValue().length;
+  editor.applyBlockOperation({
+    type: 'insert-statement', destination: {from: at, to: at}, source: block.source
+  });
+  setStatus(`Inserted ${block.label}.`);
+}
 
 function refresh() {
   if (!editor) return;
