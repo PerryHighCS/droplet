@@ -321,15 +321,26 @@ function renderNode(node, document, options = {}) {
   group.setAttribute('data-droplet-from', String(node.source.from));
   group.setAttribute('data-droplet-to', String(node.source.to));
   group.setAttribute('role', 'treeitem');
-  if (node.kind === 'container') renderContainer(group, node, document);
-  else if (node.kind === 'whitespace') renderWhitespace(group, node, document);
-  else if (node.kind === 'socket' || node.kind === 'recovery-socket') renderSocket(group, node, document);
-  else renderAtomic(group, node, document);
-  for (const child of node.children) group.append(renderNode(child, document, options));
+  const socketChildren = node.children.filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket');
+  const otherChildren = node.children.filter((child) => child.kind !== 'socket' && child.kind !== 'recovery-socket');
+  if (node.kind === 'container') {
+    renderContainerFrame(group, node, document);
+    for (const child of socketChildren) group.append(renderNode(child, document, options));
+    group.append(createLabel(node.text, node.regions.header.left + 8, node.regions.header.top + 20, document));
+  } else if (node.kind === 'whitespace') {
+    renderWhitespace(group, node, document);
+  } else if (node.kind === 'socket' || node.kind === 'recovery-socket') {
+    renderSocket(group, node, document, options);
+  } else {
+    renderAtomicFrame(group, node, document);
+    for (const child of socketChildren) group.append(renderNode(child, document, options));
+    group.append(createLabel(node.text, node.bounds.left + 8, node.bounds.top + 20, document));
+  }
+  for (const child of otherChildren) group.append(renderNode(child, document, options));
   return group;
 }
 
-function renderContainer(group, node, document) {
+function renderContainerFrame(group, node, document) {
   const {header, footer} = node.regions;
   const path = document.createElementNS(SVG_NAMESPACE, 'path');
   const radius = 4;
@@ -352,10 +363,10 @@ function renderContainer(group, node, document) {
   path.setAttribute('stroke-width', '3');
   path.setAttribute('stroke-linecap', 'round');
   path.setAttribute('stroke-linejoin', 'round');
-  group.append(path, createLabel(node.text, header.left + 8, header.top + 20, document));
+  group.append(path);
 }
 
-function renderAtomic(group, node, document) {
+function renderAtomicFrame(group, node, document) {
   const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
   rect.setAttribute('x', String(node.bounds.left));
   rect.setAttribute('y', String(node.bounds.top));
@@ -364,10 +375,10 @@ function renderAtomic(group, node, document) {
   rect.setAttribute('rx', '4');
   rect.setAttribute('fill', node.kind === 'comment' ? '#f0f0f0' : '#fff');
   rect.setAttribute('stroke', node.kind === 'comment' ? '#999' : '#7a9ec4');
-  group.append(rect, createLabel(node.text, node.bounds.left + 8, node.bounds.top + 20, document));
+  group.append(rect);
 }
 
-function renderSocket(group, node, document) {
+function renderSocket(group, node, document, {showSocketText = false} = {}) {
   const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
   rect.setAttribute('x', String(node.bounds.left));
   rect.setAttribute('y', String(node.bounds.top));
@@ -378,9 +389,11 @@ function renderSocket(group, node, document) {
   rect.setAttribute('stroke', node.kind === 'recovery-socket' ? '#b96b25' : '#4d7fb5');
   rect.setAttribute('stroke-width', '1.25');
   group.append(rect);
-  const label = createLabel(node.text, (node.bounds.left + node.bounds.right) / 2, node.bounds.top + 20, document);
-  label.setAttribute('text-anchor', 'middle');
-  group.append(label);
+  if (showSocketText) {
+    const label = createLabel(node.text, (node.bounds.left + node.bounds.right) / 2, node.bounds.top + 20, document);
+    label.setAttribute('text-anchor', 'middle');
+    group.append(label);
+  }
 }
 
 function renderWhitespace(group, node, document) {
