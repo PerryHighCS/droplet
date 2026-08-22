@@ -52,20 +52,30 @@ export function collectPythonTrivia(source, tokenize, {indentTokenType = 5} = {}
 }
 
 function project(node, source, lines, kind = kindFor(node), boundary = {from: 0, to: source.length}) {
-  const range = boundedRange(
+  const range = kind === 'document' ? {from: 0, to: source.length} : boundedRange(
     offset(node.lineno, node.col_offset, lines, source.length, boundary.from),
     offset(node.end_lineno, node.end_col_offset, lines, source.length, boundary.to),
     boundary
   );
-  const {from, to} = range;
+  const statementRange = kind === 'statement' ? expandDecoratorRange(node, source, lines, range) : range;
+  const {from, to} = statementRange;
   return {
     id: `${kind}:${typeOf(node)}:${from}:${to}`,
     kind, from, to, editable: kind !== 'document',
     children: childNodes(node).map((child) => project(
-      child.node, source, lines, child.socket ? 'socket' : kindFor(child.node), range
+      child.node, source, lines, child.socket ? 'socket' : kindFor(child.node), statementRange
     )),
     metadata: {type: typeOf(node)}
   };
+}
+
+function expandDecoratorRange(node, source, lines, range) {
+  const decoratorFrom = (node.decorator_list ?? []).reduce((from, decorator) => {
+    const offsetFrom = offset(decorator?.lineno, decorator?.col_offset, lines, source.length, -1);
+    const lineStart = lines[(decorator?.lineno ?? 0) - 1];
+    return offsetFrom < 0 || !Number.isInteger(lineStart) ? from : Math.min(from, lineStart);
+  }, range.from);
+  return decoratorFrom === range.from ? range : {from: decoratorFrom, to: range.to};
 }
 
 function kindFor(node) {
@@ -78,7 +88,7 @@ function kindFor(node) {
 function childNodes(node) {
   const children = [];
   for (const [key, value] of Object.entries(node ?? {})) {
-    if (key.startsWith('$') || locationKeys.has(key)) continue;
+    if (key.startsWith('$') || locationKeys.has(key) || bookkeepingKeys.has(key)) continue;
     collectLocatedChildren(value, socketKeys.has(key), children);
   }
   return children;
@@ -105,13 +115,14 @@ const statementTypes = new Set([
   'Pass', 'Raise', 'Return', 'Try', 'TryStar', 'TypeAlias', 'While', 'With'
 ]);
 const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_offset']);
+const bookkeepingKeys = new Set(['type_ignores']);
 const socketKeys = new Set([
   'args', 'defaults', 'ifs', 'iter', 'kw_defaults', 'kwonlyargs', 'left',
   'posonlyargs', 'right', 'target', 'targets', 'test', 'value'
 ]);
 function typeOf(node) { return node?.type ?? node?.$name ?? node?.constructor?.$name ?? node?.constructor?.name ?? 'Unknown'; }
 function lineStarts(source) { const starts = [0]; for (let i = 0; i < source.length; i += 1) if (source[i] === '\n') starts.push(i + 1); return starts; }
-function leadingWhitespace(source, from) { return /^[\t ]*/.exec(source.slice(from))?.[0] ?? ''; }
+function leadingWhitespace(source, from) { return /^[\t \f]*/.exec(source.slice(from))?.[0] ?? ''; }
 function hasCodeBeforeComment(source, from) {
   const lineStart = source.lastIndexOf('\n', from - 1) + 1;
   return /\S/.test(source.slice(lineStart, from));

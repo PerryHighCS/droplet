@@ -41,6 +41,39 @@ test('falls back to the containing source boundary for invalid AST locations', (
   });
 });
 
+test('keeps the document root over all source trivia', () => {
+  const source = 'value = outer(1)\n';
+  const ast = {type: 'Module', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: source.length - 1, body: []};
+  const parsed = parsePython(source, () => ast);
+  assert.deepEqual(parsed.root, {
+    id: `document:Module:0:${source.length}`, kind: 'document', from: 0, to: source.length,
+    editable: false, children: [], metadata: {type: 'Module'}
+  });
+});
+
+test('expands decorated definitions to include their decorators', () => {
+  const source = '@trace\ndef run():\n  pass\n';
+  const ast = {type: 'Module', body: [{
+    type: 'FunctionDef', lineno: 2, col_offset: 0, end_lineno: 3, end_col_offset: 6,
+    decorator_list: [{type: 'Name', lineno: 1, col_offset: 1, end_lineno: 1, end_col_offset: 6}],
+    body: []
+  }]};
+
+  const definition = parsePython(source, () => ast).root.children[0];
+  assert.deepEqual({from: definition.from, to: definition.to}, {from: 0, to: source.length - 1});
+  assert.deepEqual({from: definition.children[0].from, to: definition.children[0].to}, {from: 1, to: 6});
+});
+
+test('does not project Python type-ignore bookkeeping as source nodes', () => {
+  const source = 'pass  # type: ignore\n';
+  const ast = {type: 'Module', body: [{
+    type: 'Pass', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 4
+  }], type_ignores: [{lineno: 1, tag: ''}]};
+
+  const parsed = parsePython(source, () => ast);
+  assert.deepEqual(parsed.root.children.map((node) => node.metadata.type), ['Pass']);
+});
+
 test('contains partial and inverted child locations within their statement', () => {
   const source = 'first\nsecond\n';
   const ast = {type: 'Module', body: [
@@ -94,6 +127,14 @@ test('uses raw source indentation while retaining inline and standalone comments
     ],
     indentation: [{kind: 'indentation', from: 30, to: 31, text: '\t'}]
   });
+});
+
+test('retains form-feed indentation prefixes', () => {
+  const source = '\f  result = 1\n';
+  const tokens = [{type: 5, string: '', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 8}];
+  assert.deepEqual(collectPythonTrivia(source, () => tokens).indentation, [
+    {kind: 'indentation', from: 0, to: 3, text: '\f  '}
+  ]);
 });
 
 test('classifies the complete modern Python statement set as statements', () => {
