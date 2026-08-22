@@ -235,6 +235,19 @@ test('reindents a final nested statement when its outer-suite body end shares it
   assert.equal(applySourceChanges(source, changes), 'if outer:\n  if ready:\n    first()\n  second()\n');
 });
 
+test('deindents a final nested statement when dropped at a root-level boundary', () => {
+  const source = 'if ready:\n  second()\n';
+  const second = {id: 'statement:second', kind: 'statement', from: 10, to: 20, children: []};
+  const parsed = projection(source, [{id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [second]}]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: second.from, to: second.to},
+    destination: {from: source.length, to: source.length, indentation: ''}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\nsecond()\n');
+});
+
 test('leaves an actual pass when moving the only Python suite statement out', () => {
   const source = 'if ready:\n  only()\nafter()\n';
   const ast = {type: 'Module', body: [

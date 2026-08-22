@@ -42,7 +42,7 @@ test('uses a layout insertion zone for one statement move intent and matching pr
   svg.dispatchEvent(new dom.window.MouseEvent('pointerup', {bubbles: true, button: 0, clientX: 2, clientY: 30}));
 
   assert.deepEqual(operations, [{
-    type: 'move-statement', source: {from: 0, to: 7}, destination: {from: 8, to: 8}
+    type: 'move-statement', source: {from: 0, to: 7}, destination: {from: 8, to: 8, indentation: ''}
   }]);
 });
 

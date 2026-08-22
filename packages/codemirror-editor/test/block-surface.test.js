@@ -31,8 +31,10 @@ test('keeps whitespace as a measured sibling and exposes insertion zones around 
 
   assert.equal(blank.kind, 'whitespace');
   assert.equal(blank.text, ' \t');
-  assert.ok(layout.insertionZones.some((zone) => zone.destination.from === blank.source.from));
-  assert.ok(layout.insertionZones.some((zone) => zone.destination.from === source.length));
+  assert.ok(layout.insertionZones.some((zone) =>
+    zone.destination.from === blank.source.from && zone.destination.indentation === ''));
+  assert.ok(layout.insertionZones.some((zone) =>
+    zone.destination.from === source.length && zone.destination.indentation === ''));
 });
 
 test('uses the same subtree geometry for a drag preview and gives a nested child hit priority', () => {

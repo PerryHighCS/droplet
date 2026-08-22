@@ -42,7 +42,7 @@ export function hitTestBlockLayout(layout, point) {
 
 function layoutDocument(node, source, settings) {
   const children = structuralChildren(node);
-  const content = layoutChildren(children, source, settings, 0, 0, node.to);
+  const content = layoutChildren(children, source, settings, 0, 0, node.to, {indentation: ''});
   return {
     id: node.id,
     kind: 'document',
