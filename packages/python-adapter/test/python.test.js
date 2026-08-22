@@ -194,8 +194,44 @@ test('identifies Python suites and their header lines for structural rendering',
   const loop = parsePython(source, () => ast).root.children[0];
 
   assert.deepEqual(loop.metadata, {
-    type: 'For', blockRole: 'container', headerTo: source.indexOf('\n')
+    type: 'For', blockRole: 'container', headerTo: source.indexOf('\n'),
+    bodyFrom: source.indexOf('use(item)'), bodyEnd: source.length, bodyIndentation: '  '
   });
+});
+
+test('moves a statement to a container body end using the suite indentation', () => {
+  const source = 'if ready:\n  first()\nnext()\n';
+  const ast = {type: 'Module', body: [
+    {type: 'If', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 9,
+      body: [{type: 'Expr', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 9}]},
+    {type: 'Expr', lineno: 3, col_offset: 0, end_lineno: 3, end_col_offset: 6}
+  ]};
+  const parsed = parsePython(source, () => ast);
+  const [container, next] = parsed.root.children;
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: next.from, to: next.to},
+    destination: {from: container.metadata.bodyEnd, to: container.metadata.bodyEnd,
+      indentation: container.metadata.bodyIndentation}
+  }, parsed, () => ast);
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  first()\n  next()\n');
+});
+
+test('leaves an actual pass when moving the only Python suite statement out', () => {
+  const source = 'if ready:\n  only()\nafter()\n';
+  const ast = {type: 'Module', body: [
+    {type: 'If', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 8,
+      body: [{type: 'Expr', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 8}]},
+    {type: 'Expr', lineno: 3, col_offset: 0, end_lineno: 3, end_col_offset: 7}
+  ]};
+  const parsed = parsePython(source, () => ast);
+  const [, only, after] = collectProjectedNodes(parsed.root).filter((node) => node.kind === 'statement');
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: only.from, to: only.to},
+    destination: {from: after.to + 1, to: after.to + 1}
+  }, parsed, () => ast);
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nafter()\nonly()\n');
 });
 
 test('projects a blank Python suite line as a source-preserving whitespace node', () => {

@@ -60,8 +60,27 @@ export function transformPython(operation, parsed, pythonToAST) {
       if (!statement) throw new RangeError('Statement source is not present in the current projection');
       assertInsertionPoint(parsed.source, operation.destination);
       const statementRange = lineRange(parsed.source, statement);
-      if (operation.destination.from >= statementRange.from && operation.destination.from <= statementRange.to) return [];
-      changes = moveLineRangeChanges(parsed.source, statementRange, operation.destination.from);
+      if (operation.destination.from >= statementRange.from && operation.destination.from <= statementRange.to) {
+        const sourceIndentation = indentationAt(parsed.source, statementRange.from);
+        if (operation.destination.from === statementRange.from &&
+            operation.destination.indentation !== undefined && operation.destination.indentation !== sourceIndentation) {
+          changes = [{
+            from: statementRange.from,
+            to: statementRange.to,
+            insert: `${operation.destination.indentation}${reindentPythonLines(
+              parsed.source.slice(statementRange.from, statementRange.to),
+              sourceIndentation, operation.destination.indentation
+            )}`
+          }];
+          break;
+        }
+        return [];
+      }
+      const emptiedContainer = containerEmptiedByMove(parsed.root, statement);
+      changes = moveLineRangeChanges(
+        parsed.source, statementRange, operation.destination.from, operation.destination.indentation,
+        emptiedContainer ? emptySuiteReplacement(parsed.source, statementRange) : ''
+      );
       break;
     }
     case 'move-comment': {
@@ -148,6 +167,16 @@ function metadataFor(node, kind, source, headerFrom) {
   if (kind === 'statement' && containerStatementTypes.has(typeOf(node))) {
     metadata.blockRole = 'container';
     metadata.headerTo = lineTextEnd(source, headerFrom);
+    const body = (node.body ?? []).filter((child) => child && typeof child === 'object');
+    const first = body[0];
+    const last = body.at(-1);
+    const lastTo = offset(last?.end_lineno, last?.end_col_offset, lineStarts(source), source, null);
+    const firstFrom = offset(first?.lineno, first?.col_offset, lineStarts(source), source, null);
+    if (lastTo !== null && firstFrom !== null) {
+      metadata.bodyFrom = firstFrom;
+      metadata.bodyEnd = lineEndAfter(source, lastTo);
+      metadata.bodyIndentation = indentationAt(source, firstFrom);
+    }
   }
   return metadata;
 }
@@ -207,16 +236,31 @@ function insertStatementChange(source, destination, statementSource) {
   return {from: destination, to: destination, insert: `${text}${ensureLineEnding(text, lineEnding)}${indentation}`};
 }
 
-function moveLineRangeChanges(source, statementRange, destination) {
+function moveLineRangeChanges(source, statementRange, destination, destinationIndentation, removalInsert = '') {
   const sourceIndentation = indentationAt(source, statementRange.from);
-  const destinationIndentation = indentationAt(source, destination);
-  const text = reindentPythonLines(source.slice(statementRange.from, statementRange.to), sourceIndentation, destinationIndentation);
+  const targetIndentation = destinationIndentation ?? indentationAt(source, destination);
+  if (!/^[\t \f]*$/.test(targetIndentation)) throw new TypeError('Destination indentation must contain only whitespace');
+  const text = reindentPythonLines(source.slice(statementRange.from, statementRange.to), sourceIndentation, targetIndentation);
   const lineEnding = lineEndingAt(source, destination);
-  const insert = `${text}${ensureLineEnding(text, lineEnding)}${destinationIndentation}`;
+  const prefix = isLineStart(source, destination) ? targetIndentation : '';
+  const insert = `${prefix}${text}${ensureLineEnding(text, lineEnding)}${targetIndentation}`;
   return [
-    {from: statementRange.from, to: statementRange.to, insert: ''},
+    {from: statementRange.from, to: statementRange.to, insert: removalInsert},
     {from: destination, to: destination, insert}
   ];
+}
+
+function containerEmptiedByMove(root, statement) {
+  const parent = findParent(root, statement);
+  if (parent?.metadata?.blockRole !== 'container') return undefined;
+  const bodyStatements = (parent.children ?? []).filter((child) => child.kind === 'statement' &&
+    child.from >= parent.metadata.bodyFrom && child.to <= parent.metadata.bodyEnd);
+  return bodyStatements.length === 1 && bodyStatements[0] === statement ? parent : undefined;
+}
+
+function emptySuiteReplacement(source, statementRange) {
+  const indentation = indentationAt(source, statementRange.from);
+  return `${indentation}pass${lineEndingAt(source, statementRange.to)}`;
 }
 
 function lineRange(source, statement) {
@@ -242,6 +286,12 @@ function lineTextEnd(source, position) {
   let end = position;
   while (end < source.length && source[end] !== '\r' && source[end] !== '\n') end += 1;
   return end;
+}
+
+function lineEndAfter(source, position) {
+  let end = lineTextEnd(source, position);
+  if (source[end] === '\r' && source[end + 1] === '\n') return end + 2;
+  return source[end] === '\r' || source[end] === '\n' ? end + 1 : end;
 }
 
 function inlineCommentRange(source, comment) {
@@ -385,6 +435,15 @@ function findNode(node, range, kind) {
   for (const child of node.children ?? []) {
     const found = findNode(child, range, kind);
     if (found) return found;
+  }
+  return undefined;
+}
+
+function findParent(node, target) {
+  for (const child of node.children ?? []) {
+    if (child === target) return node;
+    const parent = findParent(child, target);
+    if (parent) return parent;
   }
   return undefined;
 }

@@ -1000,6 +1000,10 @@ corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
   header, nested children, indentation, comments, and whitespace lines.
 - [ ] Render insertion affordances between sibling statements and whitespace
   lines; do not model a statement drop as dropping "onto" another statement.
+- [ ] Expose the lower interior edge of every container C shape as a body-end
+  insertion target. Its operation must retain the container's suite/body
+  indentation (or JavaScript brace position), rather than borrowing indentation
+  from the following sibling statement.
 - [ ] Retain the explicit comment-line-end gesture: the horizontal area to a
   statement's right attaches a dragged comment inline, while all other comment
   drops use insertion boundaries.
