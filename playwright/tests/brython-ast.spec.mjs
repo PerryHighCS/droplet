@@ -352,16 +352,21 @@ test('manual modern Python playground drops a statement at a container C-shape b
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
 
-  const {tailRange, bottomLeft, bottom} = await page.evaluate(() => {
+  const {tailRange, secondRange, bottomLeft, bottom, bodyEnd} = await page.evaluate(() => {
     const source = document.querySelector('#modern-python-source').textContent;
     const tail = [...document.querySelectorAll('[data-droplet-kind="statement"]')].find((block) => source.slice(
       Number(block.dataset.dropletFrom), Number(block.dataset.dropletTo)
     ) === 'tail = 0');
+    const second = [...document.querySelectorAll('[data-droplet-kind="statement"]')].find((block) => source.slice(
+      Number(block.dataset.dropletFrom), Number(block.dataset.dropletTo)
+    ) === 'second = 2');
     const outer = document.querySelector('[data-droplet-role="container"][data-droplet-from="0"]');
     return {
       tailRange: {from: tail.dataset.dropletFrom, to: tail.dataset.dropletTo},
+      secondRange: {from: second.dataset.dropletFrom, to: second.dataset.dropletTo},
       bottomLeft: Number(outer.dataset.dropletBottomLeft),
-      bottom: Number(outer.dataset.dropletBottom)
+      bottom: Number(outer.dataset.dropletBottom),
+      bodyEnd: outer.dataset.dropletBodyEnd
     };
   });
   const tail = page.locator(`[data-droplet-from="${tailRange.from}"][data-droplet-to="${tailRange.to}"]`).first();
@@ -371,6 +376,10 @@ test('manual modern Python playground drops a statement at a container C-shape b
   await page.mouse.move(tailBox.x + tailBox.width / 2 + 8, tailBox.y + tailBox.height / 2 + 8);
   await page.mouse.move(bottomLeft + 28, bottom - 2, {steps: 10});
   await expect(page.locator('.droplet-drop-guide')).toBeVisible();
+  await expect(page.locator('.droplet-drop-guide')).toHaveAttribute('data-droplet-destination', bodyEnd);
+  const second = page.locator(`[data-droplet-from="${secondRange.from}"][data-droplet-to="${secondRange.to}"]`).first();
+  const [guideBox, secondBox] = await Promise.all([page.locator('.droplet-drop-guide').boundingBox(), second.boundingBox()]);
+  expect(guideBox.y).toBeGreaterThanOrEqual(secondBox.y + secondBox.height - 2);
   await page.mouse.up();
 
   await expect(page.locator('#modern-python-source')).toContainText('  second = 2\n  tail = 0');

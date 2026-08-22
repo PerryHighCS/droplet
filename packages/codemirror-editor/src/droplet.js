@@ -203,8 +203,10 @@ function projectionDecorations(projection) {
         'data-droplet-kind': node.kind
       }
     }).range(node.from, node.to);
-    const spacer = node.metadata?.blockRole === 'container' && node.to < projection.source.length
-      ? Decoration.widget({widget: new ContainerBottomSpacer(), block: true, side: 1}).range(node.to)
+    const bodyEnd = node.metadata?.bodyEnd;
+    const spacerAt = Number.isInteger(bodyEnd) ? bodyEnd : node.to;
+    const spacer = node.metadata?.blockRole === 'container' && spacerAt < projection.source.length
+      ? Decoration.widget({widget: new ContainerBottomSpacer(), block: true, side: 1}).range(spacerAt)
       : undefined;
     return spacer ? [mark, spacer] : [mark];
   });
@@ -473,12 +475,14 @@ function updateDropTarget(drag, view, destination, clientX, clientY, attachmentT
   const containerLeft = Number(container?.dataset.dropletBottomLeft);
   const containerRight = Number(container?.dataset.dropletBottomRight);
   const containerBottom = Number(container?.dataset.dropletBottom);
-  drag.dropGuide.style.left = `${attachment?.right ?? rect?.left ?? (Number.isFinite(containerLeft) ? containerLeft : clientX - 70)}px`;
-  drag.dropGuide.style.top = `${attachment?.top ?? (rect ? rect.top - 2 : (Number.isFinite(containerBottom) ? containerBottom - 1 : clientY - 1))}px`;
+  const insertion = !attachment && typeof destination === 'object' ? view.coordsAtPos(destinationFrom) : undefined;
+  drag.dropGuide.dataset.dropletDestination = String(destinationFrom);
+  drag.dropGuide.style.left = `${attachment?.right ?? rect?.left ?? insertion?.left ?? (Number.isFinite(containerLeft) ? containerLeft : clientX - 70)}px`;
+  drag.dropGuide.style.top = `${attachment?.top ?? (rect ? rect.top - 2 : (insertion?.top ?? (Number.isFinite(containerBottom) ? containerBottom - 1 : clientY)) - 1)}px`;
   drag.dropGuide.style.width = `${attachment ? 3 : rect?.width ?? (Number.isFinite(containerRight) ? containerRight - containerLeft : 150)}px`;
   drag.dropPreview ??= createDropPlacementPreview(drag.preview.ownerDocument, drag.preview.textContent);
-  drag.dropPreview.style.left = `${attachment?.right ?? rect?.left ?? (Number.isFinite(containerLeft) ? containerLeft + 16 : clientX + 20)}px`;
-  drag.dropPreview.style.top = `${attachment?.top ?? (rect ? rect.top - 28 : (Number.isFinite(containerBottom) ? containerBottom - 26 : clientY + 20))}px`;
+  drag.dropPreview.style.left = `${attachment?.right ?? rect?.left ?? insertion?.left ?? (Number.isFinite(containerLeft) ? containerLeft + 16 : clientX + 20)}px`;
+  drag.dropPreview.style.top = `${attachment?.top ?? (rect ? rect.top - 28 : (insertion?.top ?? (Number.isFinite(containerBottom) ? containerBottom - 26 : clientY + 20)) - 26)}px`;
 }
 
 function clearDragPreview(drag) {
