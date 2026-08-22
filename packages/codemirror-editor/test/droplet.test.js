@@ -169,6 +169,55 @@ test('deleting a selected socket commits an empty editable recovery range', () =
   editor.destroy();
 });
 
+test('editing a rendered comment commits one CodeMirror source change on Enter', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'first()\n# note\n', blockMode: true, parse: parseCommentExample
+  });
+  const comment = parent.querySelector('.droplet-block-surface [data-droplet-kind="comment"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(comment);
+  const input = parent.querySelector('.droplet-socket-editor');
+  // The leading "#" is not part of the editable value.
+  assert.equal(input.value, ' note');
+  input.value = ' updated';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+
+  assert.equal(editor.getValue(), 'first()\n# updated\n');
+  assert.equal(parent.querySelector('.droplet-socket-editor'), null);
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), 'first()\n# note\n');
+  editor.destroy();
+});
+
+test('emptying a rendered comment through its inline editor deletes it instead of leaving it blank', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent,
+    value: 'first()\n# note\n',
+    blockMode: true,
+    parse: parseCommentExample,
+    transform: (operation, parsed) => {
+      assert.equal(parsed.source, 'first()\n# note\n');
+      assert.deepEqual(operation, {type: 'delete-node', source: {from: 8, to: 14}, kind: 'comment'});
+      return [{from: 8, to: 15, insert: ''}];
+    }
+  });
+  const comment = parent.querySelector('.droplet-block-surface [data-droplet-kind="comment"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(comment);
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.value = '';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+
+  assert.equal(editor.getValue(), 'first()\n');
+  editor.destroy();
+});
+
 function clickRenderedSocket(socket) {
   const frame = socket.querySelector('rect');
   socket.dispatchEvent(new window.MouseEvent('click', {
@@ -306,6 +355,21 @@ function parseSocketExample(source) {
             editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
         ]
       }]
+    }, issues: []
+  };
+}
+
+function parseCommentExample(source) {
+  const commentFrom = source.indexOf('#');
+  const commentTo = source.indexOf('\n', commentFrom);
+  return {
+    source,
+    root: {
+      id: `document:0:${source.length}`, kind: 'document', from: 0, to: source.length, editable: false,
+      children: [
+        {id: 'first', kind: 'statement', from: 0, to: commentFrom - 1, editable: true, metadata: {}, children: []},
+        {id: `comment:${commentFrom}`, kind: 'comment', from: commentFrom, to: commentTo, editable: true, children: [], metadata: {inline: false}}
+      ]
     }, issues: []
   };
 }

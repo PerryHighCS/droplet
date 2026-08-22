@@ -106,16 +106,16 @@ export class BlockSurface {
     }
     if (!this.#layout || event.defaultPrevented) return;
     const directNode = layoutNodeForElement(this.#layout, event.target);
-    if (directNode?.kind === 'socket' || directNode?.kind === 'recovery-socket') {
+    if (isInlineEditable(directNode)) {
       this.#selectNode(directNode);
-      this.#openSocketEditor(directNode);
+      this.#openInlineEditor(directNode);
       return;
     }
     const bounds = this.#svg.getBoundingClientRect();
     const target = hitTestBlockLayout(this.#layout, {x: event.clientX - bounds.left, y: event.clientY - bounds.top});
-    if (target?.node?.kind === 'socket' || target?.node?.kind === 'recovery-socket') {
+    if (isInlineEditable(target?.node)) {
       this.#selectNode(target.node);
-      this.#openSocketEditor(target.node);
+      this.#openInlineEditor(target.node);
       return;
     }
     if (target?.node?.source) this.#selectNode(target.node);
@@ -148,26 +148,35 @@ export class BlockSurface {
     });
   }
 
-  #openSocketEditor(socket) {
+  #openInlineEditor(node) {
     if (!this.#onSocketEdit) return;
+    const isComment = node.kind === 'comment';
     this.#closeSocketEditor();
     // The input is an absolutely positioned sibling of the SVG, not part of
     // its coordinate system, so a host page adding padding/border around the
     // SVG (or scaling it) would otherwise leave the input misaligned with
-    // the socket it edits.
+    // the node it edits.
     const {left, top, scale} = this.#svgOffset();
+    // A comment's leading "#" marks it as a comment; it isn't part of what
+    // the user is editing, so exclude it from the input's value and bounds
+    // and leave it showing through as plain, uneditable text. 8 matches the
+    // horizontal text padding renderSourceLabels positions labels with.
+    const measureText = this.#layoutOptions.measureText ?? ((text) => text.length * 10);
+    const prefixWidth = isComment ? 8 + measureText('#') : 0;
+    const editableFrom = node.source.from + (isComment ? 1 : 0);
     const input = this.#dom.ownerDocument.createElement('input');
     input.className = 'droplet-socket-editor';
-    input.value = this.#layout.source.slice(socket.source.from, socket.source.to);
-    input.setAttribute('aria-label', `${socket.metadata?.socketRole ?? 'expression'} socket`);
+    input.value = this.#layout.source.slice(editableFrom, node.source.to);
+    input.setAttribute('aria-label', isComment ? 'comment' : `${node.metadata?.socketRole ?? 'expression'} socket`);
     Object.assign(input.style, {
-      position: 'absolute', left: `${left + socket.bounds.left * scale}px`, top: `${top + socket.bounds.top * scale}px`,
-      width: `${Math.max(24, (socket.bounds.right - socket.bounds.left) * scale)}px`,
-      height: `${(socket.bounds.bottom - socket.bounds.top) * scale}px`, boxSizing: 'border-box',
+      position: 'absolute',
+      left: `${left + (node.bounds.left + prefixWidth) * scale}px`, top: `${top + node.bounds.top * scale}px`,
+      width: `${Math.max(24, (node.bounds.right - node.bounds.left - prefixWidth) * scale)}px`,
+      height: `${(node.bounds.bottom - node.bounds.top) * scale}px`, boxSizing: 'border-box',
       border: '1px solid #246ca8', borderRadius: '3px', padding: '0 3px',
       font: '16px ui-monospace, SFMono-Regular, Menlo, monospace', color: '#24344d', background: '#fff'
     });
-    const editing = {input, source: socket.source, original: input.value};
+    const editing = {input, node, isComment, source: node.source, original: input.value};
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -201,9 +210,18 @@ export class BlockSurface {
     if (this.#socketEditor !== editing) return;
     this.#socketEditor = undefined;
     editing.input.remove();
-    if (editing.input.value !== editing.original) {
-      this.#onSocketEdit({target: editing.source, source: editing.input.value});
+    if (editing.input.value === editing.original) return;
+    // An emptied comment has nothing left to keep; remove it outright
+    // through the normal delete path instead of asking the language adapter
+    // to accept a bare "#" or an empty comment.
+    if (editing.isComment && editing.input.value.trim() === '') {
+      this.#deleteNode(editing.node);
+      return;
     }
+    // The input's value excludes the leading "#" (it isn't editable); restore
+    // it so the replacement still reads as a comment.
+    const source = editing.isComment ? `#${editing.input.value}` : editing.input.value;
+    this.#onSocketEdit({target: editing.source, source});
   }
 
   #closeSocketEditor() {
@@ -438,6 +456,7 @@ function isDeletable(node) {
 
 function isExpressionNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
 function isSocketNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
+function isInlineEditable(node) { return isSocketNode(node) || node?.kind === 'comment'; }
 function sameRange(left, right) { return left?.from === right?.from && left?.to === right?.to; }
 
 function layoutNodeForElement(layout, element) {
