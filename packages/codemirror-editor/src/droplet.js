@@ -263,34 +263,39 @@ function containerGeometry(view, node) {
   const headerTop = headerFrom.top - 3;
   const headerBottom = headerFrom.bottom + 3;
   const bodyBottom = Math.max(headerBottom, bodyTo.bottom + 3);
+  const bottomBarBottom = bodyBottom + 7;
   const inset = left + 15;
   return {
-    kind: 'container', from: node.from, left, headerRight, headerTop, headerBottom, bodyBottom, inset,
+    kind: 'container', from: node.from, left, headerRight, headerTop, headerBottom, bodyBottom: bottomBarBottom, inset,
+    headerText: view.state.doc.sliceString(node.from, node.metadata.headerTo).trimEnd(),
     bodyEnd: node.metadata.bodyEnd, bodyIndentation: node.metadata.bodyIndentation,
     emptySuitePass: node.metadata.emptySuitePass
   };
 }
 
 function createContainerPath(document, shape) {
+  const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  group.setAttribute('data-droplet-role', 'container');
+  group.setAttribute('data-droplet-from', String(shape.from));
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('data-droplet-role', 'container');
-  path.setAttribute('data-droplet-from', String(shape.from));
   if (Number.isInteger(shape.bodyEnd)) {
-    path.setAttribute('data-droplet-body-end', String(shape.bodyEnd));
-    path.setAttribute('data-droplet-body-indentation', shape.bodyIndentation ?? '');
-    path.setAttribute('data-droplet-bottom-left', String(shape.inset - 8));
-    path.setAttribute('data-droplet-bottom-right', String(shape.headerRight + 8));
-    path.setAttribute('data-droplet-bottom', String(shape.bodyBottom));
+    group.setAttribute('data-droplet-body-end', String(shape.bodyEnd));
+    group.setAttribute('data-droplet-body-indentation', shape.bodyIndentation ?? '');
+    group.setAttribute('data-droplet-bottom-left', String(shape.left - 8));
+    group.setAttribute('data-droplet-bottom-right', String(shape.headerRight + 8));
+    group.setAttribute('data-droplet-bottom', String(shape.bodyBottom));
     if (shape.emptySuitePass) {
-      path.setAttribute('data-droplet-empty-suite-pass-from', String(shape.emptySuitePass.from));
-      path.setAttribute('data-droplet-empty-suite-pass-to', String(shape.emptySuitePass.to));
+      group.setAttribute('data-droplet-empty-suite-pass-from', String(shape.emptySuitePass.from));
+      group.setAttribute('data-droplet-empty-suite-pass-to', String(shape.emptySuitePass.to));
     }
   }
   path.setAttribute('d', [
     `M ${shape.left + 4} ${shape.headerTop}`,
     `H ${shape.headerRight - 4} Q ${shape.headerRight} ${shape.headerTop} ${shape.headerRight} ${shape.headerTop + 4}`,
     `V ${shape.headerBottom - 4} Q ${shape.headerRight} ${shape.headerBottom} ${shape.headerRight - 4} ${shape.headerBottom}`,
-    `H ${shape.inset} V ${shape.bodyBottom - 4} Q ${shape.inset} ${shape.bodyBottom} ${shape.inset - 4} ${shape.bodyBottom}`,
+    `H ${shape.inset} V ${shape.bodyBottom - 7}`,
+    `H ${shape.headerRight - 4} Q ${shape.headerRight} ${shape.bodyBottom - 7} ${shape.headerRight} ${shape.bodyBottom - 3}`,
+    `V ${shape.bodyBottom - 4} Q ${shape.headerRight} ${shape.bodyBottom} ${shape.headerRight - 4} ${shape.bodyBottom}`,
     `H ${shape.left + 4} Q ${shape.left} ${shape.bodyBottom} ${shape.left} ${shape.bodyBottom - 4}`,
     `V ${shape.headerTop + 4} Q ${shape.left} ${shape.headerTop} ${shape.left + 4} ${shape.headerTop} Z`
   ].join(' '));
@@ -298,7 +303,27 @@ function createContainerPath(document, shape) {
   path.setAttribute('stroke', '#246ca8');
   path.setAttribute('stroke-width', '3');
   path.setAttribute('stroke-linejoin', 'round');
-  return path;
+  group.append(path);
+
+  const header = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  header.setAttribute('x', String(shape.left));
+  header.setAttribute('y', String(shape.headerTop));
+  header.setAttribute('width', String(shape.headerRight - shape.left));
+  header.setAttribute('height', String(shape.headerBottom - shape.headerTop));
+  header.setAttribute('rx', '4');
+  header.setAttribute('fill', '#246ca8');
+  group.append(header);
+
+  const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  label.setAttribute('data-droplet-container-label', '');
+  label.setAttribute('x', String(shape.left + 7));
+  label.setAttribute('y', String(shape.headerBottom - 6));
+  label.setAttribute('fill', '#fff');
+  label.setAttribute('font-family', 'monospace');
+  label.setAttribute('font-size', '14');
+  label.textContent = shape.headerText;
+  group.append(label);
+  return group;
 }
 
 function whitespaceGeometry(view, node) {

@@ -337,7 +337,8 @@ test('manual modern Python playground renders suite containers and blank-line pl
   await expect(page.locator('.droplet-structural-overlay [data-droplet-role="container"]')).toHaveCount(2);
   await expect(page.locator('.droplet-structural-overlay [data-droplet-role="whitespace"]')).toHaveCount(1);
   const outerContainer = page.locator('.droplet-structural-overlay [data-droplet-role="container"]').first();
-  await expect(outerContainer).toHaveAttribute('stroke', '#246ca8');
+  await expect(outerContainer.locator('path')).toHaveAttribute('stroke', '#246ca8');
+  await expect(outerContainer.locator('[data-droplet-container-label]')).toHaveText('if outer:');
   const containerBox = await outerContainer.boundingBox();
   expect(containerBox.width).toBeGreaterThan(40);
   expect(containerBox.height).toBeGreaterThan(30);
