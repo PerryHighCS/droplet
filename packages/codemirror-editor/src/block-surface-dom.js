@@ -1,4 +1,4 @@
-import {createBlockLayout, hitTestBlockLayout} from './block-surface.js';
+import {createBlockLayout, createSubtreePreview, hitTestBlockLayout} from './block-surface.js';
 
 /**
  * DOM/SVG host for a BlockSurface layout. It owns visual geometry only: source
@@ -9,14 +9,19 @@ export class BlockSurface {
   #dom;
   #svg;
   #onSelect;
+  #onOperation;
   #layoutOptions;
   #layout;
+  #drag;
+  #suppressClick = false;
 
-  constructor({parent, onSelect, layoutOptions = {}}) {
+  constructor({parent, onSelect, onOperation, layoutOptions = {}}) {
     if (!parent?.ownerDocument) throw new TypeError('A BlockSurface parent element is required');
     if (onSelect !== undefined && typeof onSelect !== 'function') throw new TypeError('onSelect must be a function');
+    if (onOperation !== undefined && typeof onOperation !== 'function') throw new TypeError('onOperation must be a function');
     this.#parent = parent;
     this.#onSelect = onSelect;
+    this.#onOperation = onOperation;
     this.#layoutOptions = layoutOptions;
     this.#dom = parent.ownerDocument.createElement('div');
     this.#dom.className = 'droplet-block-surface';
@@ -29,6 +34,9 @@ export class BlockSurface {
     this.#svg.style.display = 'block';
     this.#dom.append(this.#svg);
     this.#dom.addEventListener('click', (event) => this.#handleClick(event));
+    this.#svg.addEventListener('pointerdown', (event) => this.#beginDrag(event));
+    this.#svg.addEventListener('pointermove', (event) => this.#continueDrag(event));
+    this.#svg.addEventListener('pointerup', (event) => this.#endDrag(event));
     parent.append(this.#dom);
   }
 
@@ -55,11 +63,90 @@ export class BlockSurface {
   }
 
   #handleClick(event) {
+    if (this.#suppressClick) {
+      this.#suppressClick = false;
+      return;
+    }
     if (!this.#layout || event.defaultPrevented) return;
     const bounds = this.#svg.getBoundingClientRect();
     const target = hitTestBlockLayout(this.#layout, {x: event.clientX - bounds.left, y: event.clientY - bounds.top});
     if (target?.node?.source) this.#onSelect?.(target.node.source);
   }
+
+  #beginDrag(event) {
+    if (event.button !== 0 || !this.#layout || !this.#onOperation) return;
+    const target = hitTestBlockLayout(this.#layout, pointFor(this.#svg, event));
+    if (!target?.node || !isMovable(target.node)) return;
+    this.#drag = {node: target.node, start: pointFor(this.#svg, event), moved: false, destination: undefined};
+    this.#svg.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  #continueDrag(event) {
+    if (!this.#drag) return;
+    const point = pointFor(this.#svg, event);
+    if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
+    this.#drag.moved = true;
+    const target = hitTestBlockLayout(this.#layout, point);
+    this.#drag.destination = target?.kind === 'insertion' ? target.zone.destination : undefined;
+    renderDragPreviews(this.#svg, this.#layout, this.#drag.node, point, target?.zone);
+    event.preventDefault();
+  }
+
+  #endDrag(event) {
+    const drag = this.#drag;
+    this.#drag = undefined;
+    if (!drag) return;
+    this.#svg.releasePointerCapture?.(event.pointerId);
+    clearDragPreviews(this.#svg);
+    if (!drag.moved) return;
+    this.#suppressClick = true;
+    if (drag.destination) this.#onOperation({
+      type: drag.node.kind === 'comment' ? 'move-comment' : 'move-statement',
+      source: drag.node.source,
+      destination: drag.destination
+    });
+    event.preventDefault();
+  }
+}
+
+function isMovable(node) {
+  return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment';
+}
+
+function pointFor(svg, event) {
+  const bounds = svg.getBoundingClientRect();
+  return {x: event.clientX - bounds.left, y: event.clientY - bounds.top};
+}
+
+function renderDragPreviews(svg, layout, node, point, zone) {
+  clearDragPreviews(svg);
+  const document = svg.ownerDocument;
+  const preview = createSubtreePreview(layout, node.id);
+  const floating = document.createElementNS(SVG_NAMESPACE, 'g');
+  floating.classList.add('droplet-drag-preview');
+  floating.setAttribute('transform', `translate(${point.x + 12} ${point.y + 12})`);
+  floating.setAttribute('opacity', '.85');
+  floating.append(renderNode(preview, document));
+  svg.append(floating);
+  if (!zone) return;
+  const placement = document.createElementNS(SVG_NAMESPACE, 'g');
+  placement.classList.add('droplet-drop-preview');
+  placement.setAttribute('transform', `translate(${zone.bounds.left} ${zone.bounds.top})`);
+  placement.setAttribute('opacity', '.55');
+  placement.append(renderNode(preview, document));
+  const guide = document.createElementNS(SVG_NAMESPACE, 'rect');
+  guide.classList.add('droplet-drop-guide');
+  guide.setAttribute('x', String(zone.bounds.left));
+  guide.setAttribute('y', String(zone.bounds.top + 4));
+  guide.setAttribute('width', String(zone.bounds.right - zone.bounds.left));
+  guide.setAttribute('height', '3');
+  guide.setAttribute('fill', '#4d7fb5');
+  svg.append(placement, guide);
+}
+
+function clearDragPreviews(svg) {
+  svg.querySelectorAll('.droplet-drag-preview, .droplet-drop-preview, .droplet-drop-guide').forEach((element) => element.remove());
 }
 
 function renderLayout(svg, layout, document) {

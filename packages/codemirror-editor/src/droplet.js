@@ -57,7 +57,8 @@ export class DropletCodeMirrorEditor {
     });
     this.#surface = new BlockSurface({
       parent: options.parent,
-      onSelect: ({from, to}) => this.editor.setSelection({anchor: from, head: to})
+      onSelect: ({from, to}) => this.editor.setSelection({anchor: from, head: to}),
+      onOperation: (operation) => this.applyBlockOperation(operation)
     });
 
     if (this.#blockMode) this.#publishProjection();
