@@ -64,7 +64,7 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
     kind, from, to, editable: kind !== 'document',
     children: childNodes(node).map((child) => project(
       child.node, source, lines, child.socket ? 'socket' : kindFor(child.node), statementRange
-    )),
+    )).sort(compareProjectedNodes),
     metadata: {type: typeOf(node)}
   };
 }
@@ -76,6 +76,10 @@ function expandDecoratorRange(node, source, lines, range) {
     return offsetFrom < 0 || !Number.isInteger(lineStart) ? from : Math.min(from, lineStart);
   }, range.from);
   return decoratorFrom === range.from ? range : {from: decoratorFrom, to: range.to};
+}
+
+function compareProjectedNodes(left, right) {
+  return left.from - right.from || left.to - right.to || left.id.localeCompare(right.id);
 }
 
 function kindFor(node) {

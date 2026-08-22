@@ -180,9 +180,28 @@ test('projects descendants of unlocated Brython argument and comprehension conta
   const descendants = collectProjectedNodes(projected.root);
   assert.deepEqual(
     descendants.filter((node) => ['arg', 'Constant', 'Name'].includes(node.metadata?.type))
-      .map((node) => [node.metadata.type, node.kind]),
-    [['arg', 'socket'], ['Constant', 'socket'], ['Name', 'expression'], ['Name', 'socket'], ['Name', 'socket']]
+      .map((node) => [node.metadata.type, node.kind]).sort(),
+    [['arg', 'socket'], ['Constant', 'socket'], ['Name', 'expression'], ['Name', 'socket'], ['Name', 'socket']].sort()
   );
+});
+
+test('orders projected children by source range instead of AST field order', () => {
+  const source = 'abcdefghijklmnopqrst\n';
+  const located = (type, from, to, extra = {}) => ({
+    type, lineno: 1, col_offset: from, end_lineno: 1, end_col_offset: to, ...extra
+  });
+  const ast = {type: 'Module', body: [located('Expr', 0, 20, {
+    value: located('Call', 0, 20, {
+      args: [located('Name', 15, 20)],
+      func: located('Name', 0, 2),
+      keywords: [located('keyword', 3, 14, {value: located('Constant', 9, 14)})]
+    })
+  })]};
+
+  const call = parsePython(source, () => ast).root.children[0].children[0];
+  assert.deepEqual(call.children.map(({from, to}) => ({from, to})), [
+    {from: 0, to: 2}, {from: 3, to: 14}, {from: 15, to: 20}
+  ]);
 });
 
 function collectProjectedNodes(node) {
