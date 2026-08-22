@@ -277,21 +277,38 @@ function destinationForTarget(layout, target, point, dragNode) {
       zone: {bounds: target.node.bounds}
     };
   }
+  // Dropping a comment to the right of a bare statement's own text attaches
+  // it inline instead of reordering it as a sibling line.
+  if (dragNode?.kind === 'comment' && target?.node?.kind === 'statement' &&
+      point.x >= target.node.bounds.right && !sameRange(dragNode.source, target.node.source)) {
+    return {
+      operation: {
+        type: 'move-comment', source: dragNode.source,
+        destination: {from: target.node.source.from, to: target.node.source.to},
+        placement: 'line-end'
+      },
+      zone: {bounds: target.node.bounds}
+    };
+  }
   // Standalone comments and container headers participate in their suite's
   // vertical sibling order. A container body/footer retains its structural
-  // insertion zones; only the header gets before/after behavior.
-  // Inline comments remain children of their statement and are not targets here.
-  if (target?.node?.kind !== 'statement' && target?.node?.kind !== 'comment' && target?.kind !== 'container-header') return undefined;
-  const targetBounds = target.kind === 'container-header' ? target.node.regions.header : target.node.bounds;
+  // insertion zones; only the header gets before/after behavior. An inline
+  // comment is a child of its statement rather than a suite-level sibling, so
+  // it borrows its owning statement's position for this purpose.
+  const inlineOwner = target?.node?.kind === 'comment' && target.node.metadata?.inline
+    ? findParent(layout.root, target.node.id) : undefined;
+  const targetNode = inlineOwner ?? target?.node;
+  if (targetNode?.kind !== 'statement' && targetNode?.kind !== 'comment' && target?.kind !== 'container-header') return undefined;
+  const targetBounds = target.kind === 'container-header' ? target.node.regions.header : targetNode.bounds;
   const before = point.y < (targetBounds.top + targetBounds.bottom) / 2;
   if (target.kind === 'container-header' && !before) {
     const zone = target.node.insertionZones.find((candidate) => candidate.role === 'before-sibling') ??
       target.node.insertionZones.find((candidate) => candidate.role === 'body-end');
     return zone ? {destination: zone.destination, zone} : undefined;
   }
-  const parent = findParent(layout.root, target.node.id);
+  const parent = findParent(layout.root, targetNode.id);
   if (!parent) return undefined;
-  if (target.node.metadata?.type === 'Pass' && parent.metadata?.emptySuitePass) {
+  if (targetNode.metadata?.type === 'Pass' && parent.metadata?.emptySuitePass) {
     const from = parent.metadata.bodyEnd ?? parent.source.to;
     return {
       destination: {
@@ -299,12 +316,12 @@ function destinationForTarget(layout, target, point, dragNode) {
         indentation: parent.metadata.bodyIndentation ?? '',
         emptySuitePass: parent.metadata.emptySuitePass
       },
-      zone: {bounds: target.node.bounds}
+      zone: {bounds: targetNode.bounds}
     };
   }
-  const index = parent.children.findIndex((child) => child.id === target.node.id);
+  const index = parent.children.findIndex((child) => child.id === targetNode.id);
   const zone = before
-    ? parent.insertionZones.find((candidate) => candidate.role === 'before-sibling' && candidate.destination.from === target.node.source.from)
+    ? parent.insertionZones.find((candidate) => candidate.role === 'before-sibling' && candidate.destination.from === targetNode.source.from)
     : index + 1 < parent.children.length
       ? parent.insertionZones.find((candidate) => candidate.role === 'before-sibling' &&
         candidate.destination.from === parent.children[index + 1].source.from)

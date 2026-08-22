@@ -168,6 +168,42 @@ test('uses the upper and lower halves of a standalone comment as sibling drop ta
   ]);
 });
 
+test('drops a statement onto an inline comment using its owning statement position', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(statementWithInlineComment());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const note = surface.layout.nodes.find((node) => node.id === 'note');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  drag(svg, dom.window, second, note.bounds.left + 2, note.bounds.top + 2);
+
+  assert.deepEqual(operations, [{type: 'move-statement', source: {from: 18, to: 26}, destination: {from: 0, to: 0, indentation: ''}}]);
+});
+
+test('drags a comment to the right of a bare statement to attach it inline', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(statementWithTrailingComment());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const comment = surface.layout.nodes.find((node) => node.id === 'comment');
+
+  drag(svg, dom.window, comment, first.bounds.right + 4, first.bounds.top + 2);
+
+  assert.deepEqual(operations, [{
+    type: 'move-comment', source: {from: 17, to: 24}, destination: {from: 0, to: 7}, placement: 'line-end'
+  }]);
+});
+
 test('uses the upper and lower halves of a container header as sibling drop targets', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -282,6 +318,29 @@ function statementsWithStandaloneComment() {
       {id: 'first', kind: 'statement', from: 0, to: 7, editable: true, metadata: {}, children: []},
       {id: 'comment', kind: 'comment', from: 8, to: 20, editable: true, metadata: {inline: false}, children: []},
       {id: 'second', kind: 'statement', from: 21, to: 29, editable: true, metadata: {}, children: []}
+    ]
+  }};
+}
+
+function statementWithInlineComment() {
+  const source = 'first = 1  # note\nsecond()\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [
+      {id: 'first', kind: 'statement', from: 0, to: 9, editable: true, metadata: {}, children: [
+        {id: 'note', kind: 'comment', from: 11, to: 17, editable: true, metadata: {inline: true}, children: []}
+      ]},
+      {id: 'second', kind: 'statement', from: 18, to: 26, editable: true, metadata: {}, children: []}
+    ]
+  }};
+}
+
+function statementWithTrailingComment() {
+  const source = 'first()\nsecond()\n# aside\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [
+      {id: 'first', kind: 'statement', from: 0, to: 7, editable: true, metadata: {}, children: []},
+      {id: 'second', kind: 'statement', from: 8, to: 16, editable: true, metadata: {}, children: []},
+      {id: 'comment', kind: 'comment', from: 17, to: 24, editable: true, metadata: {inline: false}, children: []}
     ]
   }};
 }
