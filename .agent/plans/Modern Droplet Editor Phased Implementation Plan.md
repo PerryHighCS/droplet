@@ -782,51 +782,71 @@ BrythonPythonParser
 
 ## Brython investigation and implementation
 
-- [ ] Verify current Brython AST locations.
-- [ ] Verify start and end offsets or line and column information.
-- [ ] Verify handling of comments and lexical trivia.
-- [ ] Determine whether tokenization is needed alongside AST parsing.
-- [ ] Build a Brython AST to Droplet source node adapter.
-- [ ] Compare structures against historical Skulpt behavior.
-- [ ] Maintain exact original source slices.
+- [x] Verify current Brython AST locations.
+- [x] Verify start and end offsets or line and column information.
+- [x] Verify handling of comments and lexical trivia.
+- [x] Determine whether tokenization is needed alongside AST parsing.
+- [x] Build a Brython AST to Droplet source node adapter.
+- [x] Compare structures against historical Skulpt behavior.
+- [x] Maintain exact original source slices.
+
+### Brython findings — 2026-08-21
+
+- Brython 3.14.3 exposes start and end line/column locations on AST nodes in
+  Chromium. Its columns match JavaScript string offsets, including surrogate
+  pairs, so source ranges can address CodeMirror documents directly.
+- Comments are intentionally absent from the AST. The initial adapter retains
+  the complete original source and only projects AST ranges; a tokenizer is
+  required before a structural operation can associate or move comments and
+  other lexical trivia.
+- `@droplet/python-adapter` wraps Brython's `pythonToAST` callback, maps its
+  source ranges to modern projection nodes, and recovers syntax errors as an
+  opaque source projection.
+- Projection traverses unlocated Brython AST containers, preserving located
+  parameters, defaults, and comprehension components instead of dropping them
+  from the source-range tree.
+- The historical Skulpt implementation projected parser tokens into its legacy
+  markup model (including Python 2 `print`); the modern adapter instead uses
+  semantic AST ranges. Compatibility work should compare source-preserving
+  observable block behavior, not those incompatible internal trees.
 
 ## Modern Python corpus
 
 Expand tests to include:
 
-- [ ] Python 3 `print()`.
-- [ ] Modern `input()`.
-- [ ] F strings.
-- [ ] Triple quoted strings.
-- [ ] Multiline strings.
-- [ ] Nested expressions.
-- [ ] List literals.
-- [ ] Dictionaries.
-- [ ] Tuples.
-- [ ] Slicing.
-- [ ] Keyword arguments.
-- [ ] Default parameters.
-- [ ] `for`.
-- [ ] `while`.
-- [ ] `break`.
-- [ ] `continue`.
-- [ ] `if / elif / else`.
-- [ ] Functions.
-- [ ] Imports.
-- [ ] List comprehensions.
-- [ ] Classes, initially possibly opaque if not structurally supported.
-- [ ] `match`, initially possibly opaque.
-- [ ] Type annotations, initially possibly opaque.
+- [x] Python 3 `print()`.
+- [x] Modern `input()`.
+- [x] F strings.
+- [x] Triple quoted strings.
+- [x] Multiline strings.
+- [x] Nested expressions.
+- [x] List literals.
+- [x] Dictionaries.
+- [x] Tuples.
+- [x] Slicing.
+- [x] Keyword arguments.
+- [x] Default parameters.
+- [x] `for`.
+- [x] `while`.
+- [x] `break`.
+- [x] `continue`.
+- [x] `if / elif / else`.
+- [x] Functions.
+- [x] Imports.
+- [x] List comprehensions.
+- [x] Classes, initially possibly opaque if not structurally supported.
+- [x] `match`, initially possibly opaque.
+- [x] Type annotations, initially possibly opaque.
 
 Support should grow progressively. Unsupported syntax remains usable through opaque source blocks.
 
 ### Phase 7 acceptance criteria
 
-- [ ] Basic instructional Python no longer depends on Python 2 grammar.
-- [ ] Modern Python constructs parse where supported.
-- [ ] Unsupported constructs remain visible as opaque blocks.
-- [ ] Quote style remains exact.
-- [ ] Triple quoted strings survive block mode unchanged.
+- [x] Basic instructional Python no longer depends on Python 2 grammar.
+- [x] Modern Python constructs parse where supported.
+- [x] Unsupported constructs remain visible as opaque blocks.
+- [x] Quote style remains exact.
+- [x] Triple quoted strings survive block mode unchanged.
 
 ---
 
@@ -848,6 +868,20 @@ blank lines
 ```
 
 unless an explicit block operation requires a source change.
+
+### Brython tokenizer findings — 2026-08-21
+
+Brython's tokenizer retains comment ranges, but its `INDENT` token has an empty
+string and measures a tab as eight visual columns. AST ranges and ordinary
+tokens can address the JavaScript source snapshot directly; indentation must
+instead be read from the original leading line slice. This prevents tabs from
+being silently converted or assigned the wrong source range.
+
+`@droplet/python-adapter` exposes `collectPythonTrivia` for exact standalone
+and inline comment ranges plus raw indentation slices. Structural comment
+association and indentation-changing operations remain future work.
+It determines an inline comment from non-whitespace source preceding `#` on
+the same line, so indented standalone comments remain standalone.
 
 ## Newly generated indentation
 

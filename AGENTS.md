@@ -63,6 +63,9 @@ Before changing code, read the relevant material:
 - `packages/javascript-adapter/`: modern Acorn-based JavaScript range parser
   and source-transform adapter. It is independent of the legacy JavaScript
   CoffeeScript mode and must preserve exact source slices.
+- `packages/python-adapter/`: Brython AST-based Python source-range parser.
+  It preserves the complete source snapshot and recovers syntax failures as
+  opaque source projections; do not use it to normalize Python text.
 - `dist/`, `test/js/`, and generated example JavaScript: build output; do not
   manually edit or commit it unless a task explicitly requires a release artifact.
 
@@ -102,6 +105,7 @@ creation; otherwise run `PUPPETEER_SKIP_DOWNLOAD=true npm ci` and
 | Run one QUnit page, plus Mocha tests | `npx grunt test:<name>` (for example, `npx grunt test:ctest`) |
 | Run browser tests on supported ARM64 Chromium | `npm run test:browser` |
 | Run modern core tests | `npm --prefix packages/core test` |
+| Run modern Python adapter tests | `npm --prefix packages/python-adapter test` |
 | Run the legacy development server and watcher | `npm run dev` |
 | Run the development server and watch bundle changes | `npx grunt testserver` |
 

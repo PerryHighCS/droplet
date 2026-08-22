@@ -90,6 +90,19 @@ jobs:
       - run: npm --prefix packages/javascript-adapter ci
       - run: npm --prefix packages/javascript-adapter test
 
+  python-adapter:
+    name: Modern Python adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: packages/python-adapter/package-lock.json
+      - run: npm --prefix packages/python-adapter ci
+      - run: npm --prefix packages/python-adapter test
+
   legacy-verification:
     name: Legacy verification
     if: ${{ always() }}
@@ -113,6 +126,7 @@ jobs:
       - modern-core
       - codemirror-editor
       - javascript-adapter
+      - python-adapter
     runs-on: ubuntu-latest
     steps:
       - name: Require every modern check to pass
@@ -120,7 +134,9 @@ jobs:
           MODERN_CORE: ${{ needs.modern-core.result }}
           CODEMIRROR_EDITOR: ${{ needs.codemirror-editor.result }}
           JAVASCRIPT_ADAPTER: ${{ needs.javascript-adapter.result }}
+          PYTHON_ADAPTER: ${{ needs.python-adapter.result }}
         run: |
           test "$MODERN_CORE" = success
           test "$CODEMIRROR_EDITOR" = success
           test "$JAVASCRIPT_ADAPTER" = success
+          test "$PYTHON_ADAPTER" = success
