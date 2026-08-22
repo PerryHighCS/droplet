@@ -214,7 +214,7 @@ class StructuralBlockRenderer {
     Object.assign(this.dom.style, {
       position: 'fixed', inset: '0', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: '2', overflow: 'visible'
     });
-    view.dom.append(this.dom);
+    view.dom.ownerDocument.body.append(this.dom);
     this.draw();
   }
 
@@ -442,7 +442,7 @@ function updateDropTarget(drag, view, destination, clientX, clientY, attachmentT
     .find((block) => Number(block.dataset.dropletFrom) === destinationFrom);
   const rect = boundary?.getBoundingClientRect();
   const attachment = attachmentTarget && elementForRange(view, attachmentTarget)?.getBoundingClientRect();
-  const container = typeof destination === 'object' && view.dom.querySelector(
+  const container = typeof destination === 'object' && view.dom.ownerDocument.querySelector(
     `[data-droplet-role="container"][data-droplet-body-end="${destinationFrom}"]`
   );
   const containerLeft = Number(container?.dataset.dropletBottomLeft);
@@ -501,7 +501,7 @@ function statementDestinationAtPointer(view, event) {
 
 function containerBottomDestinationAtPointer(source, view, event) {
   if (source.kind !== 'statement') return undefined;
-  const containers = [...view.dom.querySelectorAll('[data-droplet-role="container"][data-droplet-body-end]')].reverse();
+  const containers = [...view.dom.ownerDocument.querySelectorAll('[data-droplet-role="container"][data-droplet-body-end]')].reverse();
   for (const container of containers) {
     const left = Number(container.dataset.dropletBottomLeft);
     const right = Number(container.dataset.dropletBottomRight);

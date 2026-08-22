@@ -333,8 +333,14 @@ test('manual modern Python playground loads with its source and projection panel
 test('manual modern Python playground renders suite containers and blank-line placeholders', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  await expect(page.locator('.droplet-structural-overlay')).toBeVisible();
   await expect(page.locator('.droplet-structural-overlay [data-droplet-role="container"]')).toHaveCount(2);
   await expect(page.locator('.droplet-structural-overlay [data-droplet-role="whitespace"]')).toHaveCount(1);
+  const outerContainer = page.locator('.droplet-structural-overlay [data-droplet-role="container"]').first();
+  await expect(outerContainer).toHaveAttribute('stroke', '#4d7fb5');
+  const containerBox = await outerContainer.boundingBox();
+  expect(containerBox.width).toBeGreaterThan(40);
+  expect(containerBox.height).toBeGreaterThan(30);
 });
 
 test('manual modern Python playground drops a statement at a container C-shape bottom', async ({page}) => {

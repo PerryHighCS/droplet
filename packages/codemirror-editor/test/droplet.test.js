@@ -79,8 +79,9 @@ test('block mode installs a structural overlay for container and whitespace rend
     })
   });
 
-  assert.ok(parent.querySelector('.droplet-structural-overlay'));
+  assert.ok(document.querySelector('.droplet-structural-overlay'));
   editor.destroy();
+  assert.equal(document.querySelector('.droplet-structural-overlay'), null);
 });
 
 test('clicking a rendered projection selects its exact source range', () => {
