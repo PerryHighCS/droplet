@@ -28,7 +28,8 @@ for (const name of Object.keys(samples)) {
 
 window.brython();
 const pythonToAST = window.__BRYTHON__.pythonToAST;
-const editor = createDropletCodeMirrorEditor({
+let editor;
+editor = createDropletCodeMirrorEditor({
   parent: document.querySelector('#modern-python-editor'),
   value: samples[sampleSelect.value],
   blockMode: true,
@@ -78,6 +79,7 @@ suiteButton.addEventListener('click', () => {
 });
 
 function refresh() {
+  if (!editor) return;
   const projection = editor.getProjection();
   sourcePanel.textContent = editor.getValue();
   projectionPanel.textContent = JSON.stringify(projection.root, null, 2);

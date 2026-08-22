@@ -294,9 +294,10 @@ function createContainerPath(document, shape) {
     `H ${shape.left + 4} Q ${shape.left} ${shape.bodyBottom} ${shape.left} ${shape.bodyBottom - 4}`,
     `V ${shape.headerTop + 4} Q ${shape.left} ${shape.headerTop} ${shape.left + 4} ${shape.headerTop} Z`
   ].join(' '));
-  path.setAttribute('fill', 'rgba(144, 202, 249, .20)');
-  path.setAttribute('stroke', '#4d7fb5');
-  path.setAttribute('stroke-width', '1.5');
+  path.setAttribute('fill', '#d8ecff');
+  path.setAttribute('stroke', '#246ca8');
+  path.setAttribute('stroke-width', '3');
+  path.setAttribute('stroke-linejoin', 'round');
   return path;
 }
 
