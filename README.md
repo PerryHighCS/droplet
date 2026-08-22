@@ -35,7 +35,10 @@ Droplet adapter.
 [`packages/python-adapter`](packages/python-adapter/) is the initial modern
 Python parsing path. It maps Brython browser-AST source ranges while retaining
 the original source snapshot; syntax failures are represented as opaque source
-ranges. Comment-aware structural edits remain future work.
+ranges. `createBrythonPythonTransformer` adds source-range socket replacement,
+statement insertion, and statement movement with Brython validation. These
+operations preserve untouched source exactly, including comments, blank lines,
+and tabs; moved statements adopt only the target line's existing indentation.
 
 How to Embed
 ------------

@@ -879,9 +879,19 @@ being silently converted or assigned the wrong source range.
 
 `@droplet/python-adapter` exposes `collectPythonTrivia` for exact standalone
 and inline comment ranges plus raw indentation slices. Structural comment
-association and indentation-changing operations remain future work.
+association beyond source preservation remains future work.
 It determines an inline comment from non-whitespace source preceding `#` on
 the same line, so indented standalone comments remain standalone.
+
+### Phase 8 implementation — 2026-08-22
+
+`@droplet/python-adapter` now provides a Brython-bound source-range transformer
+for socket replacement, statement insertion, and statement movement. It leaves
+every untouched character intact, including blank lines, tabs, inline comments,
+and standalone comments. Insertions use the target line's existing indentation;
+statement movement reindents only the moved nonblank lines and validates the
+result with Brython. `createEmptyPythonSuite` emits an explicitly indented
+`pass` statement for a new empty suite.
 
 ## Newly generated indentation
 
@@ -924,12 +934,12 @@ Inline comments should normally remain associated with their containing statemen
 
 ### Phase 8 acceptance criteria
 
-- [ ] Tabs and spaces are not globally normalized.
-- [ ] New indentation follows local convention.
-- [ ] Blank lines survive block toggling.
-- [ ] Inline comments survive edits.
-- [ ] Standalone comments survive edits.
-- [ ] Empty suites remain valid Python.
+- [x] Tabs and spaces are not globally normalized.
+- [x] New indentation follows local convention.
+- [x] Blank lines survive block toggling.
+- [x] Inline comments survive edits.
+- [x] Standalone comments survive edits.
+- [x] Empty suites remain valid Python.
 
 ---
 

@@ -3,8 +3,11 @@ import test from 'node:test';
 
 import {
   collectPythonTrivia,
+  createEmptyPythonSuite,
+  transformPython,
   parsePython
 } from '../src/index.js';
+import {applySourceChanges} from '@droplet/core';
 
 test('maps Brython line and column locations to exact source ranges', () => {
   const source = 'value = outer(1)\n';
@@ -239,6 +242,50 @@ test('orders projected children by source range instead of AST field order', () 
   ]);
 });
 
+test('inserts Python statements using the destination indentation without normalizing source', () => {
+  const source = 'if ready:\n\tfirst = 1\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 11, to: 20, children: []};
+  const parsed = projection(source, [first]);
+
+  const changes = transformPython({
+    type: 'insert-statement', destination: {from: first.from, to: first.from}, source: 'pass'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n\tpass\n\tfirst = 1\n');
+  assert.equal(createEmptyPythonSuite('\t'), '\tpass');
+  assert.throws(() => createEmptyPythonSuite('  value'), /indentation/);
+});
+
+test('moves only Python statement lines and preserves comments, blanks, and local indentation', () => {
+  const source = 'if ready:\n  first = 1  # retain\n  second = 2\n\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 12, to: 31, children: []};
+  const second = {id: 'statement:second', kind: 'statement', from: 34, to: 44, children: []};
+  const parsed = projection(source, [{
+    id: 'statement:if', kind: 'statement', from: 0, to: 44, children: [first, second]
+  }]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: second.from, to: second.to},
+    destination: {from: first.from, to: first.from}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  second = 2\n  first = 1  # retain\n\n');
+});
+
+test('rejects Python block changes that Brython cannot parse', () => {
+  const source = 'value = 1\n';
+  const socket = {id: 'socket:value', kind: 'socket', from: 8, to: 9, children: []};
+  const parsed = projection(source, [{id: 'statement:assign', kind: 'statement', from: 0, to: 9, children: [socket]}]);
+
+  assert.throws(() => transformPython({
+    type: 'replace-socket', target: {from: 8, to: 9}, source: '('
+  }, parsed, () => { throw new Error('invalid syntax'); }), /invalid source/);
+});
+
 function collectProjectedNodes(node) {
   return [node, ...(node.children ?? []).flatMap(collectProjectedNodes)];
+}
+
+function projection(source, children) {
+  return {source, root: {id: 'document', kind: 'document', from: 0, to: source.length, children}};
 }

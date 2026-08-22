@@ -1,4 +1,4 @@
-import {parseWithOpaqueRecovery} from '@droplet/core';
+import {applySourceChanges, normalizeSourceChanges, parseWithOpaqueRecovery} from '@droplet/core';
 
 /** Creates a source-range Python parser from Brython's browser AST API. */
 export function createBrythonPythonParser(pythonToAST) {
@@ -22,6 +22,59 @@ export function parsePython(source, pythonToAST) {
     const lines = lineStarts(source);
     return {source, root: project(ast, source, lines, 'document'), issues: []};
   });
+}
+
+/** Binds Python source-range block transforms to Brython syntax validation. */
+export function createBrythonPythonTransformer(pythonToAST) {
+  if (typeof pythonToAST !== 'function') throw new TypeError('Brython pythonToAST is required');
+  return (operation, parsed) => transformPython(operation, parsed, pythonToAST);
+}
+
+/**
+ * Returns minimal source changes for supported Python block intents.
+ * Untouched source, including blank lines, comments, and indentation, remains
+ * byte-for-byte intact.
+ */
+export function transformPython(operation, parsed, pythonToAST) {
+  assertParsedSource(parsed);
+  let changes;
+  switch (operation?.type) {
+    case 'replace-socket': {
+      assertOperationSource(operation.source, 'Socket replacement');
+      const socket = findNode(parsed.root, operation.target, 'socket');
+      if (!socket) throw new RangeError('Socket target is not present in the current projection');
+      changes = [{from: socket.from, to: socket.to, insert: operation.source}];
+      break;
+    }
+    case 'insert-statement': {
+      assertOperationSource(operation.source, 'Statement insertion');
+      assertInsertionPoint(parsed.source, operation.destination);
+      changes = [insertStatementChange(parsed.source, operation.destination.from, operation.source)];
+      break;
+    }
+    case 'move-statement': {
+      const statement = findNode(parsed.root, operation.source, 'statement');
+      if (!statement) throw new RangeError('Statement source is not present in the current projection');
+      assertInsertionPoint(parsed.source, operation.destination);
+      const statementRange = statementLineRange(parsed.source, statement);
+      if (operation.destination.from >= statementRange.from && operation.destination.from <= statementRange.to) return [];
+      changes = moveStatementChanges(parsed.source, statementRange, operation.destination.from);
+      break;
+    }
+    default:
+      throw new RangeError(`Unsupported Python block operation: ${operation?.type}`);
+  }
+
+  const normalizedChanges = normalizeSourceChanges(parsed.source, changes);
+  const nextSource = applySourceChanges(parsed.source, normalizedChanges);
+  if (pythonToAST !== undefined) assertValidPython(nextSource, pythonToAST);
+  return normalizedChanges;
+}
+
+/** Returns a valid empty-suite statement using an exact indentation prefix. */
+export function createEmptyPythonSuite(indentation = '') {
+  if (!/^[\t \f]*$/.test(indentation)) throw new TypeError('Python indentation must contain only whitespace');
+  return `${indentation}pass`;
 }
 
 /**
@@ -81,6 +134,65 @@ function expandDecoratorRange(node, source, lines, range) {
 function compareProjectedNodes(left, right) {
   return left.from - right.from || left.to - right.to || left.id.localeCompare(right.id);
 }
+
+function insertStatementChange(source, destination, statementSource) {
+  const indentation = indentationAt(source, destination);
+  const lineEnding = lineEndingAt(source, destination);
+  const text = reindentPythonLines(statementSource, leadingWhitespace(statementSource, 0), indentation);
+  if (destination === source.length) {
+    const prefix = isLineStart(source, destination) ? indentation : lineEnding + indentation;
+    return {from: destination, to: destination, insert: prefix + text};
+  }
+  return {from: destination, to: destination, insert: `${text}${ensureLineEnding(text, lineEnding)}${indentation}`};
+}
+
+function moveStatementChanges(source, statementRange, destination) {
+  const sourceIndentation = indentationAt(source, statementRange.from);
+  const destinationIndentation = indentationAt(source, destination);
+  const text = reindentPythonLines(source.slice(statementRange.from, statementRange.to), sourceIndentation, destinationIndentation);
+  const lineEnding = lineEndingAt(source, destination);
+  const insert = `${text}${ensureLineEnding(text, lineEnding)}${destinationIndentation}`;
+  return [
+    {from: statementRange.from, to: statementRange.to, insert: ''},
+    {from: destination, to: destination, insert}
+  ];
+}
+
+function statementLineRange(source, statement) {
+  const from = lineStartAt(source, statement.from);
+  let to = statement.to;
+  while (to < source.length && source[to] !== '\r' && source[to] !== '\n') to += 1;
+  if (source[to] === '\r' && source[to + 1] === '\n') to += 2;
+  else if (source[to] === '\r' || source[to] === '\n') to += 1;
+  return {from, to};
+}
+
+function reindentPythonLines(source, fromIndentation, toIndentation) {
+  return source.split(/(\r\n|\r|\n)/).map((part, index) => {
+    if (index % 2 === 1 || part === '') return part;
+    const content = part.startsWith(fromIndentation) ? part.slice(fromIndentation.length) : part;
+    return index === 0 ? content : toIndentation + content;
+  }).join('');
+}
+
+function ensureLineEnding(source, lineEnding) {
+  return /(?:\r\n|\r|\n)$/.test(source) ? '' : lineEnding;
+}
+
+function indentationAt(source, position) {
+  return leadingWhitespace(source, lineStartAt(source, position));
+}
+
+function lineStartAt(source, position) {
+  return Math.max(source.lastIndexOf('\n', position - 1), source.lastIndexOf('\r', position - 1)) + 1;
+}
+
+function lineEndingAt(source, position) {
+  const ending = /\r\n|\r|\n/.exec(source.slice(position));
+  return ending?.[0] ?? '\n';
+}
+
+function isLineStart(source, position) { return position === 0 || source[position - 1] === '\r' || source[position - 1] === '\n'; }
 
 function kindFor(node) {
   const type = typeOf(node);
@@ -155,4 +267,40 @@ function sourceLineEnd(starts, line, source) {
   let end = starts[line] ?? source.length;
   while (end > starts[line - 1] && (source[end - 1] === '\r' || source[end - 1] === '\n')) end -= 1;
   return end;
+}
+
+function findNode(node, range, kind) {
+  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
+  if (node.kind === kind && node.from === range.from && node.to === range.to) return node;
+  for (const child of node.children ?? []) {
+    const found = findNode(child, range, kind);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function assertParsedSource(parsed) {
+  if (typeof parsed?.source !== 'string' || !parsed?.root) {
+    throw new TypeError('A current Python projection is required');
+  }
+}
+
+function assertOperationSource(source, label) {
+  if (typeof source !== 'string') throw new TypeError(`${label} source must be a string`);
+}
+
+function assertInsertionPoint(source, destination) {
+  if (!Number.isInteger(destination?.from) || destination.from !== destination.to ||
+      destination.from < 0 || destination.from > source.length) {
+    throw new RangeError('Statement destination must be a zero-width source position');
+  }
+}
+
+function assertValidPython(source, pythonToAST) {
+  if (typeof pythonToAST !== 'function') throw new TypeError('Brython pythonToAST must be a function');
+  try {
+    pythonToAST(source, 'droplet.py', 'file');
+  } catch (error) {
+    throw new RangeError(`Python block operation produced invalid source: ${error?.message ?? 'syntax error'}`);
+  }
 }

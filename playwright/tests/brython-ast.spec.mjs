@@ -255,3 +255,54 @@ test('CodeMirror block mode preserves Brython Python source in Chromium', async 
   expect(result.textValue).toBe(source);
   expect(result.opaque).toEqual({value: 'if score >', blocks: 1});
 });
+
+test('Python block movement preserves local indentation, comments, and blank lines', async ({page}) => {
+  await page.goto('/test/ctest.html');
+  await page.addScriptTag({url: '/playwright/node_modules/brython/brython.js'});
+  const source = 'if ready:\n  # standalone\n  first = 1  # retain\n  second = 2\n\n';
+  const value = await page.evaluate(async (python) => {
+    const importMap = document.createElement('script');
+    importMap.type = 'importmap';
+    importMap.textContent = JSON.stringify({imports: {
+      '@droplet/core': '/packages/core/src/index.js',
+      '@droplet/codemirror-editor': '/packages/codemirror-editor/src/index.js',
+      '@droplet/codemirror-editor/droplet': '/packages/codemirror-editor/src/droplet.js',
+      '@codemirror/state': '/playwright/node_modules/@codemirror/state/dist/index.js',
+      '@codemirror/view': '/playwright/node_modules/@codemirror/view/dist/index.js',
+      '@codemirror/commands': '/playwright/node_modules/@codemirror/commands/dist/index.js',
+      '@codemirror/language': '/playwright/node_modules/@codemirror/language/dist/index.js',
+      '@lezer/common': '/playwright/node_modules/@lezer/common/dist/index.js',
+      '@lezer/highlight': '/playwright/node_modules/@lezer/highlight/dist/index.js',
+      '@lezer/lr': '/playwright/node_modules/@lezer/lr/dist/index.js',
+      '@marijn/find-cluster-break': '/playwright/node_modules/@marijn/find-cluster-break/src/index.js',
+      'crelt': '/playwright/node_modules/crelt/index.js',
+      'style-mod': '/playwright/node_modules/style-mod/src/style-mod.js',
+      'w3c-keyname': '/playwright/node_modules/w3c-keyname/index.js'
+    }});
+    document.head.append(importMap);
+    const {createDropletCodeMirrorEditor} = await import('@droplet/codemirror-editor/droplet');
+    const {createBrythonPythonParser, createBrythonPythonTransformer} = await import('/packages/python-adapter/src/index.js');
+    window.brython();
+    const parent = document.createElement('div');
+    document.body.append(parent);
+    const pythonToAST = window.__BRYTHON__.pythonToAST;
+    const editor = createDropletCodeMirrorEditor({
+      parent, value: python, blockMode: true,
+      parse: createBrythonPythonParser(pythonToAST),
+      transform: createBrythonPythonTransformer(pythonToAST)
+    });
+    const nodes = (node) => [node, ...(node.children ?? []).flatMap(nodes)];
+    const projection = editor.getProjection();
+    const first = nodes(projection.root).find((node) => python.slice(node.from, node.to) === 'first = 1');
+    const second = nodes(projection.root).find((node) => python.slice(node.from, node.to) === 'second = 2');
+    editor.applyBlockOperation({
+      type: 'move-statement', source: {from: second.from, to: second.to},
+      destination: {from: first.from, to: first.from}
+    });
+    const result = editor.getValue();
+    editor.destroy();
+    return result;
+  }, source);
+
+  expect(value).toBe('if ready:\n  # standalone\n  second = 2\n  first = 1  # retain\n\n');
+});
