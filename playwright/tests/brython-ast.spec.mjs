@@ -256,10 +256,10 @@ test('CodeMirror block mode preserves Brython Python source in Chromium', async 
   expect(result.opaque).toEqual({value: 'if score >', blocks: 1});
 });
 
-test('Python block movement preserves local indentation, comments, and blank lines', async ({page}) => {
+test('Python block movement preserves nested suites, comments, and blank lines', async ({page}) => {
   await page.goto('/test/ctest.html');
   await page.addScriptTag({url: '/playwright/node_modules/brython/brython.js'});
-  const source = 'if ready:\n  # standalone\n  first = 1  # retain\n  second = 2\n\n';
+  const source = 'if outer:\n  # standalone\n  if ready:\n    first = 1  # retain\n  second = 2\n\ntail = 0\n';
   const value = await page.evaluate(async (python) => {
     const importMap = document.createElement('script');
     importMap.type = 'importmap';
@@ -281,7 +281,11 @@ test('Python block movement preserves local indentation, comments, and blank lin
     }});
     document.head.append(importMap);
     const {createDropletCodeMirrorEditor} = await import('@droplet/codemirror-editor/droplet');
-    const {createBrythonPythonParser, createBrythonPythonTransformer} = await import('/packages/python-adapter/src/index.js');
+    const {
+      createBrythonPythonParser,
+      createBrythonPythonTransformer,
+      createEmptyPythonSuite
+    } = await import('/packages/python-adapter/src/index.js');
     window.brython();
     const parent = document.createElement('div');
     document.body.append(parent);
@@ -293,16 +297,27 @@ test('Python block movement preserves local indentation, comments, and blank lin
     });
     const nodes = (node) => [node, ...(node.children ?? []).flatMap(nodes)];
     const projection = editor.getProjection();
-    const first = nodes(projection.root).find((node) => python.slice(node.from, node.to) === 'first = 1');
-    const second = nodes(projection.root).find((node) => python.slice(node.from, node.to) === 'second = 2');
+    const nestedSuite = nodes(projection.root).find((node) =>
+      node.metadata?.type === 'If' && python.slice(node.from, node.to).startsWith('if ready:'));
+    const tail = nodes(projection.root).find((node) => python.slice(node.from, node.to) === 'tail = 0');
     editor.applyBlockOperation({
-      type: 'move-statement', source: {from: second.from, to: second.to},
-      destination: {from: first.from, to: first.from}
+      type: 'move-statement', source: {from: nestedSuite.from, to: nestedSuite.to},
+      destination: {from: tail.from, to: tail.from}
+    });
+    const currentSource = editor.getValue();
+    const insertionTarget = nodes(editor.getProjection().root).find((node) =>
+      currentSource.slice(node.from, node.to) === 'tail = 0');
+    editor.applyBlockOperation({
+      type: 'insert-statement',
+      destination: {from: insertionTarget.from, to: insertionTarget.from},
+      source: `if created:\n${createEmptyPythonSuite('  ')}`
     });
     const result = editor.getValue();
     editor.destroy();
     return result;
   }, source);
 
-  expect(value).toBe('if ready:\n  # standalone\n  second = 2\n  first = 1  # retain\n\n');
+  expect(value).toBe(
+    'if outer:\n  # standalone\n  second = 2\n\nif ready:\n  first = 1  # retain\nif created:\n  pass\ntail = 0\n'
+  );
 });

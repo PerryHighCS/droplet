@@ -893,6 +893,11 @@ statement movement reindents only the moved nonblank lines and validates the
 result with Brython. `createEmptyPythonSuite` emits an explicitly indented
 `pass` statement for a new empty suite.
 
+The Chromium integration test drives these operations through
+`DropletCodeMirrorEditor.applyBlockOperation`: it moves a nested compound suite
+to module scope while retaining inline and standalone comments plus a blank
+line, then inserts a new empty suite before a sibling statement.
+
 ## Newly generated indentation
 
 When Droplet creates a new suite or moves a statement:
