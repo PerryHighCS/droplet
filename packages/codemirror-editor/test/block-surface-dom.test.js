@@ -138,6 +138,30 @@ test('completes a drop on pointercancel instead of losing the release', () => {
   assert.deepEqual(operations, [{type: 'delete-node', source: {from: 0, to: 7}, kind: 'statement'}]);
 });
 
+test('completes a drop released outside the SVG entirely, via the document-level fallback', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+
+  // Pointer capture should keep the release targeted at the SVG even once
+  // the cursor leaves it (dragging above the surface), but this isn't fully
+  // reliable across every browser/input-device combination. Dispatching the
+  // release on the document itself, never touching the SVG, simulates that
+  // and checks the document-level fallback still completes the drop.
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerdown', {bubbles: true, button: 0,
+    clientX: first.bounds.left + 2, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointermove', {bubbles: true, button: 0, clientX: first.bounds.left, clientY: -50}));
+  dom.window.document.dispatchEvent(new dom.window.MouseEvent('pointerup', {bubbles: true, clientX: first.bounds.left, clientY: -50}));
+
+  assert.deepEqual(operations, [{type: 'move-statement', source: {from: 0, to: 7}, destination: {from: 0, to: 0, indentation: ''}}]);
+});
+
 test('marks the selected block with a visible SVG outline', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});

@@ -17,6 +17,8 @@ export class BlockSurface {
   #socketEditor;
   #selectedNode;
   #suppressClick = false;
+  #document;
+  #endDragFromDocument;
 
   constructor({parent, onSelect, onOperation, onSocketEdit, layoutOptions = {}}) {
     if (!parent?.ownerDocument) throw new TypeError('A BlockSurface parent element is required');
@@ -54,6 +56,15 @@ export class BlockSurface {
     // Without handling it, the drag state never clears and the release the
     // user just made is silently lost.
     this.#svg.addEventListener('pointercancel', (event) => this.#endDrag(event));
+    // Pointer capture on the SVG normally keeps a release targeted at it even
+    // once the cursor leaves its bounds (dragging above/below the surface),
+    // but that is not perfectly reliable across every browser/input-device
+    // combination. A document-level fallback keeps a drag from getting stuck
+    // - and the user's release from being silently dropped - when it isn't.
+    this.#document = parent.ownerDocument;
+    this.#endDragFromDocument = (event) => this.#endDrag(event);
+    this.#document.addEventListener('pointerup', this.#endDragFromDocument, true);
+    this.#document.addEventListener('pointercancel', this.#endDragFromDocument, true);
     this.#dom.addEventListener('dragover', (event) => this.#continuePaletteDrag(event));
     this.#dom.addEventListener('dragleave', (event) => this.#leavePaletteDrag(event));
     this.#dom.addEventListener('drop', (event) => this.#dropPaletteBlock(event));
@@ -82,6 +93,8 @@ export class BlockSurface {
 
   destroy() {
     this.#closeSocketEditor();
+    this.#document.removeEventListener('pointerup', this.#endDragFromDocument, true);
+    this.#document.removeEventListener('pointercancel', this.#endDragFromDocument, true);
     this.#dom.remove();
     this.#layout = undefined;
   }
