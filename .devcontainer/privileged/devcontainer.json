@@ -10,7 +10,8 @@
     "ghcr.io/devcontainers-extra/features/ripgrep:1": {},
     "ghcr.io/devcontainers/features/common-utils:2": {
       "username": "vscode"
-    }
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "postCreateCommand": "bash .devcontainer/post-create.sh ${containerWorkspaceFolder}",
   "postStartCommand": "bash .devcontainer/post-start-bootstrap.sh \"${containerWorkspaceFolder}\" --privileged",
