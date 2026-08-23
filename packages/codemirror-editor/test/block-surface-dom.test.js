@@ -429,6 +429,15 @@ test('hides "+ elif" and "+ else" for an unbraced JavaScript if with no clause y
   assert.equal(svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="else"]'), null);
 });
 
+test('hides "+ elif" for an unbraced JavaScript if that already has a braced else, where add-clause would still throw', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: () => {}});
+  surface.update(unbracedJsIfWithBracedElse());
+  const svg = surface.element.querySelector('svg');
+
+  assert.equal(svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="elif"]'), null);
+});
+
 test('a keyboard-focused "+ elif" button is a real button and activates on Enter and Space', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -987,6 +996,28 @@ function bareUnbracedJsIf() {
       id: 'if', kind: 'statement', from: 0, to: source.length - 1, editable: true,
       metadata: {type: 'IfStatement', blockRole: 'container', headerTo: source.length - 1},
       children: [{id: 'pass', kind: 'statement', from: 11, to: 18, editable: true, metadata: {}, children: []}]
+    }]
+  }};
+}
+
+function unbracedJsIfWithBracedElse() {
+  // add-clause anchors a new elif on the last existing *elif* clause
+  // specifically, never an else - an else-only chain is not an anchor it can
+  // use, so "+ else if" must still be hidden even though a (braced,
+  // otherwise-valid) else clause already exists.
+  const source = 'if (ready) pass();\nelse {\n  other();\n}\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'if', kind: 'statement', from: 0, to: source.length - 1, editable: true,
+      metadata: {type: 'IfStatement', blockRole: 'container', headerTo: 18},
+      children: [
+        {id: 'pass', kind: 'statement', from: 11, to: 18, editable: true, metadata: {}, children: []},
+        {
+          id: 'else', kind: 'clause', from: 19, to: source.length - 1, editable: true,
+          metadata: {type: 'BlockStatement', clauseRole: 'else', headerTo: 25, bodyEnd: 37},
+          children: [{id: 'other', kind: 'statement', from: 28, to: 36, editable: true, metadata: {}, children: []}]
+        }
+      ]
     }]
   }};
 }

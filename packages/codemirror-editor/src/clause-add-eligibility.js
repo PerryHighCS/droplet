@@ -19,7 +19,11 @@ export const CLAUSE_ADD_ELIGIBLE_TYPES = new Set(['If', 'IfStatement', 'For', 'A
 export function canAddElifClause(node, clauses) {
   const type = node.metadata?.type;
   if (type !== 'If' && type !== 'IfStatement') return false;
-  return hasExtendableBody(node, clauses);
+  // add-clause anchors a new elif on the last existing *elif* clause
+  // specifically (never an else, even if one already exists) - an
+  // else-only chain is not an anchor it can use, so only an elif clause
+  // (not any clause) can stand in for a missing braced primary body here.
+  return hasExtendableBody(node, clauses.filter((clause) => clause.metadata?.clauseRole === 'elif'));
 }
 
 // A statement can only ever have one else branch.
