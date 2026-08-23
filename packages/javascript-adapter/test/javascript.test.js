@@ -339,6 +339,21 @@ test('adds a parameter to a compact single-line function whose body has its own 
   assert.equal(applySourceChanges(source, changes), 'function f(a, ) { g(); }\n');
 });
 
+test('adds an argument to a bare call statement with a trailing line comment containing ")"', () => {
+  // A bare call-as-statement target with no metadata.headerTo fell back to
+  // searching its whole physical line, not just its own range - a trailing
+  // line comment sharing that line could contain its own ")" (unrelated to
+  // the call), which a backward search from the line's end found first,
+  // splicing the new item into the comment instead of the call itself.
+  const source = 'f(a); // has a ") in it\n';
+  const parsed = parseJavaScript(source);
+  const target = findFirst(parsed.root, (node) => node.kind === 'statement' && node.metadata?.type === 'ExpressionStatement');
+
+  const changes = transformJavaScript({type: 'insert-sequence-item', target: {from: target.from, to: target.to}}, parsed);
+
+  assert.equal(applySourceChanges(source, changes), 'f(a, ); // has a ") in it\n');
+});
+
 test('"+" on an empty call/def is a no-op, not an invalid leading comma', () => {
   // A zero-item call/def already has a directly-editable synthetic empty
   // socket (see emptyCallArgumentSocket/emptyParameterSocket) - splicing a

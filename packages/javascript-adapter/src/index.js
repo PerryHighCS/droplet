@@ -144,13 +144,14 @@ export function transformJavaScript(operation, parsed) {
       // raw backward search there could match a nested call's own closing
       // paren instead of this sequence's own. A container's own
       // metadata.headerTo already stops right after its opening "{" for
-      // exactly this reason; a bare call-as-statement has no body of its own
-      // to be confused with, so its whole line is still safe to search; a
-      // socket target (a call nested as a value) already ends exactly at
-      // its own ")".
-      const headerEnd = target.kind !== 'statement' ? target.to
-        : Number.isInteger(target.metadata?.headerTo) ? target.metadata.headerTo
-        : lineTextEnd(parsed.source, target.from);
+      // exactly this reason. A bare call-as-statement has no such metadata,
+      // but its own target.to is already the right bound - the whole
+      // physical line used to be searched instead, which (unlike a
+      // container's own headerTo) also swept in any trailing line comment
+      // sharing that line, so a comment containing ")" (`f(a); // ")"`) could
+      // be matched instead of the call's own closing paren. A socket target
+      // (a call nested as a value) already ends exactly at its own ")" too.
+      const headerEnd = Number.isInteger(target.metadata?.headerTo) ? target.metadata.headerTo : target.to;
       const closingParenthesis = parsed.source.lastIndexOf(')', headerEnd - 1);
       if (closingParenthesis < target.from) throw new RangeError('Sequence target has no closing delimiter');
       changes = [{from: closingParenthesis, to: closingParenthesis, insert: ', '}];
