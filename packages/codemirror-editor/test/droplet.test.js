@@ -179,6 +179,33 @@ test('an incomplete socket commit remains an editable recovery socket until it p
   editor.destroy();
 });
 
+test('an unrelated change after a still-broken socket commit does not reuse its stale recovery target', () => {
+  // #socketRecovery is armed by #replaceSocketText immediately before its own
+  // dispatch. If left set once that edit's own reparse still finds an opaque
+  // node, an unrelated later change (here setValue, to a document that also
+  // happens to still be opaque) would incorrectly recompute a projection from
+  // the stale target/previous-projection snapshot instead of the fresh parse.
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseRecoveringSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:value"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.value = '(';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+  assert.ok(parent.querySelector('[data-droplet-kind="recovery-socket"]'));
+
+  editor.setValue('other = (\n');
+
+  assert.equal(editor.getProjection().root.children[0].kind, 'opaque-statement');
+  assert.equal(editor.getProjection().root.children[0].to, 'other = (\n'.length);
+  assert.equal(parent.querySelector('[data-droplet-kind="recovery-socket"]'), null);
+  editor.destroy();
+});
+
 test('deleting a selected socket commits an empty editable recovery range', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({

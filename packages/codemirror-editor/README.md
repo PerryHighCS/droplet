@@ -51,6 +51,24 @@ normal editable/recovery path instead of introducing a separate block value.
 Ctrl-drag (or Cmd-drag) a block to emit a `copy-node` intent at the indicated
 insertion destination.
 
+### Block surface
+
+`createDropletCodeMirrorEditor`'s block mode renders through `BlockSurface`,
+exposed as two subpaths:
+
+- `@droplet/codemirror-editor/block-surface` exports `createBlockLayout`,
+  `createSubtreePreview`, and `hitTestBlockLayout` - framework-independent
+  geometry functions with no DOM or CodeMirror dependency. A caller supplies
+  text measurement through `options.measureText`.
+- `@droplet/codemirror-editor/block-surface/dom` exports the `BlockSurface`
+  class itself. It renders a layout as SVG and reports selection, socket
+  edits, and block operations through the `onSelect`, `onSocketEdit`, and
+  `onOperation` callbacks.
+
+Most consumers only need `createDropletCodeMirrorEditor`, which already wires
+a `BlockSurface` up to CodeMirror; these subpaths are for building an
+alternative host around the same layout/rendering primitives.
+
 ```js
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
 

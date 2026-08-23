@@ -54,6 +54,31 @@ test('sockets a function\'s name and individual parameters instead of its whole 
   ]);
 });
 
+test('sockets a function name even when it contains regex metacharacters', () => {
+  // pythonToAST is caller-supplied (see parsePython's own doc comment), so
+  // node.name is not guaranteed to be a plain identifier - interpolating it
+  // straight into a RegExp used to either throw on an invalid pattern or
+  // silently match the wrong span.
+  const source = 'def a+b(c):\n  pass\n';
+  const ast = {type: 'Module', body: [
+    {type: 'FunctionDef', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6, name: 'a+b',
+      args: {lineno: 1, posonlyargs: [], args: [
+        {type: 'arg', lineno: 1, col_offset: 8, end_lineno: 1, end_col_offset: 9, arg: 'c'}
+      ], vararg: null, kwonlyargs: [], kw_defaults: [], kwarg: null, defaults: []},
+      body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}],
+      decorator_list: []}
+  ]};
+
+  const kids = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(kids, [
+    {text: 'a+b', role: 'name'},
+    {text: 'c', role: 'parameter'}
+  ]);
+});
+
 test('sockets a class\'s name without letting the class keyword itself be edited', () => {
   const source = 'class Widget:\n  pass\n';
   const ast = {type: 'Module', body: [

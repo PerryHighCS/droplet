@@ -143,12 +143,18 @@ export class DropletCodeMirrorEditor {
 
   #reparse() {
     const parsed = this.#parseSource(this.getValue());
-    if (this.#socketRecovery && collectOpaqueNodes(parsed.root).length) {
-      this.#projection = recoverSocketProjection(this.#socketRecovery.projection, this.getValue(), this.#socketRecovery.target, parsed.issues);
-    } else {
-      this.#projection = parsed;
-      this.#socketRecovery = undefined;
-    }
+    // #socketRecovery is set by #replaceSocketText immediately before its own
+    // dispatch, so it is only ever valid for the one #reparse this triggers -
+    // consumed here regardless of outcome. Left set, a later, unrelated
+    // change (setValue, applyBlockOperation, a raw text edit) that happens to
+    // also leave some opaque node behind would reuse this stale target and
+    // previous-projection snapshot, whose length-based delta no longer
+    // corresponds to anything in the current source.
+    const recovery = this.#socketRecovery;
+    this.#socketRecovery = undefined;
+    this.#projection = (recovery && collectOpaqueNodes(parsed.root).length)
+      ? recoverSocketProjection(recovery.projection, this.getValue(), recovery.target, parsed.issues)
+      : parsed;
     this.#publishProjection();
   }
 

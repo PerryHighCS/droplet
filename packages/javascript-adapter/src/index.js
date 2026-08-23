@@ -50,8 +50,15 @@ export function transformJavaScript(operation, parsed) {
     case 'insert-statement': {
       assertOperationSource(operation.source, 'Statement insertion');
       assertInsertionPoint(parsed.source, operation.destination);
-      const indentation = insertionIndentation(parsed.source, operation.destination.from);
-      changes = [{from: operation.destination.from, to: operation.destination.to, insert: indentLines(operation.source, indentation)}];
+      // A "before this statement" destination is that statement's own `from`,
+      // which - like any statement range here - sits after its line's
+      // leading whitespace, not at column 0 (see indentLines above). Splicing
+      // indentLines' own prefix in there directly would double that
+      // whitespace onto the new line while leaving the original statement
+      // with none of its own, so normalize to the line's actual start first.
+      const point = lineStart(parsed.source, operation.destination.from);
+      const indentation = insertionIndentation(parsed.source, point);
+      changes = [{from: point, to: point, insert: indentLines(operation.source, indentation)}];
       break;
     }
     case 'move-statement': {
@@ -60,10 +67,10 @@ export function transformJavaScript(operation, parsed) {
       assertInsertionPoint(parsed.source, operation.destination);
       if (operation.destination.from >= statement.from && operation.destination.from <= statement.to) return [];
       const text = parsed.source.slice(statement.from, statement.to);
-      const indentation = insertionIndentation(parsed.source, operation.destination.from);
+      const point = lineStart(parsed.source, operation.destination.from);
       changes = [
         {from: statement.from, to: statement.to, insert: ''},
-        {from: operation.destination.from, to: operation.destination.to, insert: indentLines(text, indentation)}
+        {from: point, to: point, insert: relocatedStatementText(parsed.source, text, point)}
       ];
       break;
     }
@@ -83,7 +90,7 @@ export function transformJavaScript(operation, parsed) {
       const previousClause = operation.role === 'elif'
         ? clauses.filter((clause) => clause.metadata?.clauseRole === 'elif').at(-1)
         : clauses.at(-1);
-      const insertAt = previousClause ? previousClause.to : closingBraceEnd(parsed.source, statement.metadata?.bodyEnd);
+      const insertAt = previousClause ? previousClause.to : closingBraceEnd(parsed.source, statement.metadata?.blockEnd);
       if (!Number.isInteger(insertAt)) throw new RangeError('Clause target has no body to extend');
       const indentation = indentationOf(parsed.source, statement.from);
       const header = operation.role === 'elif' ? 'else if (true)' : 'else';
@@ -142,7 +149,9 @@ export function transformJavaScript(operation, parsed) {
       const node = findNode(parsed.root, operation.source, operation.kind);
       if (!node || node.kind !== 'statement') throw new RangeError('Statement copy source is not present in the current projection');
       assertInsertionPoint(parsed.source, operation.destination);
-      changes = [{from: operation.destination.from, to: operation.destination.to, insert: parsed.source.slice(node.from, node.to)}];
+      const point = lineStart(parsed.source, operation.destination.from);
+      const text = parsed.source.slice(node.from, node.to);
+      changes = [{from: point, to: point, insert: relocatedStatementText(parsed.source, text, point)}];
       break;
     }
     default:
@@ -181,6 +190,18 @@ function indentLines(text, indentation) {
   return text.split('\n').map((line) => line.length ? indentation + line : line).join('\n');
 }
 
+// A moved/copied statement's own text (unlike insert-statement's caller-
+// supplied source) never carries its own trailing newline - node.to excludes
+// it, matching delete-node's range, so the same statement can be deleted from
+// its old spot without also eating the next line's newline. Splicing it back
+// in ahead of a "point" that isn't the very end of the document therefore
+// needs one restored, or it runs straight into whatever originally started
+// at that line.
+function relocatedStatementText(source, text, point) {
+  const indentation = insertionIndentation(source, point);
+  return indentLines(text, indentation) + (point < source.length ? '\n' : '');
+}
+
 // The leading whitespace of the line containing `position`, e.g. the exact
 // indentation a statement itself was written at - not `insertionIndentation`,
 // which describes indentation *for something landing at* `position` and
@@ -191,12 +212,13 @@ function indentationOf(source, position) {
 
 // A container's own bodyEnd (see metadataFor) is the *start* of the closing
 // brace's line, chosen so an insert there doesn't corrupt the brace's own
-// leading indentation (see the bodyEnd comment below) - but attaching a new
-// "else if"/"else" clause happens right *after* that brace, not before it.
-function closingBraceEnd(source, bodyEnd) {
-  if (!Number.isInteger(bodyEnd)) return undefined;
-  const brace = source.indexOf('}', bodyEnd);
-  return brace === -1 ? undefined : brace + 1;
+// leading indentation - but attaching a new "else if"/"else" clause happens
+// right *after* that brace, not before it. blockEnd is the block's own AST
+// end offset (the position right after "}" itself), used directly instead of
+// text-searching for the first "}" at/after bodyEnd, which could just as
+// easily match a "}" inside a string or template literal in the body.
+function closingBraceEnd(_source, blockEnd) {
+  return Number.isInteger(blockEnd) ? blockEnd : undefined;
 }
 
 function projectNode(node, kind = nodeKind(node), source, socketRole) {
@@ -214,7 +236,7 @@ function projectNode(node, kind = nodeKind(node), source, socketRole) {
       ...emptyCallArgumentSocket(node, source),
       ...emptyReturnValueSocket(node, source),
       ...(node.type === 'IfStatement' ? ifClauses(node, source) : [])
-    ],
+    ].sort(compareProjectedNodes),
     metadata: metadataFor(node, kind, source, socketRole)
   };
 }
@@ -349,7 +371,10 @@ function metadataFor(node, kind, source, socketRole) {
     // indentation would become a prefix of the inserted line, and the brace
     // would be left with none of its own.
     const blockBody = node.type === 'BlockStatement' ? node : blockStatementChild(node);
-    if (blockBody) metadata.bodyEnd = lineStart(source, blockBody.end - 1);
+    if (blockBody) {
+      metadata.bodyEnd = lineStart(source, blockBody.end - 1);
+      metadata.blockEnd = blockBody.end;
+    }
   }
   return metadata;
 }
@@ -437,7 +462,12 @@ function addWhitespaceNodes(root, source) {
 }
 
 function triviaParent(node, range) {
-  const child = (node.children ?? []).find((candidate) => candidate.kind === 'statement' &&
+  // A 'clause' (an else-if/else branch's own children, see ifClause/
+  // elseClause) is a valid trivia parent too - without it, a whitespace-only
+  // line inside an else/else-if body attaches to the enclosing IfStatement
+  // instead of the clause that actually contains it.
+  const child = (node.children ?? []).find((candidate) =>
+    (candidate.kind === 'statement' || candidate.kind === 'clause') &&
     candidate.from <= range.from && candidate.to >= range.to);
   return child ? triviaParent(child, range) : node;
 }
@@ -445,14 +475,17 @@ function triviaParent(node, range) {
 function physicalLines(source) {
   const lines = [];
   let from = 0;
-  for (let index = 0; index < source.length;) {
-    const match = /\r\n|\r|\n/.exec(source.slice(index));
-    if (!match) break;
-    const endingFrom = index + match.index;
-    const to = endingFrom + match[0].length;
-    lines.push({from, to, text: source.slice(from, endingFrom), ending: match[0]});
+  // A sticky/global regex with lastIndex, not source.slice(index) re-run on
+  // every line: slicing the whole remaining source on each iteration makes
+  // this O(source length x line count), and addWhitespaceNodes calls it on
+  // every parse - every keystroke, in the live editor.
+  const ending = /\r\n|\r|\n/g;
+  let match;
+  while ((match = ending.exec(source)) !== null) {
+    const to = match.index + match[0].length;
+    lines.push({from, to, text: source.slice(from, match.index), ending: match[0]});
     from = to;
-    index = to;
+    ending.lastIndex = to;
   }
   if (from < source.length) lines.push({from, to: source.length, text: source.slice(from), ending: ''});
   return lines;

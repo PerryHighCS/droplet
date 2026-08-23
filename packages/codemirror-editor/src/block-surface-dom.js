@@ -311,7 +311,12 @@ export class BlockSurface {
     const drag = this.#drag;
     this.#drag = undefined;
     if (!drag) return;
-    this.#svg.releasePointerCapture?.(event.pointerId);
+    // A pointercancel implicitly releases capture right after dispatch, and
+    // some implementations mark the pointer inactive before this handler
+    // runs - calling releasePointerCapture on an already-released pointerId
+    // throws NotFoundError there, which would skip the cleanup and operation
+    // dispatch below.
+    if (this.#svg.hasPointerCapture?.(event.pointerId)) this.#svg.releasePointerCapture(event.pointerId);
     clearDragPreviews(this.#svg);
     if (!drag.moved) return;
     this.#suppressClick = true;
@@ -379,7 +384,7 @@ export class BlockSurface {
 
 function destinationForTarget(layout, target, point, dragNode) {
   if (target?.kind === 'insertion') return {destination: target.zone.destination, zone: target.zone};
-  if (isExpressionNode(dragNode) && isSocketNode(target?.node)) {
+  if (isSocketNode(dragNode) && isSocketNode(target?.node)) {
     if (sameRange(dragNode.source, target.node.source)) return undefined;
     return {
       operation: {
@@ -510,14 +515,13 @@ function statementHalfBounds(bounds, before) {
 }
 
 function isMovable(node) {
-  return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment' || isExpressionNode(node);
+  return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment' || isSocketNode(node);
 }
 
 function isDeletable(node) {
   return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment' || isSocketNode(node);
 }
 
-function isExpressionNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
 function isSocketNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
 // A compound socket (one with its own nested sockets, e.g. `value + value`)
 // is selectable and movable like any socket, but not click-to-edit as free
@@ -1094,7 +1098,12 @@ function createLabel(text, x, y, document, className) {
   // opt out, but browsers now key whitespace handling off the CSS
   // white-space property instead, so set that directly.
   label.style.whiteSpace = 'pre';
-  label.textContent = text.replace(/[\r\n].*$/, '');
+  // [\s\S]*, not .*: without the s/m flags "." does not match a newline and
+  // "$" means end of string, so text with two or more line breaks (an
+  // opaque-recovered node's full snapshot, a multi-line footerText) would
+  // only have its first newline reached, leaving the rest to render as
+  // collapsed-looking whitespace under the "pre" rule set above.
+  label.textContent = text.replace(/[\r\n][\s\S]*$/, '');
   return label;
 }
 

@@ -285,9 +285,17 @@ function addNameSocket(children, node, source, from) {
   const type = typeOf(node);
   const keyword = type === 'ClassDef' ? 'class' : type === 'FunctionDef' || type === 'AsyncFunctionDef' ? 'def' : undefined;
   if (!keyword || typeof node.name !== 'string' || !node.name || from === null) return;
-  const match = new RegExp(`\\b${keyword}\\s+(${node.name})\\b`).exec(source.slice(from, lineTextEnd(source, from)));
-  if (!match) return;
-  const nameFrom = from + match.index + match[0].length - match[1].length;
+  // node.name comes from pythonToAST, a caller-supplied function (see
+  // parsePython's own doc comment) - it is not guaranteed to be a plain
+  // identifier, so it cannot be interpolated into a RegExp unescaped. The
+  // name always follows the keyword on the header line, so a literal search
+  // is both safer and cheaper than building a pattern from it.
+  const header = source.slice(from, lineTextEnd(source, from));
+  const keywordAt = header.indexOf(keyword);
+  if (keywordAt === -1) return;
+  const nameAt = header.indexOf(node.name, keywordAt + keyword.length);
+  if (nameAt === -1) return;
+  const nameFrom = from + nameAt;
   children.push({
     id: `socket:name:${nameFrom}:${nameFrom + node.name.length}`,
     kind: 'socket', from: nameFrom, to: nameFrom + node.name.length, editable: true, children: [],
@@ -773,14 +781,17 @@ function lineStarts(source) {
 function physicalLines(source) {
   const lines = [];
   let from = 0;
-  for (let index = 0; index < source.length;) {
-    const match = /\r\n|\r|\n/.exec(source.slice(index));
-    if (!match) break;
-    const endingFrom = index + match.index;
-    const to = endingFrom + match[0].length;
-    lines.push({from, to, text: source.slice(from, endingFrom), ending: match[0]});
+  // A sticky/global regex with lastIndex, not source.slice(index) re-run on
+  // every line: slicing the whole remaining source on each iteration makes
+  // this O(source length x line count), and addWhitespaceNodes calls it on
+  // every parse - every keystroke, in the live editor.
+  const ending = /\r\n|\r|\n/g;
+  let match;
+  while ((match = ending.exec(source)) !== null) {
+    const to = match.index + match[0].length;
+    lines.push({from, to, text: source.slice(from, match.index), ending: match[0]});
     from = to;
-    index = to;
+    ending.lastIndex = to;
   }
   if (from < source.length) lines.push({from, to: source.length, text: source.slice(from), ending: ''});
   return lines;

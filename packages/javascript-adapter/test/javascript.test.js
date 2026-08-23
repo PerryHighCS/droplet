@@ -20,7 +20,8 @@ test('identifies JavaScript containers and their header lines for structural ren
   const loop = parseJavaScript(source).root.children[0];
 
   assert.deepEqual(loop.metadata, {
-    type: 'ForOfStatement', blockRole: 'container', headerTo: source.indexOf('\n'), bodyEnd: source.indexOf('}')
+    type: 'ForOfStatement', blockRole: 'container', headerTo: source.indexOf('\n'),
+    bodyEnd: source.indexOf('}'), blockEnd: source.indexOf('}') + 1
   });
   assert.ok(loop.children.some((node) => node.metadata.type === 'BlockStatement'));
 });
@@ -58,6 +59,54 @@ test('inserting at bodyEnd does not corrupt an already-indented closing brace', 
     applySourceChanges(source, changes),
     'if (x) {\n  while (true) {\n    value += 1;\n  }\n}\n'
   );
+});
+
+test('a "before this statement" destination does not double or lose indentation', () => {
+  // block-surface.js's insertionZones use an existing statement's own `from`
+  // as a "before-sibling" destination - which, like any statement range here,
+  // sits after that line's leading whitespace, not at column 0. Splicing
+  // directly at that position would prepend a second indentation onto the
+  // inserted text while leaving the original statement with none of its own.
+  const source = 'if (x) {\n  first();\n  second();\n}\n';
+  const secondStatement = findFirst(parseJavaScript(source).root, (node) =>
+    node.kind === 'statement' && node.metadata?.type === 'ExpressionStatement' && source.slice(node.from, node.to).startsWith('second'));
+  const destination = {from: secondStatement.from, to: secondStatement.from};
+
+  const inserted = transformJavaScript({type: 'insert-statement', destination, source: 'inserted();\n'}, parseJavaScript(source));
+  assert.equal(applySourceChanges(source, inserted), 'if (x) {\n  first();\n  inserted();\n  second();\n}\n');
+
+  const copied = transformJavaScript({
+    type: 'copy-node', kind: 'statement', source: {from: 11, to: 19}, destination
+  }, parseJavaScript(source));
+  assert.equal(applySourceChanges(source, copied), 'if (x) {\n  first();\n  first();\n  second();\n}\n');
+
+  const moved = transformJavaScript({
+    type: 'move-statement', source: {from: 11, to: 19}, destination
+  }, parseJavaScript(source));
+  assert.equal(applySourceChanges(source, moved), 'if (x) {\n  \n  first();\n  second();\n}\n');
+});
+
+test('add-clause finds the body\'s real closing brace, not one inside a string', () => {
+  // closingBraceEnd used to text-search for the first "}" at/after bodyEnd,
+  // which also matches a "}" that happens to appear inside a string literal
+  // in the body - splicing the new clause into the middle of that string
+  // instead of after the block.
+  const source = 'if (x) { s = "}"; }\n';
+  const ifStatement = parseJavaScript(source).root.children[0];
+
+  const changes = transformJavaScript({
+    type: 'add-clause', target: {from: ifStatement.from, to: ifStatement.to}, role: 'else'
+  }, parseJavaScript(source));
+
+  assert.equal(applySourceChanges(source, changes), 'if (x) { s = "}"; } else {\n}\n');
+});
+
+test('a blank line inside an else branch attaches to that clause, not the enclosing if', () => {
+  const source = 'if (x) {\n  a();\n} else {\n  b();\n\n  c();\n}\n';
+  const elseClause = findFirst(parseJavaScript(source).root, (node) => node.kind === 'clause');
+
+  assert.ok(elseClause);
+  assert.ok(elseClause.children.some((child) => child.kind === 'whitespace'));
 });
 
 test('projects blank and whitespace-only JavaScript lines for block layout', () => {
@@ -207,7 +256,7 @@ test('inserts and moves statements with source-range changes only', () => {
     destination: {from: 0, to: 0}
   }, parsed);
   assert.deepEqual(movedUpward, [
-    {from: 0, to: 0, insert: 'second();'},
+    {from: 0, to: 0, insert: 'second();\n'},
     {from: second.from, to: second.to, insert: ''}
   ]);
 });
