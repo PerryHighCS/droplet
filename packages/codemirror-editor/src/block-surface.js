@@ -233,20 +233,24 @@ function layoutContainer(node, source, settings, left, top) {
   // A brace-bodied language's closing token (JavaScript's "}") sits after the
   // last body/clause statement and before the container's own end - a colon
   // header's suite (Python) has no such trailing token, so this is empty
-  // there and the footer stays its plain closing bar.
-  const structuralEnd = Math.max(
-    headerTo,
-    ...body.children.map((child) => child.source.to),
-    ...clauseSections.children.map((child) => child.source.to)
-  );
+  // there and the footer stays its plain closing bar. The last branch's own
+  // bodyEnd (an else/elif clause's if one exists, the container's own
+  // otherwise) is the reliable anchor for this, not a scan for the last
+  // piece of actual body content - an empty branch (e.g. `else {\n}`) has
+  // none to find, which left this pointed at the primary header instead,
+  // swallowing every later branch's text into what should be just "}".
+  const lastBranch = clauses.at(-1) ?? node;
+  const structuralEnd = Number.isInteger(lastBranch.metadata?.bodyEnd) ? lastBranch.metadata.bodyEnd : headerTo;
   const footerText = source.slice(structuralEnd, node.to).replace(/^\s+/, '');
-  // "Add elif"/"add else" render inside the footer - a footer sized for just
-  // its own curve is too short to hold them, so reserve extra height only
-  // while those controls can actually show (never once an else exists). A
-  // footer showing its own closing-token text needs a full text line instead
-  // of the thin closing-bar height a textless footer uses.
-  const footerHeight = (footerText ? settings.lineHeight : settings.footerHeight) +
-    (canAddClause(node, clauses) ? settings.clauseControlsHeight : 0);
+  // "Add elif"/"add else" render inside the footer, beside its own closing-
+  // token text (JavaScript's "}") when it has one - a full text line already
+  // has room for both side by side. A footer with no such text (Python has
+  // none) is only its own thin closing-bar height, too short to hold the
+  // controls at all, so it reserves a dedicated extra row for them instead,
+  // only while they can actually show (never once an else exists).
+  const footerHeight = footerText
+    ? settings.lineHeight
+    : settings.footerHeight + (canAddClause(node, clauses) ? settings.clauseControlsHeight : 0);
   const footer = box(left, footerTop, right - left, footerHeight);
   const bounds = {left, top, right, bottom: footer.bottom};
   // The body-end zone (see layoutChildren) is sized before the footer's own
@@ -497,7 +501,10 @@ function normalizeOptions(options) {
   };
 }
 
-const CLAUSE_ADD_ELIGIBLE_TYPES = new Set(['If', 'For', 'AsyncFor', 'While']);
+// 'If'/'For'/'AsyncFor'/'While' are Python's AST type names; 'IfStatement' is
+// JavaScript's - the only chain-capable JS construct, since JS has no
+// for/while-else the way Python does.
+const CLAUSE_ADD_ELIGIBLE_TYPES = new Set(['If', 'IfStatement', 'For', 'AsyncFor', 'While']);
 
 // Mirrors the DOM renderer's own "show add-elif/add-else" rule in purely
 // geometric terms: extra footer room is reserved exactly when, and only
@@ -505,11 +512,11 @@ const CLAUSE_ADD_ELIGIBLE_TYPES = new Set(['If', 'For', 'AsyncFor', 'While']);
 function canAddClause(node, clauses) {
   const type = node.metadata?.type;
   if (!CLAUSE_ADD_ELIGIBLE_TYPES.has(type)) return false;
-  // "+ elif" stays offered even once an else exists (Python only requires
-  // elif before else, not that else be absent), so an If always reserves
-  // the footer room; a for/while's only possible branch is else, so once
-  // that exists there is nothing left to add.
-  if (type === 'If') return true;
+  // "+ elif" stays offered even once an else exists (an if-chain only
+  // requires elif/else-if to come before else, not that else be absent), so
+  // an If/IfStatement always reserves the footer room; a for/while's only
+  // possible branch is else, so once that exists there is nothing left to add.
+  if (type === 'If' || type === 'IfStatement') return true;
   return !clauses.some((clause) => clause.metadata?.clauseRole === 'else');
 }
 

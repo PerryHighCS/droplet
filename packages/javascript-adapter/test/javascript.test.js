@@ -96,7 +96,9 @@ test('labels JavaScript assignment sides and if conditions as distinct sockets',
     {text: 'value', role: 'assignment-value'},
     {text: 'target', role: 'assignment-target'},
     {text: 'next', role: 'assignment-value'},
-    {text: 'ready', role: 'if-condition'}
+    {text: 'ready', role: 'if-condition'},
+    {text: 'run', role: 'call-target'},
+    {text: '', role: 'expression'}
   ]);
 });
 

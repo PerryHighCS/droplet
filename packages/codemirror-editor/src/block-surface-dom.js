@@ -688,12 +688,8 @@ function renderContainerFrame(group, node, document, options = {}) {
     .filter((child) => child.kind === 'clause')
     .sort((left, right) => left.bounds.top - right.bounds.top)
     .map((clause) => clause.regions.header);
-  // The notch/tab connector only has geometry for a single-branch container
-  // (no elif/else clause chain, which is a Python-only "snake" concept this
-  // shape never applies to): a plain brace-bodied block with one header and
-  // one body, exactly what every JavaScript container is.
-  if (!isSnake && options.tabConnector && clauseHeaders.length === 0 && hasConnectorWidth(header.right - header.left)) {
-    path.setAttribute('d', tabConnectorContainerPath(header, footer, node.regions.body.left, radius));
+  if (!isSnake && options.tabConnector && hasConnectorWidth(header.right - header.left)) {
+    path.setAttribute('d', tabConnectorContainerPath([header, ...clauseHeaders], footer, node.regions.body.left, radius));
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', '#246ca8');
     path.setAttribute('stroke-width', '3');
@@ -778,34 +774,42 @@ function renderClauseHeaderFrame(group, node, document) {
   if (isColonHeader(node)) renderSnakeFace(group, node.regions.header, document);
 }
 
-const CLAUSE_CHAIN_TYPES = new Set(['If', 'For', 'AsyncFor', 'While']);
+// 'If'/'For'/'AsyncFor'/'While' are Python's AST type names; 'IfStatement' is
+// JavaScript's.
+const CLAUSE_CHAIN_TYPES = new Set(['If', 'IfStatement', 'For', 'AsyncFor', 'While']);
 
 // "Add elif"/"add else" only ever appends after the chain's current last
 // branch (see block-surface-dom's remove/add operations) and only while an
-// else does not already exist - Python requires elif before else, and this
-// first pass only supports appending at the end.
+// else does not already exist - an if-chain only requires elif/else-if
+// before else, and this first pass only supports appending at the end.
 function renderClauseControls(group, node, document) {
   const type = node.metadata?.type;
   if (!CLAUSE_CHAIN_TYPES.has(type)) return;
   const clauses = node.children.filter((child) => child.kind === 'clause');
   const hasElse = clauses.some((clause) => clause.metadata?.clauseRole === 'else');
   const dataset = {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to};
-  // Python only requires elif to come before else, not that else be absent -
-  // "+ elif" stays offered (inserting the new branch right before the
-  // existing else) even once one exists. "+ else" is the one that hides,
-  // since a statement can only ever have one.
-  const showElif = type === 'If';
+  // An if-chain only requires elif/else-if to come before else, not that
+  // else be absent - "+ elif"/"+ else if" stays offered (inserting the new
+  // branch right before the existing else) even once one exists. "+ else"
+  // is the one that hides, since a statement can only ever have one.
+  const showElif = type === 'If' || type === 'IfStatement';
+  const elifLabel = type === 'IfStatement' ? '+ else if' : '+ elif';
   const showElse = !hasElse;
   const gap = 6;
-  const elifWidth = showElif ? buttonWidth('+ elif') : 0;
+  const elifWidth = showElif ? buttonWidth(elifLabel) : 0;
   const elseWidth = showElse ? buttonWidth('+ else') : 0;
   const totalWidth = elifWidth + elseWidth + (showElif && showElse ? gap : 0);
   const {footer} = node.regions;
-  let x = footer.left + (footer.right - footer.left - totalWidth) / 2;
+  // A footer showing its own closing-token text (JavaScript's "}") has these
+  // controls sit to its right, on the same row; a textless footer (Python
+  // has none) centers them in its own dedicated row instead.
+  let x = node.footerText
+    ? footer.right - totalWidth - 8
+    : footer.left + (footer.right - footer.left - totalWidth) / 2;
   const y = footer.top + (footer.bottom - footer.top - ACTION_BUTTON_HEIGHT) / 2;
   if (showElif) {
     appendActionButton(group, document, {
-      action: 'add-clause', label: '+ elif', x, y, dataset: {...dataset, dropletRole: 'elif'}
+      action: 'add-clause', label: elifLabel, x, y, dataset: {...dataset, dropletRole: 'elif'}
     });
     x += elifWidth + gap;
   }
@@ -1132,25 +1136,39 @@ function tabConnectorAtomicPath(left, top, right, bottom, radius) {
 // (e.g. "if (x) {" vs. a wider or narrower nested statement), so the two
 // share only their left edge - traced with a plain sharp inner corner, the
 // same way the existing bulge/spine construction below does.
-function tabConnectorContainerPath(header, footer, bodyLeft, radius) {
-  const left = header.left;
-  // The run connecting header to footer is a solid bar, not a hairline,
-  // traced down its inner edge and back up its outer edge (at `left`) after
-  // the footer - the same way the body's left edge is a filled rail in the
-  // legacy renderer rather than a 1px outline. Its inner edge meets the
-  // body's own left edge exactly, so nested statements sit flush against it
-  // instead of leaving a gap.
+// `bulges` is the primary header followed by zero or more clause headers
+// (an else-if/else chain) - one header, right side, and left-spine run per
+// bulge, stacked top to bottom, all sharing the one footer at the end. The
+// notch is on the very first (topmost) header only; the tab is on the
+// footer's bottom only - matching the legacy renderer's own convention that
+// an elif/else clause is a fresh head of the same one continuous body, not
+// a separate connector of its own.
+function tabConnectorContainerPath(bulges, footer, bodyLeft, radius) {
+  const left = bulges[0].left;
+  // The run connecting one bulge to the next (or to the footer) is a solid
+  // bar, not a hairline, traced down its inner edge and back up its outer
+  // edge (at `left`) after the footer - the same way the body's left edge is
+  // a filled rail in the legacy renderer rather than a 1px outline. Its
+  // inner edge meets the body's own left edge exactly, so nested statements
+  // sit flush against it instead of leaving a gap.
   const spineRight = bodyLeft;
-  return [
-    `M ${left} ${header.top + radius}`,
-    `Q ${left} ${header.top} ${left + radius} ${header.top}`,
-    ...notchCommands(left, header.top),
-    `H ${header.right - radius}`,
-    `Q ${header.right} ${header.top} ${header.right} ${header.top + radius}`,
-    `V ${header.bottom - radius}`,
-    `Q ${header.right} ${header.bottom} ${header.right - radius} ${header.bottom}`,
-    `H ${spineRight}`,
-    `V ${footer.top}`,
+  const commands = [
+    `M ${left} ${bulges[0].top + radius}`,
+    `Q ${left} ${bulges[0].top} ${left + radius} ${bulges[0].top}`,
+    ...notchCommands(left, bulges[0].top)
+  ];
+  bulges.forEach((bulge, index) => {
+    const nextTop = index + 1 < bulges.length ? bulges[index + 1].top : footer.top;
+    commands.push(
+      `H ${bulge.right - radius}`,
+      `Q ${bulge.right} ${bulge.top} ${bulge.right} ${bulge.top + radius}`,
+      `V ${bulge.bottom - radius}`,
+      `Q ${bulge.right} ${bulge.bottom} ${bulge.right - radius} ${bulge.bottom}`,
+      `H ${spineRight}`,
+      `V ${nextTop}`
+    );
+  });
+  commands.push(
     `H ${footer.right - radius}`,
     `Q ${footer.right} ${footer.top} ${footer.right} ${footer.top + radius}`,
     `V ${footer.bottom - radius}`,
@@ -1158,7 +1176,8 @@ function tabConnectorContainerPath(header, footer, bodyLeft, radius) {
     ...tabCommands(left, footer.bottom),
     `L ${left + radius} ${footer.bottom}`,
     `Q ${left} ${footer.bottom} ${left} ${footer.bottom - radius}`,
-    `V ${header.top + radius}`,
+    `V ${bulges[0].top + radius}`,
     'Z'
-  ].join(' ');
+  );
+  return commands.join(' ');
 }

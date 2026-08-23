@@ -67,6 +67,40 @@ export function transformJavaScript(operation, parsed) {
       ];
       break;
     }
+    case 'add-clause': {
+      const statement = findNode(parsed.root, operation.target, 'statement');
+      if (!statement) throw new RangeError('Clause target is not present in the current projection');
+      if (operation.role !== 'elif' && operation.role !== 'else') throw new RangeError('Unsupported clause role');
+      const clauses = (statement.children ?? []).filter((child) => child.kind === 'clause')
+        .sort((left, right) => left.from - right.from);
+      if (operation.role === 'else' && clauses.some((clause) => clause.metadata?.clauseRole === 'else')) {
+        throw new RangeError('This statement already has an else branch');
+      }
+      // An "else if" is always appended after the chain's last existing
+      // "else if" (or right after the primary body if there isn't one yet) -
+      // never after an "else", even if one already exists, so else-if-before-
+      // else ordering holds without the caller needing to know that.
+      const previousClause = operation.role === 'elif'
+        ? clauses.filter((clause) => clause.metadata?.clauseRole === 'elif').at(-1)
+        : clauses.at(-1);
+      const insertAt = previousClause ? previousClause.to : closingBraceEnd(parsed.source, statement.metadata?.bodyEnd);
+      if (!Number.isInteger(insertAt)) throw new RangeError('Clause target has no body to extend');
+      const indentation = indentationOf(parsed.source, statement.from);
+      const header = operation.role === 'elif' ? 'else if (true)' : 'else';
+      changes = [{from: insertAt, to: insertAt, insert: ` ${header} {\n${indentation}}`}];
+      break;
+    }
+    case 'remove-clause': {
+      const clause = findNode(parsed.root, operation.target, 'clause');
+      if (!clause) throw new RangeError('Clause target is not present in the current projection');
+      // Also consume the one leading space "} else {...}" attaches its next
+      // clause with, or removal would leave a doubled space where the
+      // deleted clause's own leading space and its predecessor's trailing
+      // space now sit next to each other.
+      const from = parsed.source[clause.from - 1] === ' ' ? clause.from - 1 : clause.from;
+      changes = [{from, to: clause.to, insert: ''}];
+      break;
+    }
     case 'delete-node': {
       const node = findNode(parsed.root, operation.source, operation.kind);
       if (!node || node.kind !== 'statement') throw new RangeError('Statement deletion source is not present in the current projection');
@@ -116,6 +150,24 @@ function indentLines(text, indentation) {
   return text.split('\n').map((line) => line.length ? indentation + line : line).join('\n');
 }
 
+// The leading whitespace of the line containing `position`, e.g. the exact
+// indentation a statement itself was written at - not `insertionIndentation`,
+// which describes indentation *for something landing at* `position` and
+// reads the line *before* it instead.
+function indentationOf(source, position) {
+  return /^[ \t]*/.exec(source.slice(lineStart(source, position)))[0];
+}
+
+// A container's own bodyEnd (see metadataFor) is the *start* of the closing
+// brace's line, chosen so an insert there doesn't corrupt the brace's own
+// leading indentation (see the bodyEnd comment below) - but attaching a new
+// "else if"/"else" clause happens right *after* that brace, not before it.
+function closingBraceEnd(source, bodyEnd) {
+  if (!Number.isInteger(bodyEnd)) return undefined;
+  const brace = source.indexOf('}', bodyEnd);
+  return brace === -1 ? undefined : brace + 1;
+}
+
 function projectNode(node, kind = nodeKind(node), source, socketRole) {
   const children = childNodes(node).map(({node: child, socketRole: childSocketRole}) =>
     projectNode(child, childSocketRole ? 'socket' : nodeKind(child), source, childSocketRole));
@@ -125,8 +177,67 @@ function projectNode(node, kind = nodeKind(node), source, socketRole) {
     from: node.start,
     to: node.end,
     editable: kind !== 'document',
-    children: [...children, ...emptyParameterSocket(node, source)],
+    children: [
+      ...children,
+      ...emptyParameterSocket(node, source),
+      ...emptyCallArgumentSocket(node, source),
+      ...emptyReturnValueSocket(node, source),
+      ...(node.type === 'IfStatement' ? ifClauses(node, source) : [])
+    ],
     metadata: metadataFor(node, kind, source, socketRole)
+  };
+}
+
+// JS's grammar makes an if/else-if/else chain directly visible in the AST -
+// `alternate` is another IfStatement for an "else if" continuation
+// (unwrapped, with no block of its own) or a BlockStatement for a final
+// "else" (wrapped) - unlike Python's `elif`, whose AST has no separate node
+// for it and needs sniffing the source text to tell apart from a genuine
+// nested if. childNodes() excludes `alternate` from the ordinary recursive
+// walk (see its own comment), so this is the only path that ever visits it -
+// every IfStatement reached through the ordinary walk is therefore always a
+// chain's primary branch, never a link already covered by a parent's call
+// here.
+function ifClauses(node, source) {
+  if (!node.alternate) return [];
+  const elseFrom = source.indexOf('else', node.consequent.end);
+  if (elseFrom === -1 || elseFrom >= node.alternate.start) return [];
+  if (node.alternate.type === 'IfStatement') {
+    const clause = ifClause('elif', elseFrom, node.alternate, source);
+    return clause ? [clause, ...ifClauses(node.alternate, source)] : [];
+  }
+  const clause = elseClause(elseFrom, node.alternate, source);
+  return clause ? [clause] : [];
+}
+
+// An "else if" clause's body is its own inner IfStatement's consequent - kept
+// flattened directly into the clause's own children, the same way a plain
+// container's single-BlockStatement body is (see structuralChildren in
+// block-surface.js), rather than nested as its own separate box.
+function ifClause(role, from, inner, source) {
+  if (inner.consequent?.type !== 'BlockStatement') return undefined;
+  const headerTo = lineTextEnd(source, from);
+  const testSocket = projectNode(inner.test, 'socket', source, 'if-condition');
+  const bodyChildren = (inner.consequent.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source));
+  const to = inner.consequent.end;
+  return {
+    id: `clause:${role}:${from}:${to}`,
+    kind: 'clause', from, to, editable: true,
+    children: [testSocket, ...bodyChildren],
+    metadata: {type: 'IfStatement', clauseRole: role, headerTo, bodyEnd: lineStart(source, to - 1)}
+  };
+}
+
+function elseClause(from, block, source) {
+  if (block.type !== 'BlockStatement') return undefined;
+  const headerTo = lineTextEnd(source, from);
+  const bodyChildren = (block.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source));
+  const to = block.end;
+  return {
+    id: `clause:else:${from}:${to}`,
+    kind: 'clause', from, to, editable: true,
+    children: bodyChildren,
+    metadata: {type: 'BlockStatement', clauseRole: 'else', headerTo, bodyEnd: lineStart(source, to - 1)}
   };
 }
 
@@ -144,6 +255,36 @@ function emptyParameterSocket(node, source) {
     id: `socket:parameter:${closeParen}:${closeParen}`,
     kind: 'socket', from: closeParen, to: closeParen, editable: true, children: [],
     metadata: {type: 'Identifier', socketRole: 'parameter', empty: true}
+  }];
+}
+
+// A zero-argument call - `myFunction()`, `Math.random()` - is syntactically
+// complete JavaScript (unlike a while/if condition, a call's argument list
+// can be empty), so it gets the same directly-editable empty slot rather
+// than requiring a placeholder identifier to have anything to click.
+function emptyCallArgumentSocket(node, source) {
+  if ((node.type !== 'CallExpression' && node.type !== 'NewExpression') || node.arguments.length > 0) return [];
+  const openParen = source.indexOf('(', node.callee.end);
+  const closeParen = openParen === -1 ? -1 : source.indexOf(')', openParen);
+  if (closeParen === -1) return [];
+  return [{
+    id: `socket:expression:${closeParen}:${closeParen}`,
+    kind: 'socket', from: closeParen, to: closeParen, editable: true, children: [],
+    metadata: {type: 'Identifier', socketRole: 'expression', empty: true}
+  }];
+}
+
+// A bare `return;` - a valid, argument-less return - gets the same empty
+// slot, so a palette "return ;" block has something to click without a
+// placeholder identifier already sitting in the socket.
+function emptyReturnValueSocket(node, source) {
+  if (node.type !== 'ReturnStatement' || node.argument) return [];
+  const semicolon = source.indexOf(';', node.start);
+  const position = semicolon === -1 ? node.end : semicolon;
+  return [{
+    id: `socket:expression:${position}:${position}`,
+    kind: 'socket', from: position, to: position, editable: true, children: [],
+    metadata: {type: 'Identifier', socketRole: 'expression', empty: true}
   }];
 }
 
@@ -173,6 +314,10 @@ function lineStart(source, position) {
 }
 
 function blockStatementChild(node) {
+  // An IfStatement's own body is specifically its consequent - relying on
+  // Acorn's property order to reach that before a same-shaped `alternate`
+  // (a bare "else { }", also a BlockStatement) would be fragile.
+  if (node.type === 'IfStatement') return node.consequent?.type === 'BlockStatement' ? node.consequent : undefined;
   for (const value of Object.values(node)) {
     if (isAstNode(value) && value.type === 'BlockStatement') return value;
   }
@@ -189,6 +334,10 @@ function childNodes(node) {
   const children = [];
   for (const [key, value] of Object.entries(node)) {
     if (key === 'start' || key === 'end' || key === 'loc' || key === 'type') continue;
+    // An if/else-if/else chain is projected as 'clause' children by
+    // ifClauses (see projectNode) instead of through this generic walk -
+    // visiting `alternate` here too would duplicate it.
+    if (key === 'alternate' && node.type === 'IfStatement') continue;
     if (isAstNode(value)) {
       children.push({node: value, socketRole: socketRoleFor(node, key)});
     } else if (Array.isArray(value)) {
@@ -210,6 +359,7 @@ function socketRoleFor(parent, key) {
   if (parent.type === 'ForStatement' && (key === 'init' || key === 'test' || key === 'update')) return 'expression';
   if ((parent.type === 'FunctionDeclaration' || parent.type === 'FunctionExpression') && key === 'id') return 'name';
   if ((parent.type === 'FunctionDeclaration' || parent.type === 'FunctionExpression') && key === 'params') return 'parameter';
+  if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'callee') return 'call-target';
   if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'arguments') return 'expression';
   if ((parent.type === 'BinaryExpression' || parent.type === 'LogicalExpression') &&
       (key === 'left' || key === 'right')) return 'expression';
