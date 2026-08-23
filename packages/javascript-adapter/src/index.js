@@ -444,7 +444,7 @@ function elseClause(from, block, source) {
 // parameter with no way to actually type one in.
 function emptyParameterSocket(node, source) {
   if (node.type !== 'FunctionDeclaration' && node.type !== 'FunctionExpression') return [];
-  const openParen = source.indexOf('(', node.id ? node.id.end : node.start);
+  const openParen = openParenStart(source, node.id ? node.id.end : node.start);
   if (openParen === -1 || openParen >= node.end) return [];
   return emptySequenceSocket(source, openParen, node.params, 'parameter');
 }
@@ -456,7 +456,7 @@ function emptyParameterSocket(node, source) {
 // as with a parameter list above, so does the gap "+" leaves behind.
 function emptyCallArgumentSocket(node, source) {
   if (node.type !== 'CallExpression' && node.type !== 'NewExpression') return [];
-  const openParen = source.indexOf('(', node.callee.end);
+  const openParen = openParenStart(source, node.callee.end);
   // A parenless `new Foo` is complete, valid JavaScript with no argument
   // list at all - the unbounded search above would otherwise walk straight
   // past it into whatever statement happens to come next and attach a
@@ -489,6 +489,27 @@ function emptySequenceSocket(source, openParen, items, socketRole) {
     kind: 'socket', from: closeParen, to: closeParen, editable: true, children: [],
     metadata: {type: 'Identifier', socketRole, empty: true}
   }];
+}
+
+// Retokenizes from a name/callee's own end to find the "(" it actually
+// opens a parameter/argument list with - a plain indexOf would instead match
+// one sitting inside a comment in between (`function f/* ( */() {}`), and
+// slicing the source there to retokenize afterward would then fail outright
+// (a comment sliced mid-way no longer reads as one). Acorn's tokenizer skips
+// real comments as trivia the same way it does whitespace, so scanning from
+// an actual token boundary reliably lands on the real "(" regardless of what
+// comment sits before it; a "?." here (an optional call) tokenizes as two
+// separate punctuators, neither of them "(", so this keeps scanning past them.
+function openParenStart(source, from) {
+  try {
+    const stream = tokenizer(source.slice(from), {ecmaVersion: 'latest'});
+    for (let token = stream.getToken(); token.type.label !== 'eof'; token = stream.getToken()) {
+      if (token.type.label === '(') return from + token.start;
+    }
+  } catch {
+    // Best effort - see matchingCloseParen below.
+  }
+  return -1;
 }
 
 // Retokenizes from an opening "(" and tracks nesting depth to find the

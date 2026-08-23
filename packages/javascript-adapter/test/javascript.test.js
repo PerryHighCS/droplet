@@ -305,6 +305,24 @@ test('does not attach an empty argument socket outside a parenless "new" express
   assert.ok(callArgumentSockets[0].from >= callStatement.from && callArgumentSockets[0].to <= callStatement.to);
 });
 
+test('finds the real opening parenthesis past a comment that contains one, for both a def and a call', () => {
+  // A plain indexOf for the opening "(" could match one sitting inside a
+  // comment between the name/callee and the real delimiter - and slicing
+  // the source there to retokenize afterward then failed outright, since a
+  // comment sliced mid-way no longer reads as one to the tokenizer.
+  const withComment = parseJavaScript('function f/* ( */() {\n}\n').root.children[0];
+  const emptyParameter = findFirst({children: withComment.children}, (node) =>
+    node.metadata?.socketRole === 'parameter' && node.metadata?.empty);
+  assert.ok(emptyParameter, 'the real "(" must still be found past the comment');
+  assert.equal(emptyParameter.from, 'function f/* ( */('.length);
+
+  const call = findFirst(parseJavaScript('f/* ( */();\n').root, (node) => node.metadata?.type === 'CallExpression');
+  const emptyArgument = findFirst({children: call.children}, (node) =>
+    node.metadata?.socketRole === 'call-argument' && node.metadata?.empty);
+  assert.ok(emptyArgument, 'the real "(" must still be found past the comment');
+  assert.equal(emptyArgument.from, 'f/* ( */('.length);
+});
+
 test('adds a parameter to a compact single-line function whose body has its own nested call', () => {
   // insert-sequence-item's target search used the whole physical line for a
   // statement target, not just its own header - for a compact single-line
