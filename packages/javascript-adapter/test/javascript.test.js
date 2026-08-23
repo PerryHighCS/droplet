@@ -109,6 +109,53 @@ test('moving a nested multi-line statement to a shallower level reindents its bo
   );
 });
 
+test('moving a statement with a multi-line template literal reindents code but leaves the raw string untouched', () => {
+  // Reindenting every continuation line (see the previous test) is only
+  // correct for structural source - a template literal's raw text carries
+  // its own leading whitespace as part of the runtime string value, and
+  // reindenting it the same way as code would silently change what the
+  // moved statement actually returns.
+  const source = 'if (x) {\n}\nconst s = `first\nraw`;\n';
+  const parsed = parseJavaScript(source);
+  const declaration = findFirst(parsed.root, (node) => node.metadata?.type === 'VariableDeclaration');
+  const ifStatement = findFirst(parsed.root, (node) => node.metadata?.type === 'IfStatement');
+
+  const moved = transformJavaScript({
+    type: 'move-statement',
+    source: {from: declaration.from, to: declaration.to},
+    destination: {from: ifStatement.from + 'if (x) {\n'.length, to: ifStatement.from + 'if (x) {\n'.length}
+  }, parsed);
+
+  assert.equal(
+    applySourceChanges(source, moved),
+    'if (x) {\n  const s = `first\nraw`;\n}\n\n'
+  );
+});
+
+test('appends past an unterminated final line instead of prepending to the start of the document', () => {
+  // A body-end destination lands at source.length - for a document with no
+  // trailing newline, normalizing that to its own line's start (as any
+  // "before this statement" destination needs) resolved to position 0
+  // instead, prepending the new statement rather than appending it.
+  const noNewline = 'first();';
+  const inserted = transformJavaScript({
+    type: 'insert-statement',
+    destination: {from: noNewline.length, to: noNewline.length},
+    source: 'second();\n'
+  }, parseJavaScript(noNewline));
+  assert.equal(applySourceChanges(noNewline, inserted), 'first();\nsecond();\n');
+
+  const multiline = 'first();\nsecond()';
+  const parsed = parseJavaScript(multiline);
+  const [first] = parsed.root.children;
+  const moved = transformJavaScript({
+    type: 'move-statement',
+    source: {from: first.from, to: first.to},
+    destination: {from: multiline.length, to: multiline.length}
+  }, parsed);
+  assert.equal(applySourceChanges(multiline, moved), '\nsecond()\nfirst();');
+});
+
 test('add-clause finds the body\'s real closing brace, not one inside a string', () => {
   // closingBraceEnd used to text-search for the first "}" at/after bodyEnd,
   // which also matches a "}" that happens to appear inside a string literal
@@ -122,6 +169,20 @@ test('add-clause finds the body\'s real closing brace, not one inside a string',
   }, parseJavaScript(source));
 
   assert.equal(applySourceChanges(source, changes), 'if (x) { s = "}"; } else {\n}\n');
+});
+
+test('an else clause is found by its real keyword token, not the first "else" text after a comment', () => {
+  // A raw text search for "else" could match one inside a comment sitting
+  // between the consequent's own closing brace and the real keyword,
+  // landing the clause's own range on the comment instead - removing that
+  // "clause" then deletes into the comment and leaves it unterminated.
+  const source = 'if (x) {} /* else */ else {}\n';
+  const clause = findFirst(parseJavaScript(source).root, (node) => node.kind === 'clause');
+
+  assert.equal(source.slice(clause.from, clause.to), 'else {}');
+
+  const changes = transformJavaScript({type: 'remove-clause', target: {from: clause.from, to: clause.to}}, parseJavaScript(source));
+  assert.equal(applySourceChanges(source, changes), 'if (x) {} /* else */\n');
 });
 
 test('a blank line inside an else branch attaches to that clause, not the enclosing if', () => {

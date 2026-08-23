@@ -1,4 +1,4 @@
-import {parse} from 'acorn';
+import {parse, tokenizer} from 'acorn';
 import {
   applySourceChanges,
   assertInsertionPoint,
@@ -63,15 +63,22 @@ export function transformJavaScript(operation, parsed) {
     case 'insert-statement': {
       assertOperationSource(operation.source, 'Statement insertion');
       assertInsertionPoint(parsed.source, operation.destination);
-      // A "before this statement" destination is that statement's own `from`,
-      // which - like any statement range here - sits after its line's
-      // leading whitespace, not at column 0 (see indentLines above). Splicing
-      // indentLines' own prefix in there directly would double that
-      // whitespace onto the new line while leaving the original statement
-      // with none of its own, so normalize to the line's actual start first.
-      const point = lineStart(parsed.source, operation.destination.from);
-      const indentation = insertionIndentation(parsed.source, point);
-      changes = [{from: point, to: point, insert: indentLines(operation.source, indentation)}];
+      const destination = operation.destination.from;
+      if (isAppendPastUnterminatedLine(parsed.source, destination)) {
+        const indentation = indentationOf(parsed.source, destination);
+        changes = [{from: destination, to: destination, insert: `\n${indentLines(operation.source, indentation)}`}];
+      } else {
+        // A "before this statement" destination is that statement's own
+        // `from`, which - like any statement range here - sits after its
+        // line's leading whitespace, not at column 0 (see indentLines
+        // above). Splicing indentLines' own prefix in there directly would
+        // double that whitespace onto the new line while leaving the
+        // original statement with none of its own, so normalize to the
+        // line's actual start first.
+        const point = lineStart(parsed.source, destination);
+        const indentation = insertionIndentation(parsed.source, point);
+        changes = [{from: point, to: point, insert: indentLines(operation.source, indentation)}];
+      }
       break;
     }
     case 'move-statement': {
@@ -80,10 +87,9 @@ export function transformJavaScript(operation, parsed) {
       assertInsertionPoint(parsed.source, operation.destination);
       if (operation.destination.from >= statement.from && operation.destination.from <= statement.to) return [];
       const text = parsed.source.slice(statement.from, statement.to);
-      const point = lineStart(parsed.source, operation.destination.from);
       changes = [
         {from: statement.from, to: statement.to, insert: ''},
-        {from: point, to: point, insert: relocatedStatementText(parsed.source, statement.from, text, point)}
+        relocationInsertion(parsed.source, statement.from, text, operation.destination.from)
       ];
       break;
     }
@@ -162,9 +168,8 @@ export function transformJavaScript(operation, parsed) {
       const node = findNode(parsed.root, operation.source, operation.kind);
       if (!node || node.kind !== 'statement') throw new RangeError('Statement copy source is not present in the current projection');
       assertInsertionPoint(parsed.source, operation.destination);
-      const point = lineStart(parsed.source, operation.destination.from);
       const text = parsed.source.slice(node.from, node.to);
-      changes = [{from: point, to: point, insert: relocatedStatementText(parsed.source, node.from, text, point)}];
+      changes = [relocationInsertion(parsed.source, node.from, text, operation.destination.from)];
       break;
     }
     default:
@@ -210,23 +215,86 @@ function indentLines(text, indentation) {
 // in ahead of a "point" that isn't the very end of the document therefore
 // needs one restored, or it runs straight into whatever originally started
 // at that line.
-//
+function relocatedStatementText(source, originalFrom, text, point) {
+  const indentation = insertionIndentation(source, point);
+  return reindentRelocatedText(source, originalFrom, text, indentation) + (point < source.length ? '\n' : '');
+}
+
 // Unlike insert-statement's caller-supplied text, a relocated statement's
 // continuation lines (its body, a closing brace) already carry their own
 // absolute indentation from wherever it used to live. Stacking the
 // destination's indentation on top of that (as plain indentLines does) keeps
-// the old depth baked in alongside the new one. Strip the statement's
-// original base indentation from each continuation line first, so only the
-// destination's indentation remains.
-function relocatedStatementText(source, originalFrom, text, point) {
-  const indentation = insertionIndentation(source, point);
+// the old depth baked in alongside the new one, so each continuation line's
+// original base indentation is stripped before the new one is applied -
+// except a line that starts inside a template literal's raw text. That
+// leading whitespace is part of the runtime string value, not incidental
+// formatting (`` `first\nraw` `` moved into a nested body must keep "raw" at
+// column 0, not gain the destination's indentation), so those lines are
+// left completely untouched.
+function reindentRelocatedText(source, originalFrom, text, indentation) {
   const originalIndentation = indentationOf(source, originalFrom);
-  const reindented = text.split('\n').map((line, index) => {
-    if (index === 0) return line;
+  const protectedRanges = templateLiteralRanges(text);
+  let offset = 0;
+  return text.split('\n').map((line, index) => {
+    const lineOffset = offset;
+    offset += line.length + 1;
+    // Line 0 never carries its own original indentation to strip (Acorn's
+    // node.start already excludes it), but it still needs the destination's
+    // own indentation applied, same as every other line.
+    if (index === 0) return indentation ? indentation + line : line;
+    if (protectedRanges.some((range) => lineOffset >= range.from && lineOffset < range.to)) return line;
     if (!line.length) return line;
-    return line.startsWith(originalIndentation) ? line.slice(originalIndentation.length) : line;
+    const stripped = line.startsWith(originalIndentation) ? line.slice(originalIndentation.length) : line;
+    return indentation ? indentation + stripped : stripped;
   }).join('\n');
-  return indentLines(reindented, indentation) + (point < source.length ? '\n' : '');
+}
+
+// Acorn's tokenizer splits a template literal into "template" tokens for its
+// raw chunks (the text between backticks/"${"/"}") and ordinary tokens for
+// everything else, including any interpolated `${...}` expression - so only
+// the chunks actually returned here need protecting from reindentation; code
+// inside an interpolation is reindented like any other nested code. Best
+// effort: a standalone statement should always retokenize cleanly since it
+// already parsed as part of the whole document, but nothing here depends on
+// it succeeding - no ranges protected just falls back to reindenting everything.
+function templateLiteralRanges(text) {
+  try {
+    const ranges = [];
+    const stream = tokenizer(text, {ecmaVersion: 'latest'});
+    for (let token = stream.getToken(); token.type.label !== 'eof'; token = stream.getToken()) {
+      if (token.type.label === 'template') ranges.push({from: token.start, to: token.end});
+    }
+    return ranges;
+  } catch {
+    return [];
+  }
+}
+
+// A body-end destination can land exactly at the end of an unterminated
+// final line (no trailing newline) - there is no following sibling line to
+// normalize toward there the way a "before-sibling" destination has (see
+// insert-statement above), and lineStart would instead resolve to that same
+// last line's own start (or, for a single-line document, position 0),
+// splicing the relocated text before the existing last line instead of
+// after it.
+function isAppendPastUnterminatedLine(source, destination) {
+  return destination === source.length && source.length > 0 && !source.endsWith('\n');
+}
+
+// Shared by move-statement and copy-node: splices a relocated statement's
+// text at its destination, normalizing to the destination line's start in
+// the ordinary case, or - when appending past an unterminated final line -
+// inserting directly at that true end with its own separating newline
+// prepended (there is none already there to close the previous line) and
+// indentation matched to that (unterminated) line rather than a synthetic
+// next one.
+function relocationInsertion(source, originalFrom, text, destination) {
+  if (isAppendPastUnterminatedLine(source, destination)) {
+    const indentation = indentationOf(source, destination);
+    return {from: destination, to: destination, insert: `\n${reindentRelocatedText(source, originalFrom, text, indentation)}`};
+  }
+  const point = lineStart(source, destination);
+  return {from: point, to: point, insert: relocatedStatementText(source, originalFrom, text, point)};
 }
 
 // The leading whitespace of the line containing `position`, e.g. the exact
@@ -280,14 +348,31 @@ function projectNode(node, kind = nodeKind(node), source, socketRole) {
 // here.
 function ifClauses(node, source) {
   if (!node.alternate) return [];
-  const elseFrom = source.indexOf('else', node.consequent.end);
-  if (elseFrom === -1 || elseFrom >= node.alternate.start) return [];
+  const elseFrom = elseKeywordStart(source, node.consequent.end);
+  if (elseFrom === undefined || elseFrom >= node.alternate.start) return [];
   if (node.alternate.type === 'IfStatement') {
     const clause = ifClause('elif', elseFrom, node.alternate, source);
     return clause ? [clause, ...ifClauses(node.alternate, source)] : [];
   }
   const clause = elseClause(elseFrom, node.alternate, source);
   return clause ? [clause] : [];
+}
+
+// A raw text search for "else" could match one sitting inside a comment
+// between the consequent's own closing brace and the real keyword (e.g.
+// "if (x) {} /* else */ else {}"), landing the clause's own range on the
+// comment instead - and deleting/relocating that "clause" then corrupts the
+// comment itself, not just the visible branch. Acorn's tokenizer skips
+// comments as trivia the same way it does whitespace, so retokenizing from
+// the consequent's end reliably finds the real "else" keyword token
+// regardless of what comment sits before it.
+function elseKeywordStart(source, from) {
+  try {
+    const token = tokenizer(source.slice(from), {ecmaVersion: 'latest'}).getToken();
+    return token.type.label === 'else' ? from + token.start : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // An "else if" clause's body is its own inner IfStatement's consequent - kept
