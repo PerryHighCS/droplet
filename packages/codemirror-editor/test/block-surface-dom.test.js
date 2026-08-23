@@ -46,6 +46,62 @@ test('uses a layout insertion zone for one statement move intent and matching pr
   }]);
 });
 
+test('rejects dropping a statement on its own lower half instead of leaving a stray blank line behind', () => {
+  // Hovering over the dragged statement's own (still-rendered) lower half
+  // resolves to "insert before my own next sibling" - a destination outside
+  // the dragged node's own range, so it isn't caught by the transform's
+  // "destination inside my own range" no-op guard. Removing the statement's
+  // own line and reinserting it right where its old next sibling starts
+  // nets out to the same document *content*, but not the same document
+  // *text*: it leaves a stray blank line where the original line used to be.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const lowerHalfY = (first.bounds.top + first.bounds.bottom) / 2 + 2;
+
+  drag(svg, dom.window, first, first.bounds.left + 2, lowerHalfY);
+
+  assert.deepEqual(operations, []);
+});
+
+test('rejects copying a container onto an insertion zone inside its own body', () => {
+  // copy-node has no "destination inside my own range" guard the way
+  // move-statement does (copying, unlike moving, never removes the source
+  // first) - dropping a Ctrl-dragged container onto one of its own
+  // insertion zones would splice a copy of its own text into its own body,
+  // nesting it inside itself.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  const source = 'if (x) {\n  a();\n}\n';
+  surface.update({source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'if', kind: 'statement', from: 0, to: source.length - 1, editable: true,
+      metadata: {
+        type: 'IfStatement', blockRole: 'container', headerTo: 9,
+        bodyEnd: source.indexOf('}'), blockEnd: source.indexOf('}') + 1
+      },
+      children: [{id: 'a', kind: 'statement', from: source.indexOf('a()'), to: source.indexOf('a()') + 4, editable: true, metadata: {}, children: []}]
+    }]
+  }});
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const ifNode = surface.layout.nodes.find((node) => node.id === 'if');
+  const bodyEndZone = ifNode.insertionZones.find((zone) => zone.role === 'body-end');
+
+  drag(svg, dom.window, ifNode, bodyEndZone.bounds.left + 2, bodyEndZone.bounds.top + 2, {ctrlKey: true});
+
+  assert.deepEqual(operations, []);
+});
+
 test('reuses the drag preview elements across pointermoves within the same zone, not on every move', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: () => {}});

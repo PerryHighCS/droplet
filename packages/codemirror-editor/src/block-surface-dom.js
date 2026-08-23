@@ -449,7 +449,34 @@ export class BlockSurface {
   }
 }
 
+// See destinationForTarget's own comment for why this check exists. A
+// palette drag's dragNode is a synthetic {kind: 'statement'} placeholder
+// with no `.source` (nothing dragged from the document to self-collide
+// with), so this always passes for one.
+function targetWithinDraggedRange(target, dragNode) {
+  if (!dragNode?.source) return false;
+  const {from, to} = dragNode.source;
+  if (target?.kind === 'insertion') {
+    const destinationFrom = target.zone.destination.from;
+    return destinationFrom > from && destinationFrom < to;
+  }
+  const node = target?.node;
+  return Boolean(node?.source) && node.source.from >= from && node.source.to <= to;
+}
+
 function destinationForTarget(layout, target, point, dragNode) {
+  // A resolved destination inside the dragged node's own source range can
+  // never be a real move or copy: dropping a container into its own body
+  // would nest a copy of itself inside itself (or, for a move, corrupt the
+  // very range being read from), and letting the dragged node itself (or one
+  // of its own descendants) stand in as a sibling-ordering reference point
+  // means removing it also removes that reference - "insert before my own
+  // next sibling," resolved while still hovering over my own lower half,
+  // leaves a stray blank line where the original used to be instead of the
+  // no-op it looks like on screen. A destination exactly at the dragged
+  // node's own boundary (its `from` or `to`) is still allowed - "duplicate
+  // right above/below myself" is a legitimate copy gesture.
+  if (targetWithinDraggedRange(target, dragNode)) return undefined;
   if (target?.kind === 'insertion') return {destination: target.zone.destination, zone: target.zone};
   if (isSocketNode(dragNode) && isSocketNode(target?.node)) {
     if (sameRange(dragNode.source, target.node.source)) return undefined;
