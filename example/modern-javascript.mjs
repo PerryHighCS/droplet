@@ -322,7 +322,7 @@ function insertPaletteBlock(block) {
     const socket = range && nodes.find((node) =>
       (node.kind === 'socket' || node.kind === 'recovery-socket') && node.from === range.from && node.to === range.to);
     if (socket) {
-      editor.applyBlockOperation({type: 'replace-socket', target: {from: socket.from, to: socket.to}, source: block.source});
+      if (!applyPaletteOperation({type: 'replace-socket', target: {from: socket.from, to: socket.to}, source: block.source})) return;
       setStatus(`Replaced the selected socket with ${block.label}.`);
       return;
     }
@@ -330,8 +330,18 @@ function insertPaletteBlock(block) {
   const selected = range && nodes.find((node) => node.kind === 'statement' && node.from === range.from && node.to === range.to);
   const at = selected?.from ?? editor.getValue().length;
   const source = block.kind === 'expression' ? `${block.source}\n` : block.source;
-  editor.applyBlockOperation({type: 'insert-statement', destination: {from: at, to: at}, source});
+  if (!applyPaletteOperation({type: 'insert-statement', destination: {from: at, to: at}, source})) return;
   setStatus(`Inserted ${block.label}.`);
+}
+
+function applyPaletteOperation(operation) {
+  try {
+    editor.applyBlockOperation(operation);
+    return true;
+  } catch (error) {
+    setStatus(`Couldn't place that block here: ${error.message}`);
+    return false;
+  }
 }
 
 function refresh() {
