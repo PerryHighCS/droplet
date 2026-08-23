@@ -293,7 +293,13 @@ function templateLiteralRanges(text) {
 // splicing the relocated text before the existing last line instead of
 // after it.
 function isAppendPastUnterminatedLine(source, destination) {
-  return destination === source.length && source.length > 0 && !source.endsWith('\n');
+  // A source ending in a bare "\r" (physicalLines/lineStart's own third
+  // supported line ending, alongside "\r\n" and "\n") already has a complete
+  // line terminator - a plain endsWith('\n') check misses it, misclassifying
+  // that already-terminated line as unterminated and prepending an extra
+  // "\n" on append, silently turning the source's own trailing "\r" into a
+  // CRLF pair it never had.
+  return destination === source.length && source.length > 0 && !/[\r\n]$/.test(source);
 }
 
 // A call/def's own argument/parameter sockets sit directly on the target

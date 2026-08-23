@@ -171,6 +171,22 @@ test('appends past an unterminated final line instead of prepending to the start
   assert.equal(applySourceChanges(multiline, moved), '\nsecond()\nfirst();');
 });
 
+test('appends after a document whose final line ends in a bare CR, without turning it into a CRLF', () => {
+  // isAppendPastUnterminatedLine used to check only endsWith('\n') - a
+  // document already terminated by a bare "\r" (physicalLines/lineStart's
+  // own third supported line ending) was misclassified as unterminated,
+  // taking the "prepend a \n" branch meant for a genuinely missing
+  // terminator and silently turning the source's own trailing "\r" into a
+  // "\r\n" pair it never had.
+  const source = 'first();\r';
+  const inserted = transformJavaScript({
+    type: 'insert-statement',
+    destination: {from: source.length, to: source.length},
+    source: 'second();\n'
+  }, parseJavaScript(source));
+  assert.equal(applySourceChanges(source, inserted), 'first();\rsecond();\n');
+});
+
 test('add-clause finds the body\'s real closing brace, not one inside a string', () => {
   // closingBraceEnd used to text-search for the first "}" at/after bodyEnd,
   // which also matches a "}" that happens to appear inside a string literal
