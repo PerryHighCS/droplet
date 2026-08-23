@@ -181,7 +181,12 @@ export class DropletCodeMirrorEditor {
         blockMode: this.#blockMode
       })
     });
-    this.#surface?.update(this.#projection);
+    // #reparse runs this on every document change regardless of mode, but the
+    // surface is hidden (display: none) while in text mode - rebuilding its
+    // layout and re-rendering its whole SVG tree on every keystroke there
+    // pays real cost for something nobody can see. setBlockMode(true) already
+    // republishes once the surface actually becomes visible.
+    if (this.#blockMode) this.#surface?.update(this.#projection);
     this.#surface?.setVisible(this.#blockMode);
     if (this.editor?.view?.dom) this.editor.view.dom.style.display = this.#blockMode ? 'none' : '';
   }

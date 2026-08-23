@@ -44,6 +44,22 @@ test('text editing can become opaque without forcing a mode change', () => {
   editor.destroy();
 });
 
+test('a text-mode edit does not rebuild the hidden block surface, only a block-mode one does', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({parent, value: 'score = 1\n', parse: parseExample});
+
+  editor.editor.dispatch({changes: {from: 0, to: editor.getValue().length, insert: 'other = 2\n'}});
+  assert.equal(editor.isUsingBlocks(), false);
+  assert.equal(
+    parent.querySelectorAll('.droplet-block-surface [data-droplet-kind]').length, 0,
+    'the hidden surface must not be laid out or rendered for a text-mode edit'
+  );
+
+  editor.setBlockMode(true);
+  assert.ok(parent.querySelectorAll('.droplet-block-surface [data-droplet-kind]').length > 0);
+  editor.destroy();
+});
+
 test('block mode displays structured statements on the BlockSurface and hides the text view', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
