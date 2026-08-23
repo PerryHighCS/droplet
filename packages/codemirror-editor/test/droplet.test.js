@@ -265,6 +265,53 @@ test('pressing Backspace mid-edit in a socket only edits its text, not the whole
   editor.destroy();
 });
 
+test('an initially read-only editor blocks socket edits and block deletion through the surface', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseSocketExample, readOnly: true
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const socket = parent.querySelector('[data-droplet-layout-id="value:value"]');
+
+  clickRenderedSocket(socket);
+  assert.equal(parent.querySelector('.droplet-socket-editor'), null, 'read-only must not open the inline editor');
+
+  parent.querySelector('.droplet-block-surface').dispatchEvent(
+    new window.KeyboardEvent('keydown', {bubbles: true, key: 'Delete'})
+  );
+  assert.equal(editor.getValue(), 'target = value\n');
+
+  assert.throws(
+    () => editor.applyBlockOperation({type: 'delete-node', source: {from: 0, to: 15}, kind: 'statement'}),
+    TypeError
+  );
+  editor.destroy();
+});
+
+test('update({readOnly}) blocks then re-allows socket edits through the surface', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  editor.update({readOnly: true});
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:value"]'));
+  assert.equal(parent.querySelector('.droplet-socket-editor'), null, 'read-only must not open the inline editor');
+  assert.equal(editor.getValue(), 'target = value\n');
+
+  editor.update({readOnly: false});
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:value"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  assert.ok(input, 'normal editing resumes once readOnly is lifted');
+  input.value = 'answer';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+  assert.equal(editor.getValue(), 'target = answer\n');
+  editor.destroy();
+});
+
 test('editing a rendered comment commits one CodeMirror source change on Enter', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({

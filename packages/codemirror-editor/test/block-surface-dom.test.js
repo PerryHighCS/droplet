@@ -258,6 +258,44 @@ test('drags an expression socket onto another socket as a replacement operation'
   }]);
 });
 
+test('an unrelated second pointer does not steer or end a drag the first pointer started', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(assignmentSockets());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const target = surface.layout.nodes.find((node) => node.id === 'target');
+  const value = surface.layout.nodes.find((node) => node.id === 'value');
+
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerdown', {
+    bubbles: true, button: 0, pointerId: 1, clientX: target.bounds.left + 2, clientY: target.bounds.top + 2
+  }));
+  // A second, unrelated pointer (a second touch, a simultaneous stylus) moves
+  // over the surface and releases while pointer 1's drag is still in
+  // progress. Neither should touch pointer 1's drag state.
+  svg.dispatchEvent(new dom.window.PointerEvent('pointermove', {
+    bubbles: true, button: 0, pointerId: 2, clientX: value.bounds.right + 50, clientY: value.bounds.bottom + 50
+  }));
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerup', {
+    bubbles: true, button: 0, pointerId: 2, clientX: value.bounds.right + 50, clientY: value.bounds.bottom + 50
+  }));
+  assert.equal(operations.length, 0, 'the unrelated pointer must not end pointer 1\'s drag');
+
+  svg.dispatchEvent(new dom.window.PointerEvent('pointermove', {
+    bubbles: true, button: 0, pointerId: 1, clientX: value.bounds.left + 2, clientY: value.bounds.top + 2
+  }));
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerup', {
+    bubbles: true, button: 0, pointerId: 1, clientX: value.bounds.left + 2, clientY: value.bounds.top + 2
+  }));
+
+  assert.deepEqual(operations, [{
+    type: 'replace-socket', target: {from: 9, to: 14}, source: 'target'
+  }]);
+});
+
 test('drops an expression palette block onto a socket as a replacement operation', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -347,6 +385,29 @@ test('clicking "+ elif" emits an add-clause operation targeting the whole if sta
   assert.deepEqual(operations, [{type: 'add-clause', target: {from: ifStatement.source.from, to: ifStatement.source.to}, role: 'elif'}]);
 });
 
+test('a keyboard-focused "+ elif" button is a real button and activates on Enter and Space', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(bareIf());
+  const svg = surface.element.querySelector('svg');
+  const button = svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="elif"]');
+  assert.equal(button.getAttribute('tabindex'), '0');
+  assert.equal(button.getAttribute('role'), 'button');
+  assert.ok(button.getAttribute('aria-label'));
+
+  const ifStatement = surface.layout.nodes.find((node) => node.id === 'if');
+  const expected = {type: 'add-clause', target: {from: ifStatement.source.from, to: ifStatement.source.to}, role: 'elif'};
+
+  button.dispatchEvent(new dom.window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+  assert.deepEqual(operations, [expected]);
+
+  button.dispatchEvent(new dom.window.KeyboardEvent('keydown', {bubbles: true, key: ' '}));
+  assert.deepEqual(operations, [expected, expected]);
+});
+
 test('clicking "+ else" emits an add-clause operation, and hides once an else already exists', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -396,6 +457,25 @@ test('clicking a clause\'s remove badge emits a remove-clause operation targetin
   assert.ok(removeButton);
 
   removeButton.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
+
+  const elif = surface.layout.nodes.find((node) => node.id === 'elif');
+  assert.deepEqual(operations, [{type: 'remove-clause', target: {from: elif.source.from, to: elif.source.to}}]);
+});
+
+test('a keyboard-focused clause remove badge is a real button and activates on Enter', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(ifWithElifClause());
+  const svg = surface.element.querySelector('svg');
+  const removeButton = svg.querySelector('[data-droplet-action="remove-clause"]');
+  assert.equal(removeButton.getAttribute('tabindex'), '0');
+  assert.equal(removeButton.getAttribute('role'), 'button');
+  assert.ok(removeButton.getAttribute('aria-label'));
+
+  removeButton.dispatchEvent(new dom.window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
 
   const elif = surface.layout.nodes.find((node) => node.id === 'elif');
   assert.deepEqual(operations, [{type: 'remove-clause', target: {from: elif.source.from, to: elif.source.to}}]);

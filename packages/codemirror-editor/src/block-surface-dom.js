@@ -20,8 +20,9 @@ export class BlockSurface {
   #suppressClick = false;
   #document;
   #endDragFromDocument;
+  #readOnly = false;
 
-  constructor({parent, onSelect, onOperation, onSocketEdit, layoutOptions = {}}) {
+  constructor({parent, onSelect, onOperation, onSocketEdit, layoutOptions = {}, readOnly = false}) {
     if (!parent?.ownerDocument) throw new TypeError('A BlockSurface parent element is required');
     if (onSelect !== undefined && typeof onSelect !== 'function') throw new TypeError('onSelect must be a function');
     if (onOperation !== undefined && typeof onOperation !== 'function') throw new TypeError('onOperation must be a function');
@@ -31,6 +32,7 @@ export class BlockSurface {
     this.#onOperation = onOperation;
     this.#onSocketEdit = onSocketEdit;
     this.#layoutOptions = layoutOptions;
+    this.#readOnly = readOnly === true;
     this.#dom = parent.ownerDocument.createElement('div');
     this.#dom.className = 'droplet-block-surface';
     Object.assign(this.#dom.style, {
@@ -92,6 +94,10 @@ export class BlockSurface {
     this.#dom.style.display = visible ? 'block' : 'none';
   }
 
+  setReadOnly(readOnly) {
+    this.#readOnly = readOnly === true;
+  }
+
   destroy() {
     this.#closeSocketEditor();
     this.#document.removeEventListener('pointerup', this.#endDragFromDocument, true);
@@ -123,20 +129,32 @@ export class BlockSurface {
     const directNode = layoutNodeForElement(this.#layout, event.target);
     if (isInlineEditable(directNode)) {
       this.#selectNode(directNode);
-      this.#openInlineEditor(directNode);
+      if (!this.#readOnly) this.#openInlineEditor(directNode);
       return;
     }
     const bounds = this.#svg.getBoundingClientRect();
     const target = hitTestBlockLayout(this.#layout, {x: event.clientX - bounds.left, y: event.clientY - bounds.top});
     if (isInlineEditable(target?.node)) {
       this.#selectNode(target.node);
-      this.#openInlineEditor(target.node);
+      if (!this.#readOnly) this.#openInlineEditor(target.node);
       return;
     }
     if (target?.node?.source) this.#selectNode(target.node);
   }
 
   #handleKeydown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      // Mirrors #handleClick's own data-droplet-action check: these SVG
+      // button groups have no native Enter/Space activation of their own
+      // (unlike a real <button>), so keyboard focus reaching one is handled
+      // here instead.
+      const actionButton = event.target?.closest?.('[data-droplet-action]');
+      if (actionButton) {
+        event.preventDefault();
+        this.#dispatchAction(actionButton);
+      }
+      return;
+    }
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
     // Delete/Backspace inside the open inline editor is ordinary text
     // editing (its own keydown handler covers clearing it entirely via
@@ -144,7 +162,7 @@ export class BlockSurface {
     // shortcut below. Checked by element type rather than comparing against
     // #socketEditor: committing an edit clears that reference synchronously,
     // before this same event finishes bubbling here.
-    if (event.target?.tagName === 'INPUT') return;
+    if (event.target?.tagName === 'INPUT' || this.#readOnly) return;
     const node = this.#selectedNode;
     if (!node || !isDeletable(node)) return;
     event.preventDefault();
@@ -171,7 +189,7 @@ export class BlockSurface {
   }
 
   #dispatchAction(button) {
-    if (!this.#onOperation) return;
+    if (!this.#onOperation || this.#readOnly) return;
     const target = {from: Number(button.dataset.dropletTargetFrom), to: Number(button.dataset.dropletTargetTo)};
     switch (button.dataset.dropletAction) {
       case 'add-clause':
@@ -272,7 +290,7 @@ export class BlockSurface {
   }
 
   #beginDrag(event) {
-    if (event.button !== 0 || !this.#layout || !this.#onOperation) return;
+    if (event.button !== 0 || !this.#layout || !this.#onOperation || this.#readOnly) return;
     // A remove badge sits right at a socket's own corner and an add button
     // right at a container/compound-socket's own edge, so a press there can
     // also hit-test to the movable node underneath. The button click, not a
@@ -281,6 +299,7 @@ export class BlockSurface {
     const target = hitTestBlockLayout(this.#layout, pointFor(this.#svg, event));
     if (!target?.node || !isMovable(target.node)) return;
     this.#drag = {
+      pointerId: event.pointerId,
       node: target.node,
       copy: event.ctrlKey || event.metaKey,
       start: pointFor(this.#svg, event),
@@ -296,7 +315,12 @@ export class BlockSurface {
   }
 
   #continueDrag(event) {
-    if (!this.#drag) return;
+    // Pointer capture routes this pointer's own events to #svg regardless of
+    // where it physically is, but does not stop an unrelated second pointer
+    // (a second touch, a simultaneous stylus/mouse) from also firing events
+    // here if it happens to be over the same element. Without this check, a
+    // second pointer's moves would steer the drag the first pointer started.
+    if (!this.#drag || event.pointerId !== this.#drag.pointerId) return;
     const point = pointFor(this.#svg, event);
     this.#drag.lastPoint = point;
     if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
@@ -320,8 +344,8 @@ export class BlockSurface {
 
   #endDrag(event) {
     const drag = this.#drag;
+    if (!drag || event.pointerId !== drag.pointerId) return;
     this.#drag = undefined;
-    if (!drag) return;
     // A pointercancel implicitly releases capture right after dispatch, and
     // some implementations mark the pointer inactive before this handler
     // runs - calling releasePointerCapture on an already-released pointerId
@@ -351,7 +375,7 @@ export class BlockSurface {
   }
 
   #continuePaletteDrag(event) {
-    if (!this.#layout || !this.#onOperation || !isPaletteDrag(event)) return;
+    if (!this.#layout || !this.#onOperation || this.#readOnly || !isPaletteDrag(event)) return;
     event.dataTransfer.dropEffect = 'move';
     const point = pointFor(this.#svg, event);
     const target = dropTargetAtPoint(this.#layout, point);
@@ -373,7 +397,7 @@ export class BlockSurface {
 
   #dropPaletteBlock(event) {
     const dropped = paletteSource(event);
-    if (!this.#layout || !this.#onOperation || !dropped) return;
+    if (!this.#layout || !this.#onOperation || this.#readOnly || !dropped) return;
     const point = pointFor(this.#svg, event);
     const target = dropTargetAtPoint(this.#layout, point);
     clearDragPreviews(this.#svg);
@@ -695,7 +719,7 @@ function renderNode(node, document, options = {}) {
     if (node.metadata?.clauseRole === 'elif' || node.metadata?.clauseRole === 'else') {
       appendRemoveButton(group, document, {
         action: 'remove-clause', x: node.regions.header.right - 2, y: node.regions.header.top + 2,
-        dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+        dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Remove clause'
       });
     }
   } else if (node.kind === 'whitespace') {
@@ -862,7 +886,7 @@ function renderParameterAddButton(group, node, document) {
   if (!PARAMETER_ADD_ELIGIBLE_TYPES.has(node.metadata?.type)) return;
   appendActionButton(group, document, {
     action: 'insert-sequence-item', label: '+', x: node.regions.header.right - 12, y: node.regions.header.top - 4,
-    dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+    dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Add parameter'
   });
 }
 
@@ -880,7 +904,7 @@ function renderCallArgumentAddButton(group, node, document) {
   if (!node.children.some((child) => child.metadata?.socketRole === 'call-argument')) return;
   appendActionButton(group, document, {
     action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
-    dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+    dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Add argument'
   });
 }
 
@@ -891,7 +915,19 @@ function buttonWidth(label) {
   return label.length * 6.5 + ACTION_BUTTON_PADDING_X * 2;
 }
 
-function appendActionButton(group, document, {action, label, x, y, dataset = {}}) {
+// These SVG groups are the only affordance for their action (add/remove a
+// clause, argument, or list item) - a pointer-only activation would make
+// that action unreachable without a mouse. `role="button"` alone gets no
+// free Enter/Space handling the way a real `<button>` does (that behavior is
+// native-element-specific, not granted by ARIA role), so #handleKeydown
+// activates these explicitly; see its own 'Enter'/' ' branch.
+function markAsButton(button, ariaLabel) {
+  button.setAttribute('tabindex', '0');
+  button.setAttribute('role', 'button');
+  if (ariaLabel) button.setAttribute('aria-label', ariaLabel);
+}
+
+function appendActionButton(group, document, {action, label, x, y, dataset = {}, ariaLabel = label}) {
   const paddingX = ACTION_BUTTON_PADDING_X;
   const width = buttonWidth(label);
   const height = ACTION_BUTTON_HEIGHT;
@@ -899,6 +935,7 @@ function appendActionButton(group, document, {action, label, x, y, dataset = {}}
   button.dataset.dropletAction = action;
   for (const [key, value] of Object.entries(dataset)) button.dataset[key] = String(value);
   button.style.cursor = 'pointer';
+  markAsButton(button, ariaLabel);
   const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
   rect.setAttribute('x', String(x));
   rect.setAttribute('y', String(y));
@@ -916,12 +953,13 @@ function appendActionButton(group, document, {action, label, x, y, dataset = {}}
   return {width, height};
 }
 
-function appendRemoveButton(group, document, {action, x, y, dataset = {}}) {
+function appendRemoveButton(group, document, {action, x, y, dataset = {}, ariaLabel = 'Remove'}) {
   const radius = 6;
   const button = document.createElementNS(SVG_NAMESPACE, 'g');
   button.dataset.dropletAction = action;
   for (const [key, value] of Object.entries(dataset)) button.dataset[key] = String(value);
   button.style.cursor = 'pointer';
+  markAsButton(button, ariaLabel);
   const circle = document.createElementNS(SVG_NAMESPACE, 'circle');
   circle.setAttribute('cx', String(x));
   circle.setAttribute('cy', String(y));
@@ -1024,7 +1062,7 @@ function renderSocket(group, node, document, options = {}) {
   if (isSequenceItemRole(node.metadata?.socketRole) && !node.metadata?.empty) {
     appendRemoveButton(group, document, {
       action: 'remove-sequence-item', x: node.bounds.right, y: node.bounds.top,
-      dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+      dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Remove item'
     });
   }
 }
@@ -1065,7 +1103,8 @@ function renderCompoundSocket(group, node, document, options) {
   if (role) {
     appendActionButton(group, document, {
       action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
-      dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+      dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to},
+      ariaLabel: role === 'list-item' ? 'Add item' : 'Add argument'
     });
   }
 }

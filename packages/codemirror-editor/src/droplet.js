@@ -26,6 +26,7 @@ export class DropletCodeMirrorEditor {
   #projectionField;
   #surface;
   #socketRecovery;
+  #readOnly;
 
   constructor(options) {
     if (typeof options?.parse !== 'function') {
@@ -38,6 +39,7 @@ export class DropletCodeMirrorEditor {
     this.#parse = options.parse;
     this.#transform = options.transform;
     this.#blockMode = options.blockMode === true;
+    this.#readOnly = options.readOnly === true;
     this.#projection = this.#parseSource(options.value ?? '');
     this.#setProjection = StateEffect.define();
     this.#projectionField = createProjectionField(this.#setProjection, this.#projection);
@@ -60,7 +62,8 @@ export class DropletCodeMirrorEditor {
       onSelect: ({from, to}) => this.editor.setSelection({anchor: from, head: to}),
       onOperation: (operation) => this.applyBlockOperation(operation),
       onSocketEdit: ({target, source}) => this.#replaceSocketText(target, source),
-      layoutOptions: options.layoutOptions
+      layoutOptions: options.layoutOptions,
+      readOnly: this.#readOnly
     });
 
     if (this.#blockMode) this.#publishProjection();
@@ -89,6 +92,7 @@ export class DropletCodeMirrorEditor {
   }
 
   applyBlockOperation(operation) {
+    if (this.#readOnly) throw new TypeError('Cannot apply a block operation to a read-only editor');
     if (!this.#transform) throw new TypeError('No block transform was configured');
     const changes = this.#transform(operation, this.#projection);
     if (!Array.isArray(changes)) {
@@ -118,6 +122,10 @@ export class DropletCodeMirrorEditor {
       this.#transform = options.transform;
     }
     if (Object.hasOwn(options, 'blockMode')) this.setBlockMode(options.blockMode);
+    if (Object.hasOwn(options, 'readOnly')) {
+      this.#readOnly = options.readOnly === true;
+      this.#surface.setReadOnly(this.#readOnly);
+    }
     const editorOptions = {...options};
     delete editorOptions.parse;
     delete editorOptions.transform;
@@ -158,6 +166,7 @@ export class DropletCodeMirrorEditor {
   }
 
   #replaceSocketText(target, source) {
+    if (this.#readOnly) throw new TypeError('Cannot edit a socket on a read-only editor');
     if (!Number.isInteger(target?.from) || !Number.isInteger(target?.to) || typeof source !== 'string') {
       throw new TypeError('Socket editing requires a source range and string value');
     }
