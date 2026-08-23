@@ -61,6 +61,21 @@ test('inserting at bodyEnd does not corrupt an already-indented closing brace', 
   );
 });
 
+test('a compact single-line container gets a header that stops at its opening brace, and a bodyEnd before its closing one', () => {
+  // headerTo/bodyEnd both used physical-line boundaries, which coincide with
+  // the opening/closing brace for the ordinary multi-line case - but for a
+  // single-line container (`if (x) { work(); }`), the whole statement is one
+  // physical line: headerTo swallowed the entire statement (rendering its
+  // body twice, once as header text and once as a nested block), and
+  // lineStart(bodyEnd) landed at the start of the document, well before the
+  // body even begins.
+  const source = 'if (x) { work(); }\n';
+  const statement = parseJavaScript(source).root.children[0];
+
+  assert.equal(statement.metadata.headerTo, source.indexOf('{') + 1);
+  assert.equal(statement.metadata.bodyEnd, source.indexOf('}'));
+});
+
 test('a "before this statement" destination does not double or lose indentation', () => {
   // block-surface.js's insertionZones use an existing statement's own `from`
   // as a "before-sibling" destination - which, like any statement range here,

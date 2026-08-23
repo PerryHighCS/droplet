@@ -526,19 +526,31 @@ function metadataFor(node, kind, source, socketRole) {
   if (kind === 'socket') metadata.socketRole = socketRole ?? 'expression';
   if (kind === 'statement' && containerStatementTypes.has(node.type)) {
     metadata.blockRole = 'container';
-    metadata.headerTo = lineTextEnd(source, node.start);
-    // Without this, a container's own end (node.end, used as the layout
-    // engine's default bodyEnd) lands *after* the closing "}" - so a block
-    // dropped on the container's body-end insertion zone would land outside
-    // it, right after the brace, instead of inside as the last statement.
-    // The line *start*, not the brace's own position, matters here: landing
-    // right before "}" would insert between the brace's own leading
-    // indentation and the brace itself, corrupting both - the existing
-    // indentation would become a prefix of the inserted line, and the brace
-    // would be left with none of its own.
     const blockBody = node.type === 'BlockStatement' ? node : blockStatementChild(node);
+    // The physical line end is the header boundary for the ordinary,
+    // multi-line case (source.indexOf('\n') sits right after the opening
+    // "{"), but for a compact single-line container (`if (x) { work(); }`)
+    // that same line runs all the way past the closing "}" - capping at the
+    // opening brace's own position keeps the header from swallowing the
+    // body text that also renders as a nested child right below it.
+    metadata.headerTo = blockBody
+      ? Math.min(lineTextEnd(source, node.start), blockBody.start + 1)
+      : lineTextEnd(source, node.start);
     if (blockBody) {
-      metadata.bodyEnd = lineStart(source, blockBody.end - 1);
+      // Without this, a container's own end (node.end, used as the layout
+      // engine's default bodyEnd) lands *after* the closing "}" - so a block
+      // dropped on the container's body-end insertion zone would land outside
+      // it, right after the brace, instead of inside as the last statement.
+      // The line *start*, not the brace's own position, matters for a
+      // multi-line body: landing right before "}" would insert between the
+      // brace's own leading indentation and the brace itself, corrupting
+      // both. That concern does not apply to a single-line body, where the
+      // closing brace has no leading indentation of its own to corrupt in
+      // the first place - lineStart there would instead land at the start of
+      // the whole statement (or the document), well before the body even
+      // begins, so the brace's own position is used directly instead.
+      const singleLine = !source.slice(blockBody.start, blockBody.end).includes('\n');
+      metadata.bodyEnd = singleLine ? blockBody.end - 1 : lineStart(source, blockBody.end - 1);
       metadata.blockEnd = blockBody.end;
     }
   }
