@@ -83,7 +83,7 @@ export function transformJavaScript(operation, parsed) {
       const point = lineStart(parsed.source, operation.destination.from);
       changes = [
         {from: statement.from, to: statement.to, insert: ''},
-        {from: point, to: point, insert: relocatedStatementText(parsed.source, text, point)}
+        {from: point, to: point, insert: relocatedStatementText(parsed.source, statement.from, text, point)}
       ];
       break;
     }
@@ -164,7 +164,7 @@ export function transformJavaScript(operation, parsed) {
       assertInsertionPoint(parsed.source, operation.destination);
       const point = lineStart(parsed.source, operation.destination.from);
       const text = parsed.source.slice(node.from, node.to);
-      changes = [{from: point, to: point, insert: relocatedStatementText(parsed.source, text, point)}];
+      changes = [{from: point, to: point, insert: relocatedStatementText(parsed.source, node.from, text, point)}];
       break;
     }
     default:
@@ -210,9 +210,23 @@ function indentLines(text, indentation) {
 // in ahead of a "point" that isn't the very end of the document therefore
 // needs one restored, or it runs straight into whatever originally started
 // at that line.
-function relocatedStatementText(source, text, point) {
+//
+// Unlike insert-statement's caller-supplied text, a relocated statement's
+// continuation lines (its body, a closing brace) already carry their own
+// absolute indentation from wherever it used to live. Stacking the
+// destination's indentation on top of that (as plain indentLines does) keeps
+// the old depth baked in alongside the new one. Strip the statement's
+// original base indentation from each continuation line first, so only the
+// destination's indentation remains.
+function relocatedStatementText(source, originalFrom, text, point) {
   const indentation = insertionIndentation(source, point);
-  return indentLines(text, indentation) + (point < source.length ? '\n' : '');
+  const originalIndentation = indentationOf(source, originalFrom);
+  const reindented = text.split('\n').map((line, index) => {
+    if (index === 0) return line;
+    if (!line.length) return line;
+    return line.startsWith(originalIndentation) ? line.slice(originalIndentation.length) : line;
+  }).join('\n');
+  return indentLines(reindented, indentation) + (point < source.length ? '\n' : '');
 }
 
 // The leading whitespace of the line containing `position`, e.g. the exact

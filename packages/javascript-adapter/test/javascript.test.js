@@ -86,6 +86,29 @@ test('a "before this statement" destination does not double or lose indentation'
   assert.equal(applySourceChanges(source, moved), 'if (x) {\n  \n  first();\n  second();\n}\n');
 });
 
+test('moving a nested multi-line statement to a shallower level reindents its body and closing brace', () => {
+  // A relocated statement's continuation lines (its body, its closing brace)
+  // already carry their own absolute indentation from wherever it used to
+  // live. Stacking the destination's indentation on top of that used to keep
+  // the old depth baked in alongside the new one.
+  const source = 'function outer() {\n  if (true) {\n    doThing();\n    doOther();\n  }\n}\nfirst();\n';
+  const parsed = parseJavaScript(source);
+  const ifStatement = findFirst(parsed.root, (node) => node.metadata?.type === 'IfStatement');
+  const firstStatement = findFirst(parsed.root, (node) =>
+    node.metadata?.type === 'ExpressionStatement' && node.from > ifStatement.to);
+
+  const moved = transformJavaScript({
+    type: 'move-statement',
+    source: {from: ifStatement.from, to: ifStatement.to},
+    destination: {from: firstStatement.from, to: firstStatement.from}
+  }, parsed);
+
+  assert.equal(
+    applySourceChanges(source, moved),
+    'function outer() {\n  \n}\nif (true) {\n  doThing();\n  doOther();\n}\nfirst();\n'
+  );
+});
+
 test('add-clause finds the body\'s real closing brace, not one inside a string', () => {
   // closingBraceEnd used to text-search for the first "}" at/after bodyEnd,
   // which also matches a "}" that happens to appear inside a string literal
