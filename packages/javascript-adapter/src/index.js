@@ -409,30 +409,41 @@ function elseKeywordStart(source, from) {
 // container's single-BlockStatement body is (see structuralChildren in
 // block-surface.js), rather than nested as its own separate box.
 function ifClause(role, from, inner, source) {
-  if (inner.consequent?.type !== 'BlockStatement') return undefined;
-  const headerTo = lineTextEnd(source, from);
-  const testSocket = projectNode(inner.test, 'socket', source, 'if-condition');
-  const bodyChildren = (inner.consequent.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source));
-  const to = inner.consequent.end;
+  const body = inner.consequent;
+  if (body?.type !== 'BlockStatement') return undefined;
+  const to = body.end;
   return {
     id: `clause:${role}:${from}:${to}`,
     kind: 'clause', from, to, editable: true,
-    children: [testSocket, ...bodyChildren],
-    metadata: {type: 'IfStatement', clauseRole: role, headerTo, bodyEnd: lineStart(source, to - 1)}
+    children: [projectNode(inner.test, 'socket', source, 'if-condition'),
+      ...(body.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source))],
+    metadata: {type: 'IfStatement', clauseRole: role, ...clauseHeaderMetadata(from, body, source)}
   };
 }
 
 function elseClause(from, block, source) {
   if (block.type !== 'BlockStatement') return undefined;
-  const headerTo = lineTextEnd(source, from);
-  const bodyChildren = (block.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source));
   const to = block.end;
   return {
     id: `clause:else:${from}:${to}`,
     kind: 'clause', from, to, editable: true,
-    children: bodyChildren,
-    metadata: {type: 'BlockStatement', clauseRole: 'else', headerTo, bodyEnd: lineStart(source, to - 1)}
+    children: (block.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source)),
+    metadata: {type: 'BlockStatement', clauseRole: 'else', ...clauseHeaderMetadata(from, block, source)}
   };
+}
+
+// Shared by both clause shapes: for the ordinary multi-line case, the
+// physical line end is the header boundary (it sits right after the opening
+// "{") - but for a compact single-line clause ("else if (y) { work(); }"),
+// that same line runs past the closing "}" too, and lineStart(body.end - 1)
+// would land back at the header's own line. Capping headerTo at the body's
+// own opening brace, and bodyEnd at its closing brace directly for a
+// single-line body, mirrors the primary container's own metadataFor.
+function clauseHeaderMetadata(from, body, source) {
+  const headerTo = Math.min(lineTextEnd(source, from), body.start + 1);
+  const singleLine = !source.slice(body.start, body.end).includes('\n');
+  const bodyEnd = singleLine ? body.end - 1 : lineStart(source, body.end - 1);
+  return {headerTo, bodyEnd};
 }
 
 // A zero-parameter function still needs one directly-editable slot to type a
@@ -541,7 +552,11 @@ function matchingCloseParen(source, openParen) {
 function emptyReturnValueSocket(node, source) {
   if (node.type !== 'ReturnStatement' || node.argument) return [];
   const semicolon = source.indexOf(';', node.start);
-  const position = semicolon === -1 ? node.end : semicolon;
+  // A semicolon-free bare return relies on ASI, so node.end sits right after
+  // "return" itself - an unbounded search would otherwise walk past it into
+  // whatever statement comes next and attach this socket to that statement's
+  // own ";" instead.
+  const position = semicolon === -1 || semicolon >= node.end ? node.end : semicolon;
   return [{
     id: `socket:expression:${position}:${position}`,
     kind: 'socket', from: position, to: position, editable: true, children: [],

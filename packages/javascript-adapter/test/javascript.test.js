@@ -479,6 +479,38 @@ test('copies a JavaScript statement through a source-range operation', () => {
   assert.equal(applySourceChanges(source, copied), 'first();\nsecond();\nfirst();');
 });
 
+test('bounds a bare return\'s empty socket to its own statement, not a following statement\'s semicolon', () => {
+  // A semicolon-free bare "return" relies on ASI - an unbounded search for
+  // the next ";" would otherwise walk past this statement's own end and
+  // attach the empty socket to whatever the next statement's own ";" is.
+  const source = 'function f() {\n  return\n  next();\n}\n';
+  const parsed = parseJavaScript(source);
+  const returnStatement = findFirst(parsed.root, (node) => node.metadata?.type === 'ReturnStatement');
+  const socket = findFirst({children: returnStatement.children}, (node) =>
+    node.metadata?.socketRole === 'expression' && node.metadata?.empty);
+  assert.ok(socket, 'the return statement should still get its own empty socket');
+  assert.ok(socket.from <= returnStatement.to, 'the socket must stay within the return statement\'s own range');
+  assert.equal(source.slice(0, socket.from), 'function f() {\n  return');
+});
+
+test('caps a compact single-line elif/else clause\'s header at its own opening brace', () => {
+  // A clause's headerTo/bodyEnd used the whole physical line, which for a
+  // compact single-line clause ("else if (y) { work(); }") runs past the
+  // clause's own closing brace too - folding the body into the header text
+  // and pointing bodyEnd back at the header's own line.
+  const elifSource = 'if (x) {} else if (y) { work(); }\n';
+  const elifStatement = findFirst(parseJavaScript(elifSource).root, (node) => node.kind === 'statement');
+  const elifClause = elifStatement.children.find((child) => child.kind === 'clause');
+  assert.equal(elifSource.slice(elifClause.from, elifClause.metadata.headerTo), 'else if (y) {');
+  assert.equal(elifClause.metadata.bodyEnd, elifSource.indexOf('}', elifClause.from));
+
+  const elseSource = 'if (x) {} else { work(); }\n';
+  const elseStatement = findFirst(parseJavaScript(elseSource).root, (node) => node.kind === 'statement');
+  const elseClause = elseStatement.children.find((child) => child.kind === 'clause');
+  assert.equal(elseSource.slice(elseClause.from, elseClause.metadata.headerTo), 'else {');
+  assert.equal(elseClause.metadata.bodyEnd, elseSource.indexOf('}', elseClause.from));
+});
+
 function findFirst(node, predicate) {
   if (predicate(node)) return node;
   for (const child of node.children) {
