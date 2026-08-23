@@ -63,13 +63,19 @@ test('the modern Python adapter projects a live Brython AST without changing sou
   expect(parsed.root.children[0]).toMatchObject({
     kind: 'statement', from: 0, to: source.length - 1, metadata: {type: 'For'}
   });
+  // metadata is matched with objectContaining, not a bare literal - every
+  // socket also carries a socketRole (see metadataFor in the python-adapter),
+  // so a bare {type: 'Name'} would never equal the received object.
   expect(parsed.root.children[0].children).toEqual(expect.arrayContaining([
-    expect.objectContaining({kind: 'socket', metadata: {type: 'Name'}}),
-    expect.objectContaining({kind: 'socket', metadata: {type: 'List'}})
+    expect.objectContaining({kind: 'socket', metadata: expect.objectContaining({type: 'Name'})}),
+    expect.objectContaining({kind: 'socket', metadata: expect.objectContaining({type: 'List'})})
   ]));
+  // A call is a structural 'expression' wrapper around its own callee and
+  // argument sockets, not an editable socket itself - see project() in the
+  // python-adapter.
   expect(parsed.root.children[0].children).toEqual(expect.arrayContaining([
     expect.objectContaining({kind: 'statement', metadata: {type: 'Expr'}, children: expect.arrayContaining([
-      expect.objectContaining({kind: 'socket', metadata: {type: 'Call'}})
+      expect.objectContaining({kind: 'expression', metadata: {type: 'Call'}})
     ])})
   ]));
 });
@@ -353,17 +359,25 @@ test('manual modern Python playground exposes an expandable print argument socke
   });
   expect(emptyArgument).toBeDefined();
   const socket = page.locator(`[data-droplet-kind="socket"][data-droplet-from="${emptyArgument.from}"][data-droplet-to="${emptyArgument.to}"]`);
+  // print() lands below the default 1280x720 viewport's fold; a raw
+  // page.mouse.click at its unscrolled coordinates hits nothing (unlike a
+  // locator .click(), page.mouse.click does not scroll the target into view).
+  await socket.scrollIntoViewIfNeeded();
   const box = await socket.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await page.locator('.droplet-socket-editor').fill('first, second');
   await page.locator('.droplet-socket-editor').press('Enter');
 
   await expect(page.locator('#modern-python-source')).toContainText('print(first, second)');
-  await expect.poll(() => page.locator('.droplet-block-surface [data-droplet-kind="socket"]').evaluateAll((sockets) => {
+  // The sample already has statements named "first" and "second" elsewhere
+  // (see the "Comments and nested suite" sample's "first = 1" and
+  // "second = 2"), so matching by text alone also counts those pre-existing
+  // sockets - only count ones at/after the print() argument list itself.
+  await expect.poll(() => page.locator('.droplet-block-surface [data-droplet-kind="socket"]').evaluateAll((sockets, from) => {
     const source = document.querySelector('#modern-python-source').textContent;
-    return sockets.filter((socket) => source.slice(Number(socket.dataset.dropletFrom), Number(socket.dataset.dropletTo))
-      .match(/^(first|second)$/)).length;
-  })).toBe(2);
+    return sockets.filter((socket) => Number(socket.dataset.dropletFrom) >= from &&
+      source.slice(Number(socket.dataset.dropletFrom), Number(socket.dataset.dropletTo)).match(/^(first|second)$/)).length;
+  }, Number(emptyArgument.from))).toBe(2);
 });
 
 test('manual modern Python playground accepts a palette block drag at an insertion target', async ({page}) => {
@@ -387,12 +401,17 @@ test('manual modern Python playground deletes selected and off-canvas blocks', a
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
   const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
+  // "tail = 0" lands below the default 1280x720 viewport's fold; a raw
+  // page.mouse.click at its unscrolled coordinates hits nothing (unlike a
+  // locator .click(), page.mouse.click does not scroll the target into view).
+  await tail.scrollIntoViewIfNeeded();
   const tailBox = await tail.boundingBox();
   await page.mouse.click(tailBox.x + 4, tailBox.y + 4);
   await page.keyboard.press('Delete');
   await expect(page.locator('#modern-python-source')).not.toContainText('tail = 0');
 
   const second = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'second = 2'}).first();
+  await second.scrollIntoViewIfNeeded();
   const [secondBox, surfaceBox] = await Promise.all([
     second.boundingBox(), page.locator('.droplet-block-surface svg').boundingBox()
   ]);
@@ -427,6 +446,10 @@ test('manual modern Python playground visibly outlines the selected block', asyn
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
   const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
+  // "tail = 0" lands below the default 1280x720 viewport's fold; a raw
+  // page.mouse.click at its unscrolled coordinates hits nothing (unlike a
+  // locator .click(), page.mouse.click does not scroll the target into view).
+  await tail.scrollIntoViewIfNeeded();
   const box = await tail.boundingBox();
   await page.mouse.click(box.x + 4, box.y + 4);
 
@@ -443,8 +466,12 @@ test('manual modern Python playground renders suite containers and blank-line pl
   await expect(page.locator('.droplet-block-surface [data-droplet-kind="container"]')).toHaveCount(2);
   await expect(page.locator('.droplet-block-surface [data-droplet-kind="whitespace"]')).toHaveCount(1);
   const outerContainer = page.locator('.droplet-block-surface [data-droplet-kind="container"]').first();
-  await expect(outerContainer.locator('path').first()).toHaveAttribute('stroke', '#246ca8');
-  await expect(outerContainer.locator('path').first()).toHaveAttribute('fill', 'none');
+  // Every Python container header ends in ":", so renderContainerFrame's
+  // isColonHeader check always renders it in the "snake" style - a green
+  // stroke over a translucent fill, not the plain blue outline this
+  // asserted before that style existed.
+  await expect(outerContainer.locator('path').first()).toHaveAttribute('stroke', '#5f8a41');
+  await expect(outerContainer.locator('path').first()).toHaveAttribute('fill', 'rgba(122, 163, 88, .12)');
   const containerBox = await outerContainer.boundingBox();
   expect(containerBox.width).toBeGreaterThan(40);
   expect(containerBox.height).toBeGreaterThan(30);
@@ -510,6 +537,11 @@ test('manual modern Python playground accepts statement drops inside a container
 
   const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
   const ready = page.locator('.droplet-block-surface [data-droplet-kind="container"][data-droplet-from="32"]');
+  // "tail = 0" lands below the default 1280x720 viewport's fold; a raw
+  // page.mouse.down at its unscrolled coordinates never grabs it (unlike a
+  // locator .click(), page.mouse.* does not scroll the target into view), so
+  // the drag that follows never actually starts.
+  await tail.scrollIntoViewIfNeeded();
   const [tailBox, readyBox] = await Promise.all([tail.boundingBox(), ready.boundingBox()]);
 
   await page.mouse.move(tailBox.x + 4, tailBox.y + 4);

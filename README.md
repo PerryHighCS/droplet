@@ -151,7 +151,12 @@ directories for recompilation. It listens on port **8001**: visit
 or `http://localhost:8001/example/test.html` for the view debugger.
 
 Run `npx grunt mochaTest` for the parser/model unit suite. Switch to Node 24
-before running `npm run test:browser` for the QUnit browser suite.
+before running `npm run test:browser` for the full Playwright browser suite,
+which covers both the legacy QUnit pages and the modern Python playground's
+own browser tests. `npm run test:browser:legacy` and
+`npm run test:browser:modern` run just one or the other; CI runs them as
+separate jobs under the `Legacy verification` and `Modern verification`
+checks, respectively.
 
 ### Current legacy baseline
 
