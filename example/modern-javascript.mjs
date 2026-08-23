@@ -74,11 +74,36 @@ const palette = [
     ]
   },
   {
+    // App Lab's own Variables category runs well past declaration/assignment
+    // into string/array/object methods - all reproduced here where they are
+    // genuinely plain JavaScript (String/Array.prototype methods, object and
+    // array literals, console.log/clear, the real browser prompt()). Left
+    // out: promptNum, removeItem/appendItem, getValue/addPair - App Lab's own
+    // helper functions with no equivalent in plain JavaScript (real code
+    // uses parseFloat(prompt(...)), list.splice(...)/list.push(...), and
+    // object[key]/object[key] = value directly instead).
     name: 'Variables', category: 'variables', blocks: [
       {id: 'var', label: 'var value = 1;', source: 'var value = 1;\n'},
+      {id: 'var-empty', label: 'var value;', source: 'var value;\n'},
       {id: 'assign', label: 'value = 1;', source: 'value = 1;\n'},
       {id: 'add-assign', label: 'value += 1;', source: 'value += 1;\n'},
-      {id: 'sub-assign', label: 'value -= 1;', source: 'value -= 1;\n'}
+      {id: 'sub-assign', label: 'value -= 1;', source: 'value -= 1;\n'},
+      {id: 'var-prompt', label: 'var value = prompt("Enter a value");', source: 'var value = prompt("Enter a value");\n'},
+      {id: 'log', label: 'console.log("message");', source: 'console.log("message");\n'},
+      {id: 'clear', label: 'console.clear();', source: 'console.clear();\n'},
+      {id: 'var-string', label: 'var str = "Hello World";', source: 'var str = "Hello World";\n'},
+      {id: 'substring', label: 'value.substring("start", "end")', source: 'value.substring("start", "end")', kind: 'expression'},
+      {id: 'index-of', label: 'value.indexOf("searchValue")', source: 'value.indexOf("searchValue")', kind: 'expression'},
+      {id: 'includes', label: 'value.includes("searchValue")', source: 'value.includes("searchValue")', kind: 'expression'},
+      {id: 'string-length', label: 'value.length', source: 'value.length', kind: 'expression'},
+      {id: 'to-upper', label: 'value.toUpperCase()', source: 'value.toUpperCase()', kind: 'expression'},
+      {id: 'to-lower', label: 'value.toLowerCase()', source: 'value.toLowerCase()', kind: 'expression'},
+      {id: 'var-list', label: 'var list = [1, 2, 3];', source: 'var list = [1, 2, 3];\n'},
+      {id: 'var-list-strings', label: 'var list = ["a", "b", "c"];', source: 'var list = ["a", "b", "c"];\n'},
+      {id: 'list-item', label: 'list[0]', source: 'list[0]', kind: 'expression'},
+      {id: 'list-length', label: 'list.length', source: 'list.length', kind: 'expression'},
+      {id: 'join', label: 'list.join("separator")', source: 'list.join("separator")', kind: 'expression'},
+      {id: 'var-object', label: 'var object = {"key": "value"};', source: 'var object = {"key": "value"};\n'}
     ]
   },
   {
@@ -87,7 +112,6 @@ const palette = [
       {id: 'def-param', label: 'function myFunction(n) { }', source: 'function myFunction(n) {\n}\n'},
       {id: 'call', label: 'myFunction()', source: 'myFunction()', kind: 'expression'},
       {id: 'call-arg', label: 'myFunction(n)', source: 'myFunction(n)', kind: 'expression'},
-      {id: 'log', label: 'console.log(value);', source: 'console.log(value);\n'},
       {id: 'return', label: 'return ;', source: 'return;\n'}
       // App Lab also has a comment block ("// Comment"); the JavaScript
       // adapter does not project comments as their own node kind (see its
@@ -125,19 +149,24 @@ function dropletCategory(node, source) {
       return 'control';
     case 'VariableDeclaration':
     case 'AssignmentExpression':
+    case 'MemberExpression':
       return 'variables';
     case 'FunctionDeclaration':
     case 'FunctionExpression':
-    case 'CallExpression':
-    case 'NewExpression':
     case 'ReturnStatement':
       return 'functions';
+    // A call/new's own category depends on what it calls, not just that it
+    // is one: App Lab colors a call to a method on something (console.log,
+    // str.substring, ...) as Variables, alongside the value it operates on,
+    // but a call to a plain named function (myFunction()) as Functions.
+    case 'CallExpression':
+    case 'NewExpression':
+      return calleeCategory(node);
     case 'BinaryExpression':
     case 'LogicalExpression':
     case 'UnaryExpression':
     case 'UpdateExpression':
     case 'ConditionalExpression':
-    case 'MemberExpression':
       return 'math';
     case 'ExpressionStatement': {
       const inner = (node.children ?? []).find((child) => child.kind === 'expression' || child.kind === 'statement');
@@ -146,6 +175,11 @@ function dropletCategory(node, source) {
     default:
       return 'variables';
   }
+}
+
+function calleeCategory(node) {
+  const callee = (node.children ?? []).find((child) => child.metadata?.socketRole === 'call-target');
+  return callee?.metadata?.type === 'MemberExpression' ? 'variables' : 'functions';
 }
 
 // The block surface's own tab/notch connector shape (packages/codemirror-editor's
