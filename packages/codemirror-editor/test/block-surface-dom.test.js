@@ -658,6 +658,43 @@ test('treats a synthetic pass as an empty-suite replacement target', () => {
     destination: {from: 18, to: 18, indentation: '  ', emptySuitePass: {from: 12, to: 16}}}]);
 });
 
+test('dragging an expression palette block over a socket sets dropEffect and guides to the socket itself', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: () => {}});
+  surface.update(assignmentSockets());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const value = surface.layout.nodes.find((node) => node.id === 'value');
+
+  const dropEffect = dragOverSurface(surface, dom.window, 'application/x-droplet-expression',
+    value.bounds.left + 2, value.bounds.top + 2);
+
+  assert.equal(dropEffect, 'move');
+  const guide = surface.element.querySelector('.droplet-drop-guide');
+  assert.ok(guide);
+  assert.equal(Number(guide.getAttribute('width')), value.bounds.right - value.bounds.left);
+
+  dragLeaveSurface(surface, dom.window, null);
+  assert.equal(surface.element.querySelector('.droplet-drop-guide'), null);
+});
+
+test('dragging a statement palette block over a gap guides to the resolved insertion zone', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: () => {}});
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const bodyEnd = surface.layout.insertionZones.find((zone) => zone.role === 'body-end');
+
+  const dropEffect = dragOverSurface(surface, dom.window, 'application/x-droplet-statement',
+    bodyEnd.bounds.left + 2, bodyEnd.bounds.top + 2);
+
+  assert.equal(dropEffect, 'move');
+  const guide = surface.element.querySelector('.droplet-drop-guide');
+  assert.ok(guide);
+  assert.equal(Number(guide.getAttribute('width')), bodyEnd.bounds.right - bodyEnd.bounds.left);
+});
+
 function projection() {
   const source = 'if ready:\n  first()\n\n';
   return {
@@ -911,5 +948,22 @@ function dropPaletteBlock(surface, window, mimeType, source, x, y) {
   const event = new window.Event('drop', {bubbles: true, cancelable: true});
   Object.assign(event, {clientX: x, clientY: y});
   event.dataTransfer = {types: [mimeType], getData: (type) => (type === mimeType ? source : '')};
+  surface.element.dispatchEvent(event);
+}
+
+// dragover only ever reads dataTransfer.types (getData isn't reliably
+// readable until drop in real browsers, so #continuePaletteDrag doesn't try);
+// dropEffect is read back afterward to confirm the handler set it.
+function dragOverSurface(surface, window, mimeType, x, y) {
+  const event = new window.Event('dragover', {bubbles: true, cancelable: true});
+  Object.assign(event, {clientX: x, clientY: y});
+  event.dataTransfer = {types: [mimeType], dropEffect: 'none'};
+  surface.element.dispatchEvent(event);
+  return event.dataTransfer.dropEffect;
+}
+
+function dragLeaveSurface(surface, window, relatedTarget) {
+  const event = new window.Event('dragleave', {bubbles: true, cancelable: true});
+  Object.assign(event, {relatedTarget});
   surface.element.dispatchEvent(event);
 }
