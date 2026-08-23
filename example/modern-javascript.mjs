@@ -121,11 +121,14 @@ const palette = [
   }
 ];
 
+// Mirrors modern-javascript.html's --cat-fill/--cat-stroke pairs: a lighter
+// tint of each category's hue for the fill black text sits on, its more
+// saturated tone (App Lab's own header/block color) for the border/shadow.
 const CATEGORY_COLORS = {
-  control: {fill: '#4d90d6', stroke: '#2f6bab'},
-  math: {fill: '#efa83d', stroke: '#c4841f'},
-  variables: {fill: '#9c6fc4', stroke: '#7649a0'},
-  functions: {fill: '#63b563', stroke: '#3f8a3f'}
+  control: {fill: '#8fbce8', stroke: '#4d90d6'},
+  math: {fill: '#f5c785', stroke: '#efa83d'},
+  variables: {fill: '#c3a8dd', stroke: '#9c6fc4'},
+  functions: {fill: '#a3d3a3', stroke: '#63b563'}
 };
 
 // Colors arbitrary rendered code (not just palette-inserted blocks) the same

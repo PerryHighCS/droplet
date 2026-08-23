@@ -59,18 +59,24 @@
        palette button itself needs this shape. */
     .cat-math .palette-block { border-radius: 999px; padding-left: .8rem; padding-right: .8rem; }
 
+    /* Each category's saturated tone (used at full strength in App Lab's own
+       toolbox, whose header/summary bars use white text) is too dark a
+       background for the black text every block itself carries - so it
+       becomes the block's border/shadow instead, and a lighter tint of the
+       same hue (high enough luminance for comfortable black-on-fill
+       contrast) is the block's own fill. */
     /* control: if/if-else, while, for, break/continue */
     .cat-control summary { background: #2f6bab; }
-    .cat-control .palette-block { --cat-fill: #4d90d6; --cat-stroke: #2f6bab; }
+    .cat-control .palette-block { --cat-fill: #8fbce8; --cat-stroke: #4d90d6; }
     /* math: arithmetic, comparison, boolean operators, and Math.* */
     .cat-math summary { background: #c4841f; }
-    .cat-math .palette-block { --cat-fill: #efa83d; --cat-stroke: #c4841f; }
+    .cat-math .palette-block { --cat-fill: #f5c785; --cat-stroke: #efa83d; }
     /* variables: declaration, assignment, compound assignment */
     .cat-variables summary { background: #7649a0; }
-    .cat-variables .palette-block { --cat-fill: #9c6fc4; --cat-stroke: #7649a0; }
+    .cat-variables .palette-block { --cat-fill: #c3a8dd; --cat-stroke: #9c6fc4; }
     /* functions: declare, call, return */
     .cat-functions summary { background: #3f8a3f; }
-    .cat-functions .palette-block { --cat-fill: #63b563; --cat-stroke: #3f8a3f; }
+    .cat-functions .palette-block { --cat-fill: #a3d3a3; --cat-stroke: #63b563; }
 
     /* Recolor the rendered blocks on the surface to match the same
        categories. Text always stays black, matching the legacy renderer.
@@ -86,16 +92,16 @@
 
     #modern-javascript-editor [data-droplet-category="control"] > rect,
     #modern-javascript-editor [data-droplet-category="control"] > path
-      { fill: #4d90d6; stroke: #2f6bab; filter: drop-shadow(1.5px 1.5px 0 #2f6bab); }
+      { fill: #8fbce8; stroke: #4d90d6; filter: drop-shadow(1.5px 1.5px 0 #4d90d6); }
     #modern-javascript-editor [data-droplet-category="math"] > rect,
     #modern-javascript-editor [data-droplet-category="math"] > path
-      { fill: #efa83d; stroke: #c4841f; filter: drop-shadow(1.5px 1.5px 0 #c4841f); }
+      { fill: #f5c785; stroke: #efa83d; filter: drop-shadow(1.5px 1.5px 0 #efa83d); }
     #modern-javascript-editor [data-droplet-category="variables"] > rect,
     #modern-javascript-editor [data-droplet-category="variables"] > path
-      { fill: #9c6fc4; stroke: #7649a0; filter: drop-shadow(1.5px 1.5px 0 #7649a0); }
+      { fill: #c3a8dd; stroke: #9c6fc4; filter: drop-shadow(1.5px 1.5px 0 #9c6fc4); }
     #modern-javascript-editor [data-droplet-category="functions"] > rect,
     #modern-javascript-editor [data-droplet-category="functions"] > path
-      { fill: #63b563; stroke: #3f8a3f; filter: drop-shadow(1.5px 1.5px 0 #3f8a3f); }
+      { fill: #a3d3a3; stroke: #63b563; filter: drop-shadow(1.5px 1.5px 0 #63b563); }
   </style>
   <script type="importmap">
     {
