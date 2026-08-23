@@ -343,7 +343,7 @@ test('projects tokenizer comments as independent movable nodes', () => {
   const comment = collectProjectedNodes(parsed.root).find((node) => node.kind === 'comment');
   assert.deepEqual(comment, {
     id: 'comment:12:18', kind: 'comment', from: 12, to: 18, editable: true, children: [],
-    metadata: {inline: false}
+    metadata: {inline: false, commentPrefix: '#'}
   });
 });
 

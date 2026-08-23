@@ -238,13 +238,19 @@ export class BlockSurface {
     // SVG (or scaling it) would otherwise leave the input misaligned with
     // the node it edits.
     const {left, top, scale} = this.#svgOffset();
-    // A comment's leading "#" marks it as a comment; it isn't part of what
-    // the user is editing, so exclude it from the input's value and bounds
-    // and leave it showing through as plain, uneditable text. 8 matches the
-    // horizontal text padding renderSourceLabels positions labels with.
+    // A comment's own leading marker (Python's "#"; some other adapter's own
+    // syntax, e.g. a future JavaScript "//") isn't part of what the user is
+    // editing, so exclude it from the input's value and bounds and leave it
+    // showing through as plain, uneditable text. This surface is otherwise
+    // language-independent - the marker itself comes from the comment node's
+    // own projection metadata, not a hardcoded literal, so an adapter using a
+    // different (or multi-character) marker is not corrupted on edit. 8
+    // matches the horizontal text padding renderSourceLabels positions
+    // labels with.
     const measureText = this.#layoutOptions.measureText ?? ((text) => text.length * 10);
-    const prefixWidth = isComment ? 8 + measureText('#') : 0;
-    const editableFrom = node.source.from + (isComment ? 1 : 0);
+    const commentPrefix = node.metadata?.commentPrefix ?? '#';
+    const prefixWidth = isComment ? 8 + measureText(commentPrefix) : 0;
+    const editableFrom = node.source.from + (isComment ? commentPrefix.length : 0);
     const input = this.#dom.ownerDocument.createElement('input');
     input.className = 'droplet-socket-editor';
     input.value = this.#layout.source.slice(editableFrom, node.source.to);
@@ -257,7 +263,7 @@ export class BlockSurface {
       border: '1px solid #246ca8', borderRadius: '3px', padding: '0 3px',
       font: '16px ui-monospace, SFMono-Regular, Menlo, monospace', color: '#24344d', background: '#fff'
     });
-    const editing = {input, node, isComment, source: node.source, original: input.value};
+    const editing = {input, node, isComment, commentPrefix, source: node.source, original: input.value};
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -299,9 +305,9 @@ export class BlockSurface {
       this.#deleteNode(editing.node);
       return;
     }
-    // The input's value excludes the leading "#" (it isn't editable); restore
-    // it so the replacement still reads as a comment.
-    const source = editing.isComment ? `#${editing.input.value}` : editing.input.value;
+    // The input's value excludes the comment's own leading marker (it isn't
+    // editable); restore it so the replacement still reads as a comment.
+    const source = editing.isComment ? `${editing.commentPrefix}${editing.input.value}` : editing.input.value;
     this.#onSocketEdit({target: editing.source, source});
   }
 

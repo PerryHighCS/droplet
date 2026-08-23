@@ -488,6 +488,34 @@ test('emptying a rendered comment through its inline editor deletes it instead o
   editor.destroy();
 });
 
+test('edits a comment through an adapter using a multi-character marker, not a hardcoded "#"', () => {
+  // #openInlineEditor/#commitSocketEditor used to hardcode a one-character
+  // "#" comment marker - the surface is otherwise language-independent, and
+  // any adapter projecting a different marker (a multi-character one like
+  // JavaScript's own "//", in particular) would have that marker's own
+  // second character folded into the editable value, then corrupted on
+  // commit when only one character was stripped/restored instead of the
+  // marker's own real length. The marker now comes from the comment node's
+  // own projection metadata (commentPrefix) instead.
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'first()\n// note\n', blockMode: true, parse: parseSlashCommentExample
+  });
+  const comment = parent.querySelector('.droplet-block-surface [data-droplet-kind="comment"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(comment);
+  const input = parent.querySelector('.droplet-socket-editor');
+  // Both marker characters are excluded from the editable value, not just one.
+  assert.equal(input.value, ' note');
+  input.value = ' updated';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+
+  assert.equal(editor.getValue(), 'first()\n// updated\n');
+  editor.destroy();
+});
+
 function clickRenderedSocket(socket) {
   const frame = socket.querySelector('rect');
   socket.dispatchEvent(new window.MouseEvent('click', {
@@ -639,6 +667,28 @@ function parseCommentExample(source) {
       children: [
         {id: 'first', kind: 'statement', from: 0, to: commentFrom - 1, editable: true, metadata: {}, children: []},
         {id: `comment:${commentFrom}`, kind: 'comment', from: commentFrom, to: commentTo, editable: true, children: [], metadata: {inline: false}}
+      ]
+    }, issues: []
+  };
+}
+
+// Same shape as parseCommentExample, but with a two-character "//" marker
+// (as a hypothetical JavaScript-style adapter would project) instead of
+// Python's one-character "#", to prove the inline comment editor's own
+// marker-stripping is metadata-driven, not hardcoded to a single character.
+function parseSlashCommentExample(source) {
+  const commentFrom = source.indexOf('//');
+  const commentTo = source.indexOf('\n', commentFrom);
+  return {
+    source,
+    root: {
+      id: `document:0:${source.length}`, kind: 'document', from: 0, to: source.length, editable: false,
+      children: [
+        {id: 'first', kind: 'statement', from: 0, to: commentFrom - 1, editable: true, metadata: {}, children: []},
+        {
+          id: `comment:${commentFrom}`, kind: 'comment', from: commentFrom, to: commentTo, editable: true, children: [],
+          metadata: {inline: false, commentPrefix: '//'}
+        }
       ]
     }, issues: []
   };

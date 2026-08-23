@@ -602,7 +602,7 @@ function addCommentNodes(root, comments) {
     parent.children.push({
       id: `comment:${comment.from}:${comment.to}`,
       kind: 'comment', from: comment.from, to: comment.to, editable: true, children: [],
-      metadata: {inline: comment.inline}
+      metadata: {inline: comment.inline, commentPrefix: '#'}
     });
     parent.children.sort(compareProjectedNodes);
   }
