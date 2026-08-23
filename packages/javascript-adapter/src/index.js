@@ -602,7 +602,11 @@ function metadataFor(node, kind, source, socketRole) {
       // the first place - lineStart there would instead land at the start of
       // the whole statement (or the document), well before the body even
       // begins, so the brace's own position is used directly instead.
-      const singleLine = !source.slice(blockBody.start, blockBody.end).includes('\n');
+      // A raw .includes('\n') check, like lineStart's own old bug, misses a
+      // bare "\r" line ending - a CR-only multi-line body would otherwise be
+      // misclassified as single-line, using blockBody.end - 1 directly and
+      // never reaching lineStart's own CR handling below at all.
+      const singleLine = !/[\r\n]/.test(source.slice(blockBody.start, blockBody.end));
       metadata.bodyEnd = singleLine ? blockBody.end - 1 : lineStart(source, blockBody.end - 1);
       metadata.blockEnd = blockBody.end;
       // blockEnd is deliberately left unset for an unbraced body - it has no
@@ -634,7 +638,23 @@ function unbracedBodyNode(node) {
 }
 
 function lineStart(source, position) {
-  return source.lastIndexOf('\n', position - 1) + 1;
+  // A raw lastIndexOf('\n', ...) ignores a bare "\r" line ending (the shared
+  // physicalLines API supports all three - "\r\n", "\r", and "\n"): in a
+  // CR-only document, no "\n" exists anywhere, so this always returned 0 -
+  // resolving every nested closing-brace line to the start of the whole
+  // document instead of its own line, splicing bodyEnd insertions there
+  // instead of inside the container they belong to.
+  let start = position;
+  while (start > 0) {
+    const before = source[start - 1];
+    if (before === '\n') break;
+    // A "\r" immediately followed by "\n" is one CRLF line ending, not a
+    // standalone one - stopping right after it (between the two characters)
+    // would split the pair and land mid-terminator, not at a real line start.
+    if (before === '\r' && source[start] !== '\n') break;
+    start -= 1;
+  }
+  return start;
 }
 
 function blockStatementChild(node) {

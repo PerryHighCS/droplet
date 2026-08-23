@@ -563,6 +563,23 @@ test('caps an unbraced container\'s header before its own body, instead of consu
   assert.equal(whileSource.slice(whileStatement.from, whileStatement.metadata.headerTo).trimEnd(), 'while (x)');
 });
 
+test('resolves a container\'s closing-brace line start in a bare-CR-only document', () => {
+  // Two compounding bugs, both only visible with an indented closing brace
+  // on its own line (bodyEnd's own single-line shortcut otherwise masks
+  // them - an unindented brace already sits at its own line start, so the
+  // buggy and correct positions coincide by accident): the single-line check
+  // used a raw .includes('\n'), so a CR-only multi-line body was
+  // misclassified as single-line and never reached lineStart at all; and
+  // lineStart itself used a raw lastIndexOf('\n', ...), which - since no
+  // "\n" exists anywhere in a CR-only document - always resolved to 0 (the
+  // start of the whole document), not the closing brace's own line. Either
+  // bug alone would splice a bodyEnd insertion at the wrong place.
+  const source = 'if (x) {\r  a();\r  }\r';
+  const statement = findFirst(parseJavaScript(source).root, (node) => node.metadata?.type === 'IfStatement');
+  assert.equal(statement.metadata.bodyEnd, source.lastIndexOf('\r', source.lastIndexOf('}')) + 1);
+  assert.notEqual(statement.metadata.bodyEnd, source.lastIndexOf('}'), 'must be the line start, not the brace\'s own position');
+});
+
 function findFirst(node, predicate) {
   if (predicate(node)) return node;
   for (const child of node.children) {
