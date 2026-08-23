@@ -348,9 +348,13 @@ test('an initially read-only editor blocks socket edits and block deletion throu
   );
   assert.equal(editor.getValue(), 'target = value\n');
 
+  // This editor has no transform configured either, which throws its own
+  // TypeError - matching only the error type here would still pass if the
+  // readOnly guard itself were removed, since the missing-transform check
+  // would throw in its place. Match the specific message instead.
   assert.throws(
     () => editor.applyBlockOperation({type: 'delete-node', source: {from: 0, to: 15}, kind: 'statement'}),
-    TypeError
+    /read-only/
   );
   editor.destroy();
 });

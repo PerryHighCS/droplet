@@ -80,6 +80,11 @@ test('assertInsertionPoint requires a zero-width position within the source', ()
   assert.throws(() => assertInsertionPoint(source, {from: 3, to: 4}), RangeError);
   assert.throws(() => assertInsertionPoint(source, {from: -1, to: -1}), RangeError);
   assert.throws(() => assertInsertionPoint(source, {from: 11, to: 11}), RangeError);
+  // Both adapters splice at exactly source.length for an append-past-the-end
+  // destination (see isAppendPastUnterminatedLine in the JavaScript adapter,
+  // and the analogous destination === source.length check in the Python
+  // adapter) - this boundary must stay accepted, not just the interior.
+  assert.doesNotThrow(() => assertInsertionPoint(source, {from: source.length, to: source.length}));
   assert.doesNotThrow(() => assertInsertionPoint(source, {from: 5, to: 5}));
 });
 
