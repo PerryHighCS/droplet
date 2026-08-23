@@ -1009,6 +1009,31 @@ test('appends a new empty parameter to a function definition', () => {
   assert.equal(applySourceChanges(source, changes), 'def f(a, b, ):\n  pass\n');
 });
 
+test('adds a parameter to a compact single-line def whose body has its own nested call', () => {
+  // insert-sequence-item's target search used the whole physical line for a
+  // statement target, not just its own header - for a compact single-line
+  // def (`def f(a): g()`), the line also contains the body, and a backward
+  // search for ")" from the line's end found g()'s own closing paren (the
+  // last one in the text) instead of f's own parameter list, corrupting the
+  // wrong call entirely.
+  const source = 'def f(a): g()\n';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length - 1, children: [paramA],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length - 1}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a, ): g()\n');
+});
+
 test('projects an editable trailing socket after "+" leaves a dangling "," behind a real call argument, parameter, or list item', () => {
   // addEmptyCallArgumentSocket/addEmptyParameterSocket/addEmptyListItemSocket
   // used to add their synthetic empty socket only when the sequence had zero

@@ -205,8 +205,20 @@ export function transformPython(operation, parsed, pythonToAST) {
       // "+" is then a no-op: there is already somewhere to type the first item.
       if (!hasRealSequenceItem(target)) { changes = []; break; }
       const closeChar = target.metadata?.type === 'List' ? ']' : ')';
-      const headerEnd = target.kind === 'statement' ? lineTextEnd(parsed.source, target.from) : target.to;
-      const closingPosition = parsed.source.lastIndexOf(closeChar, headerEnd - 1);
+      // A def's own parameter list closes before its own colon-suite body
+      // even starts - for a compact single-line def (`def f(a): g()`), the
+      // physical line also contains the body, and a backward search for ")"
+      // from the line's end could match a nested call's own closing paren
+      // there instead of this sequence's own. Depth-tracking through the
+      // def's own opening "(" finds its actual matching close regardless of
+      // what the body (on the same line or not) contains; a bare call-as-
+      // statement has no body of its own to be confused with, so its whole
+      // line is still safe to search the ordinary way.
+      const isDef = target.kind === 'statement' &&
+        (target.metadata?.type === 'FunctionDef' || target.metadata?.type === 'AsyncFunctionDef');
+      const closingPosition = isDef
+        ? matchingDelimiterEnd(parsed.source, parsed.source.indexOf('(', target.from), '(', ')')
+        : parsed.source.lastIndexOf(closeChar, (target.kind === 'statement' ? lineTextEnd(parsed.source, target.from) : target.to) - 1);
       if (closingPosition < target.from) throw new RangeError('Sequence target has no closing delimiter');
       changes = [{from: closingPosition, to: closingPosition, insert: ', '}];
       break;
