@@ -50,7 +50,8 @@ export function transformJavaScript(operation, parsed) {
     case 'insert-statement': {
       assertOperationSource(operation.source, 'Statement insertion');
       assertInsertionPoint(parsed.source, operation.destination);
-      changes = [{from: operation.destination.from, to: operation.destination.to, insert: operation.source}];
+      const indentation = insertionIndentation(parsed.source, operation.destination.from);
+      changes = [{from: operation.destination.from, to: operation.destination.to, insert: indentLines(operation.source, indentation)}];
       break;
     }
     case 'move-statement': {
@@ -59,9 +60,10 @@ export function transformJavaScript(operation, parsed) {
       assertInsertionPoint(parsed.source, operation.destination);
       if (operation.destination.from >= statement.from && operation.destination.from <= statement.to) return [];
       const text = parsed.source.slice(statement.from, statement.to);
+      const indentation = insertionIndentation(parsed.source, operation.destination.from);
       changes = [
         {from: statement.from, to: statement.to, insert: ''},
-        {from: operation.destination.from, to: operation.destination.to, insert: text}
+        {from: operation.destination.from, to: operation.destination.to, insert: indentLines(text, indentation)}
       ];
       break;
     }
@@ -89,17 +91,60 @@ export function transformJavaScript(operation, parsed) {
   return normalizedChanges;
 }
 
+// A statement/block-scoped range never carries its own leading indentation
+// (Acorn's node.start skips past it), so an inserted or moved statement needs
+// it added back - matched to the destination's context, not just left at
+// column 0. There is no semantic indentation to preserve here the way
+// Python's is (a Python move reindents relative to its own source line); this
+// only infers what a human would type: one level deeper right after an
+// opening brace/paren/bracket, level with the previous line otherwise.
+function insertionIndentation(source, destination) {
+  const lineStart = source.lastIndexOf('\n', destination - 1) + 1;
+  if (lineStart === 0) return '';
+  const previousLineEnd = lineStart - 1;
+  const previousLineStart = source.lastIndexOf('\n', previousLineEnd - 1) + 1;
+  const previousLine = source.slice(previousLineStart, previousLineEnd);
+  const indentation = /^[ \t]*/.exec(previousLine)[0];
+  return /[{([]\s*$/.test(previousLine) ? `${indentation}  ` : indentation;
+}
+
+// Applies one indentation prefix across every line of a (possibly multi-line,
+// possibly already internally-nested) statement, shifting its whole structure
+// by a constant amount rather than flattening it.
+function indentLines(text, indentation) {
+  if (!indentation) return text;
+  return text.split('\n').map((line) => line.length ? indentation + line : line).join('\n');
+}
+
 function projectNode(node, kind = nodeKind(node), source, socketRole) {
+  const children = childNodes(node).map(({node: child, socketRole: childSocketRole}) =>
+    projectNode(child, childSocketRole ? 'socket' : nodeKind(child), source, childSocketRole));
   return {
     id: `${kind}:${node.type}:${node.start}:${node.end}`,
     kind,
     from: node.start,
     to: node.end,
     editable: kind !== 'document',
-    children: childNodes(node).map(({node: child, socketRole: childSocketRole}) =>
-      projectNode(child, childSocketRole ? 'socket' : nodeKind(child), source, childSocketRole)),
+    children: [...children, ...emptyParameterSocket(node, source)],
     metadata: metadataFor(node, kind, source, socketRole)
   };
+}
+
+// A zero-parameter function still needs one directly-editable slot to type a
+// first parameter name into - without it there is nothing to click, since an
+// empty `params` array contributes no child at all.
+function emptyParameterSocket(node, source) {
+  if ((node.type !== 'FunctionDeclaration' && node.type !== 'FunctionExpression') || node.params.length > 0) {
+    return [];
+  }
+  const openParen = source.indexOf('(', node.id ? node.id.end : node.start);
+  const closeParen = openParen === -1 ? -1 : source.indexOf(')', openParen);
+  if (closeParen === -1) return [];
+  return [{
+    id: `socket:parameter:${closeParen}:${closeParen}`,
+    kind: 'socket', from: closeParen, to: closeParen, editable: true, children: [],
+    metadata: {type: 'Identifier', socketRole: 'parameter', empty: true}
+  }];
 }
 
 function metadataFor(node, kind, source, socketRole) {
@@ -108,8 +153,30 @@ function metadataFor(node, kind, source, socketRole) {
   if (kind === 'statement' && containerStatementTypes.has(node.type)) {
     metadata.blockRole = 'container';
     metadata.headerTo = lineTextEnd(source, node.start);
+    // Without this, a container's own end (node.end, used as the layout
+    // engine's default bodyEnd) lands *after* the closing "}" - so a block
+    // dropped on the container's body-end insertion zone would land outside
+    // it, right after the brace, instead of inside as the last statement.
+    // The line *start*, not the brace's own position, matters here: landing
+    // right before "}" would insert between the brace's own leading
+    // indentation and the brace itself, corrupting both - the existing
+    // indentation would become a prefix of the inserted line, and the brace
+    // would be left with none of its own.
+    const blockBody = node.type === 'BlockStatement' ? node : blockStatementChild(node);
+    if (blockBody) metadata.bodyEnd = lineStart(source, blockBody.end - 1);
   }
   return metadata;
+}
+
+function lineStart(source, position) {
+  return source.lastIndexOf('\n', position - 1) + 1;
+}
+
+function blockStatementChild(node) {
+  for (const value of Object.values(node)) {
+    if (isAstNode(value) && value.type === 'BlockStatement') return value;
+  }
+  return undefined;
 }
 
 function nodeKind(node) {
@@ -139,6 +206,10 @@ function socketRoleFor(parent, key) {
   if ((parent.type === 'VariableDeclarator' || parent.type === 'AssignmentExpression') &&
       (key === 'init' || key === 'right')) return 'assignment-value';
   if (parent.type === 'IfStatement' && key === 'test') return 'if-condition';
+  if ((parent.type === 'WhileStatement' || parent.type === 'DoWhileStatement') && key === 'test') return 'while-condition';
+  if (parent.type === 'ForStatement' && (key === 'init' || key === 'test' || key === 'update')) return 'expression';
+  if ((parent.type === 'FunctionDeclaration' || parent.type === 'FunctionExpression') && key === 'id') return 'name';
+  if ((parent.type === 'FunctionDeclaration' || parent.type === 'FunctionExpression') && key === 'params') return 'parameter';
   if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'arguments') return 'expression';
   if ((parent.type === 'BinaryExpression' || parent.type === 'LogicalExpression') &&
       (key === 'left' || key === 'right')) return 'expression';

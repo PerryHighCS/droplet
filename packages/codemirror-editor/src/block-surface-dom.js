@@ -84,7 +84,7 @@ export class BlockSurface {
     this.#selectedNode = undefined;
     delete this.#svg.dataset.dropletSelectedId;
     this.#layout = createBlockLayout(projection, this.#layoutOptions);
-    renderLayout(this.#svg, this.#layout, this.#dom.ownerDocument);
+    renderLayout(this.#svg, this.#layout, this.#dom.ownerDocument, this.#layoutOptions);
   }
 
   setVisible(visible) {
@@ -605,14 +605,14 @@ function clearDragPreviews(svg) {
   svg.querySelectorAll('.droplet-drag-preview, .droplet-drop-preview, .droplet-drop-guide').forEach((element) => element.remove());
 }
 
-function renderLayout(svg, layout, document) {
+function renderLayout(svg, layout, document, options = {}) {
   svg.replaceChildren();
   const width = Math.ceil(layout.bounds.right + 16);
   const height = Math.ceil(layout.bounds.bottom + 16);
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('width', String(width));
   svg.setAttribute('height', String(height));
-  for (const child of layout.root.children) svg.append(renderNode(child, document));
+  for (const child of layout.root.children) svg.append(renderNode(child, document, options));
 }
 
 function renderSelection(svg, node, document) {
@@ -637,15 +637,20 @@ function renderNode(node, document, options = {}) {
   const group = document.createElementNS(SVG_NAMESPACE, 'g');
   group.setAttribute('data-droplet-layout-id', node.id);
   group.setAttribute('data-droplet-kind', node.kind);
+  if (node.metadata?.type) group.setAttribute('data-droplet-type', node.metadata.type);
   group.setAttribute('data-droplet-from', String(node.source.from));
   group.setAttribute('data-droplet-to', String(node.source.to));
   group.setAttribute('role', 'treeitem');
   const socketChildren = node.children.filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket');
   const otherChildren = node.children.filter((child) => child.kind !== 'socket' && child.kind !== 'recovery-socket');
   if (node.kind === 'container') {
-    renderContainerFrame(group, node, document);
+    renderContainerFrame(group, node, document, options);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
     renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document);
+    if (node.footerText) {
+      group.append(createLabel(node.footerText, node.regions.footer.left + 8, node.regions.footer.top + 20,
+        document, 'droplet-label-keyword'));
+    }
     renderClauseControls(group, node, document);
     renderParameterAddButton(group, node, document);
   } else if (node.kind === 'clause') {
@@ -663,7 +668,7 @@ function renderNode(node, document, options = {}) {
   } else if (node.kind === 'socket' || node.kind === 'recovery-socket') {
     renderSocket(group, node, document, options);
   } else {
-    renderAtomicFrame(group, node, document);
+    renderAtomicFrame(group, node, document, options);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
     renderSourceLabels(group, node, node.bounds.left + 8, node.bounds.top + 20, document);
   }
@@ -671,7 +676,7 @@ function renderNode(node, document, options = {}) {
   return group;
 }
 
-function renderContainerFrame(group, node, document) {
+function renderContainerFrame(group, node, document, options = {}) {
   const {header, footer} = node.regions;
   // A colon-terminated header (Python's `if x:`, `for y in z:`, ...) is the
   // only shape this "snake" styling targets; brace-bodied languages such as
@@ -679,6 +684,24 @@ function renderContainerFrame(group, node, document) {
   const isSnake = isColonHeader(node);
   const path = document.createElementNS(SVG_NAMESPACE, 'path');
   const radius = 4;
+  const clauseHeaders = (node.children ?? [])
+    .filter((child) => child.kind === 'clause')
+    .sort((left, right) => left.bounds.top - right.bounds.top)
+    .map((clause) => clause.regions.header);
+  // The notch/tab connector only has geometry for a single-branch container
+  // (no elif/else clause chain, which is a Python-only "snake" concept this
+  // shape never applies to): a plain brace-bodied block with one header and
+  // one body, exactly what every JavaScript container is.
+  if (!isSnake && options.tabConnector && clauseHeaders.length === 0 && hasConnectorWidth(header.right - header.left)) {
+    path.setAttribute('d', tabConnectorContainerPath(header, footer, node.regions.body.left, radius));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#246ca8');
+    path.setAttribute('stroke-width', '3');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    group.append(path);
+    return;
+  }
   // The box corners share the footer's fixed 10px height with each other, so
   // their radius stays small; the wave-to-bar blends have a full body height
   // to work with and can afford a much more generous curve.
@@ -690,10 +713,6 @@ function renderContainerFrame(group, node, document) {
   // continuous outline covers every branch instead of a separate box per
   // branch, so nothing but the primary header's own protrusion draws a
   // border across the body.
-  const clauseHeaders = (node.children ?? [])
-    .filter((child) => child.kind === 'clause')
-    .sort((left, right) => left.bounds.top - right.bounds.top)
-    .map((clause) => clause.regions.header);
   const bulges = [header, ...clauseHeaders];
   const commands = [
     // The top-left corner is where the closing wavy edge blends back in, so
@@ -911,16 +930,23 @@ function renderSnakeFace(group, header, document) {
   group.append(tongue);
 }
 
-function renderAtomicFrame(group, node, document) {
-  const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
-  rect.setAttribute('x', String(node.bounds.left));
-  rect.setAttribute('y', String(node.bounds.top));
-  rect.setAttribute('width', String(node.bounds.right - node.bounds.left));
-  rect.setAttribute('height', String(node.bounds.bottom - node.bounds.top));
-  rect.setAttribute('rx', '4');
-  rect.setAttribute('fill', node.kind === 'comment' ? '#f0f0f0' : '#fff');
-  rect.setAttribute('stroke', node.kind === 'comment' ? '#999' : '#7a9ec4');
-  group.append(rect);
+function renderAtomicFrame(group, node, document, options = {}) {
+  const {left, top, right, bottom} = node.bounds;
+  const radius = 4;
+  const useConnector = options.tabConnector && node.kind === 'statement' && hasConnectorWidth(right - left);
+  const element = document.createElementNS(SVG_NAMESPACE, useConnector ? 'path' : 'rect');
+  if (useConnector) {
+    element.setAttribute('d', tabConnectorAtomicPath(left, top, right, bottom, radius));
+  } else {
+    element.setAttribute('x', String(left));
+    element.setAttribute('y', String(top));
+    element.setAttribute('width', String(right - left));
+    element.setAttribute('height', String(bottom - top));
+    element.setAttribute('rx', String(radius));
+  }
+  element.setAttribute('fill', node.kind === 'comment' ? '#f0f0f0' : '#fff');
+  element.setAttribute('stroke', node.kind === 'comment' ? '#999' : '#7a9ec4');
+  group.append(element);
 }
 
 function renderSocket(group, node, document, options = {}) {
@@ -958,6 +984,23 @@ function isSequenceItemRole(role) {
 }
 
 function renderCompoundSocket(group, node, document, options) {
+  // A compound socket has no click-to-edit text of its own (see
+  // isInlineEditable) - only its leaf sockets do - but it is still one
+  // selectable, movable, replaceable unit (e.g. dragging a palette block onto
+  // it, or onto the container that holds it, replaces the whole comparison or
+  // assignment, not just a leaf). Without a frame of its own it reads as bare
+  // text merged into its container, with no visible boundary showing where
+  // that unit starts and ends.
+  const frame = document.createElementNS(SVG_NAMESPACE, 'rect');
+  frame.setAttribute('x', String(node.bounds.left));
+  frame.setAttribute('y', String(node.bounds.top));
+  frame.setAttribute('width', String(node.bounds.right - node.bounds.left));
+  frame.setAttribute('height', String(node.bounds.bottom - node.bounds.top));
+  frame.setAttribute('rx', '6');
+  frame.setAttribute('fill', 'none');
+  frame.setAttribute('stroke', '#9aa5b1');
+  frame.setAttribute('stroke-dasharray', '3 2');
+  group.append(frame);
   for (const child of node.children) group.append(renderNode(child, document, options));
   renderSourceLabels(group, node, node.textLeft, node.bounds.top + 20, document);
   // A Call/List's own sequence items render as this compound socket's direct
@@ -976,7 +1019,7 @@ function renderSourceLabels(group, node, left, top, document) {
   const sockets = node.children.filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
     .sort((first, second) => first.source.from - second.source.from);
   if (!sockets.length) {
-    group.append(createLabel(node.text, left, top, document));
+    group.append(createLabel(node.text, left, top, document, 'droplet-label-keyword'));
     return;
   }
   let sourceCursor = node.source.from;
@@ -985,16 +1028,16 @@ function renderSourceLabels(group, node, left, top, document) {
     const from = sourceCursor - node.source.from;
     const to = socket.source.from - node.source.from;
     const prefix = node.text.slice(from, to);
-    if (prefix) group.append(createLabel(prefix, visualCursor, top, document));
+    if (prefix) group.append(createLabel(prefix, visualCursor, top, document, 'droplet-label-keyword'));
     // A compound socket already rendered its own nested sockets and text (the
     // earlier renderNode call for it, in the loop above this one); drawing
     // its flat text here too would duplicate and overlap that.
-    if (!socket.children.length) group.append(createLabel(socket.text, socket.textLeft, top, document));
+    if (!socket.children.length) group.append(createLabel(socket.text, socket.textLeft, top, document, 'droplet-label-socket'));
     sourceCursor = socket.source.to;
     visualCursor = socket.bounds.right + 4;
   }
   const suffix = node.text.slice(sourceCursor - node.source.from);
-  if (suffix) group.append(createLabel(suffix, visualCursor, top, document));
+  if (suffix) group.append(createLabel(suffix, visualCursor, top, document, 'droplet-label-keyword'));
 }
 
 function renderWhitespace(group, node, document) {
@@ -1010,8 +1053,9 @@ function renderWhitespace(group, node, document) {
   group.append(rect);
 }
 
-function createLabel(text, x, y, document) {
+function createLabel(text, x, y, document, className) {
   const label = document.createElementNS(SVG_NAMESPACE, 'text');
+  if (className) label.setAttribute('class', className);
   label.setAttribute('x', String(x));
   label.setAttribute('y', String(y));
   label.setAttribute('fill', '#24344d');
@@ -1032,3 +1076,89 @@ const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const SNAKE_STROKE = '#5f8a41';
 const SNAKE_FILL = 'rgba(122, 163, 88, .12)';
 const SNAKE_TONGUE = '#c23b3b';
+
+// A puzzle-piece connector, opt in via layoutOptions.tabConnector: a notch
+// dipping into a block's top edge and a matching tab protruding from its
+// bottom edge at the same offset, so a stack of blocks reads as physically
+// interlocked. Geometry matches the legacy CoffeeScript/Ace editor's own
+// tabOffset/tabWidth/tabHeight/tabSideWidth (src/view.coffee).
+const TAB_OFFSET = 10;
+const TAB_WIDTH = 15;
+const TAB_HEIGHT = 5;
+const TAB_SIDE = TAB_WIDTH * 0.125;
+
+function hasConnectorWidth(width) {
+  return width >= TAB_OFFSET + TAB_WIDTH + 8;
+}
+
+// A notch cut into a top edge, traversed left-to-right starting at `left`.
+function notchCommands(left, top) {
+  return [
+    `L ${left + TAB_OFFSET} ${top}`,
+    `L ${left + TAB_OFFSET + TAB_SIDE} ${top + TAB_HEIGHT}`,
+    `L ${left + TAB_OFFSET + TAB_WIDTH - TAB_SIDE} ${top + TAB_HEIGHT}`,
+    `L ${left + TAB_OFFSET + TAB_WIDTH} ${top}`
+  ];
+}
+
+// A tab protruding from a bottom edge, traversed right-to-left, its far end
+// at `left` - the mirror image of notchCommands, offset from the same edge.
+function tabCommands(left, bottom) {
+  return [
+    `L ${left + TAB_OFFSET + TAB_WIDTH} ${bottom}`,
+    `L ${left + TAB_OFFSET + TAB_WIDTH - TAB_SIDE} ${bottom + TAB_HEIGHT}`,
+    `L ${left + TAB_OFFSET + TAB_SIDE} ${bottom + TAB_HEIGHT}`,
+    `L ${left + TAB_OFFSET} ${bottom}`
+  ];
+}
+
+function tabConnectorAtomicPath(left, top, right, bottom, radius) {
+  return [
+    `M ${left} ${top + radius}`,
+    `Q ${left} ${top} ${left + radius} ${top}`,
+    ...notchCommands(left, top),
+    `H ${right - radius}`,
+    `Q ${right} ${top} ${right} ${top + radius}`,
+    `V ${bottom - radius}`,
+    `Q ${right} ${bottom} ${right - radius} ${bottom}`,
+    ...tabCommands(left, bottom),
+    `L ${left + radius} ${bottom}`,
+    `Q ${left} ${bottom} ${left} ${bottom - radius}`,
+    'Z'
+  ].join(' ');
+}
+
+// A container's header is typically a different width than its body/footer
+// (e.g. "if (x) {" vs. a wider or narrower nested statement), so the two
+// share only their left edge - traced with a plain sharp inner corner, the
+// same way the existing bulge/spine construction below does.
+function tabConnectorContainerPath(header, footer, bodyLeft, radius) {
+  const left = header.left;
+  // The run connecting header to footer is a solid bar, not a hairline,
+  // traced down its inner edge and back up its outer edge (at `left`) after
+  // the footer - the same way the body's left edge is a filled rail in the
+  // legacy renderer rather than a 1px outline. Its inner edge meets the
+  // body's own left edge exactly, so nested statements sit flush against it
+  // instead of leaving a gap.
+  const spineRight = bodyLeft;
+  return [
+    `M ${left} ${header.top + radius}`,
+    `Q ${left} ${header.top} ${left + radius} ${header.top}`,
+    ...notchCommands(left, header.top),
+    `H ${header.right - radius}`,
+    `Q ${header.right} ${header.top} ${header.right} ${header.top + radius}`,
+    `V ${header.bottom - radius}`,
+    `Q ${header.right} ${header.bottom} ${header.right - radius} ${header.bottom}`,
+    `H ${spineRight}`,
+    `V ${footer.top}`,
+    `H ${footer.right - radius}`,
+    `Q ${footer.right} ${footer.top} ${footer.right} ${footer.top + radius}`,
+    `V ${footer.bottom - radius}`,
+    `Q ${footer.right} ${footer.bottom} ${footer.right - radius} ${footer.bottom}`,
+    ...tabCommands(left, footer.bottom),
+    `L ${left + radius} ${footer.bottom}`,
+    `Q ${left} ${footer.bottom} ${left} ${footer.bottom - radius}`,
+    `V ${header.top + radius}`,
+    'Z'
+  ].join(' ');
+}

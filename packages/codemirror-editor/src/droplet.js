@@ -60,7 +60,8 @@ export class DropletCodeMirrorEditor {
       parent: options.parent,
       onSelect: ({from, to}) => this.editor.setSelection({anchor: from, head: to}),
       onOperation: (operation) => this.applyBlockOperation(operation),
-      onSocketEdit: ({target, source}) => this.#replaceSocketText(target, source)
+      onSocketEdit: ({target, source}) => this.#replaceSocketText(target, source),
+      layoutOptions: options.layoutOptions
     });
 
     if (this.#blockMode) this.#publishProjection();

@@ -230,18 +230,41 @@ function layoutContainer(node, source, settings, left, top) {
     canAddClause(node, clauses) ? left + settings.clauseControlsWidth : 0
   );
   const footerTop = Math.max(bodyTop, body.bottom, clauseSections.bottom);
+  // A brace-bodied language's closing token (JavaScript's "}") sits after the
+  // last body/clause statement and before the container's own end - a colon
+  // header's suite (Python) has no such trailing token, so this is empty
+  // there and the footer stays its plain closing bar.
+  const structuralEnd = Math.max(
+    headerTo,
+    ...body.children.map((child) => child.source.to),
+    ...clauseSections.children.map((child) => child.source.to)
+  );
+  const footerText = source.slice(structuralEnd, node.to).replace(/^\s+/, '');
   // "Add elif"/"add else" render inside the footer - a footer sized for just
   // its own curve is too short to hold them, so reserve extra height only
-  // while those controls can actually show (never once an else exists).
-  const footerHeight = settings.footerHeight + (canAddClause(node, clauses) ? settings.clauseControlsHeight : 0);
+  // while those controls can actually show (never once an else exists). A
+  // footer showing its own closing-token text needs a full text line instead
+  // of the thin closing-bar height a textless footer uses.
+  const footerHeight = (footerText ? settings.lineHeight : settings.footerHeight) +
+    (canAddClause(node, clauses) ? settings.clauseControlsHeight : 0);
   const footer = box(left, footerTop, right - left, footerHeight);
   const bounds = {left, top, right, bottom: footer.bottom};
+  // The body-end zone (see layoutChildren) is sized before the footer's own
+  // height is known here, as a thin band right under the last statement (or
+  // right under the header, for an empty body) - too small to reliably hit
+  // once the footer bar itself is taller than that band, as it is whenever
+  // footerText is shown. Widen it to the footer's actual drawn bounds so a
+  // drop anywhere on the visible footer bar is recognized as "insert inside
+  // this container", not just that thin band.
+  const insertionZones = body.insertionZones.map((zone) =>
+    zone.role === 'body-end' ? {...zone, bounds: footer} : zone);
   return {
     id: node.id,
     kind: 'container',
     source: rangeOf(node),
     metadata: node.metadata,
     text: headerText,
+    footerText,
     bounds,
     regions: {
       header: box(left, top, headerWidth, settings.lineHeight),
@@ -249,7 +272,7 @@ function layoutContainer(node, source, settings, left, top) {
       footer
     },
     children: [...headerSockets, ...commentChild, ...body.children, ...clauseSections.children],
-    insertionZones: body.insertionZones
+    insertionZones
   };
 }
 

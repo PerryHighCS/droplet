@@ -20,9 +20,44 @@ test('identifies JavaScript containers and their header lines for structural ren
   const loop = parseJavaScript(source).root.children[0];
 
   assert.deepEqual(loop.metadata, {
-    type: 'ForOfStatement', blockRole: 'container', headerTo: source.indexOf('\n')
+    type: 'ForOfStatement', blockRole: 'container', headerTo: source.indexOf('\n'), bodyEnd: source.indexOf('}')
   });
   assert.ok(loop.children.some((node) => node.metadata.type === 'BlockStatement'));
+});
+
+test('a container\'s bodyEnd lands before its closing brace, not after it', () => {
+  const source = 'if (ready) {\n}\n';
+  const statement = parseJavaScript(source).root.children[0];
+
+  // The layout engine falls back to a container's own end (node.to, after
+  // the closing "}") when metadata.bodyEnd is absent - landing a block
+  // dropped on the body-end insertion zone outside the container instead of
+  // inside it as its last statement.
+  assert.equal(statement.metadata.bodyEnd, source.indexOf('}'));
+  assert.notEqual(statement.metadata.bodyEnd, statement.to);
+});
+
+test('inserting at bodyEnd does not corrupt an already-indented closing brace', () => {
+  // The closing "}" here is indented (it is itself nested one level deep),
+  // unlike the top-level, column-0 braces the other bodyEnd tests use. If
+  // bodyEnd pointed at the brace itself rather than the start of its line, an
+  // insert would land between the brace's own leading spaces and the brace,
+  // corrupting both: the existing indentation would become a prefix of the
+  // inserted line, and the brace would be left with none of its own.
+  const source = 'if (x) {\n  while (true) {\n  }\n}\n';
+  const parsed = parseJavaScript(source);
+  const whileStatement = findFirst(parsed.root, (node) => node.metadata?.type === 'WhileStatement');
+
+  const changes = transformJavaScript({
+    type: 'insert-statement',
+    destination: {from: whileStatement.metadata.bodyEnd, to: whileStatement.metadata.bodyEnd},
+    source: 'value += 1;\n'
+  }, parsed);
+
+  assert.equal(
+    applySourceChanges(source, changes),
+    'if (x) {\n  while (true) {\n    value += 1;\n  }\n}\n'
+  );
 });
 
 test('projects blank and whitespace-only JavaScript lines for block layout', () => {
