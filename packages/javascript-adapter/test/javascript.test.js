@@ -286,6 +286,25 @@ test('adds an editable trailing socket even when a call argument is itself a nes
   assert.ok(trailingSocket, 'a new editable empty socket must appear right before the outer call\'s own closing paren');
 });
 
+test('adds an argument to a bare call statement that is a one-statement document with no trailing newline', () => {
+  // insert-sequence-item resolves its target with the shared findAny helper,
+  // which used to check the passed-in node itself before its children -
+  // for a one-statement document with no trailing newline, the document root
+  // and the call statement it wraps share the exact same range, so this
+  // resolved to the document instead of the statement. hasRealSequenceItem
+  // then never found the statement's own call-argument socket (only its
+  // direct 'expression'/'statement' children, not the document's own kind),
+  // and the "+" button silently became a no-op.
+  const source = 'f(a)';
+  const parsed = parseJavaScript(source);
+  const statement = findFirst(parsed.root, (node) => node.kind === 'statement');
+  assert.equal(statement.from, parsed.root.from);
+  assert.equal(statement.to, parsed.root.to);
+
+  const changes = transformJavaScript({type: 'insert-sequence-item', target: {from: statement.from, to: statement.to}}, parsed);
+  assert.equal(applySourceChanges(source, changes), 'f(a, )');
+});
+
 test('does not attach an empty argument socket outside a parenless "new" expression\'s own range', () => {
   // A parenless `new Foo` is complete, valid JavaScript with no argument
   // list - the unbounded search for its own "(" used to walk straight past

@@ -46,6 +46,20 @@ test('findAny locates any node at an exact range regardless of kind', () => {
   assert.equal(findAny(root, {from: 3, to: 4}), undefined);
 });
 
+test('findAny prefers the innermost node when a descendant shares its ancestor\'s exact range', () => {
+  // A single-statement document with no trailing newline gives its one
+  // statement the document's own exact range - a search checking the
+  // document itself first (instead of descending into children first) would
+  // resolve to the document wrapper, not the statement/expression a caller
+  // actually meant (see block-surface-dom's insert-sequence-item wiring).
+  const root = {id: 'root', kind: 'document', from: 0, to: 10, children: [
+    {id: 'statement', kind: 'statement', from: 0, to: 10, children: [
+      {id: 'call', kind: 'expression', from: 0, to: 10, children: []}
+    ]}
+  ]};
+  assert.equal(findAny(root, {from: 0, to: 10})?.id, 'call');
+});
+
 test('findParent finds a node\'s direct parent by instance, not by matching range', () => {
   const root = tree();
   const statement = root.children[0];

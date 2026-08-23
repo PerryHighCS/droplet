@@ -153,15 +153,22 @@ export function findSocket(node, range) {
   return undefined;
 }
 
-/** Depth-first search for any node at an exact range, regardless of kind. */
+/**
+ * Depth-first search for any node at an exact range, regardless of kind -
+ * preferring the innermost match, the same way hitTestBlockLayout prefers a
+ * child over its enclosing container. A single-statement document with no
+ * trailing newline gives its one statement (or a call/def nested inside it)
+ * the exact same range as the document root itself; checking children first
+ * resolves the specific statement/expression a caller actually meant instead
+ * of the document wrapping it, without needing kind-aware call sites.
+ */
 export function findAny(node, range) {
   if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
-  if (node.from === range.from && node.to === range.to) return node;
   for (const child of node.children ?? []) {
     const found = findAny(child, range);
     if (found) return found;
   }
-  return undefined;
+  return node.from === range.from && node.to === range.to ? node : undefined;
 }
 
 /** Finds the direct parent of a specific node instance within a projection tree. */
