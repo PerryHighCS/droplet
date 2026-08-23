@@ -27,15 +27,18 @@
     @media (max-width: 800px) { .workspace, .panels { grid-template-columns: 1fr; } }
 
     /*
-     * This reproduces the actual legacy Droplet/Code.org editor's block
-     * styling (src/languages/javascript.coffee's CATEGORIES/NODE_CATEGORIES,
-     * src/view.coffee's DEFAULT_OPTIONS.colors, and css/droplet.css), not an
-     * invented palette: the same named colors, black monospace text
-     * throughout (css/droplet.css: ".droplet-main-canvas text { fill: #000 }"),
-     * and - via the clip-path applied in modern-javascript.mjs's
-     * applyDropletStyling - the same notched/chamfered block silhouette
-     * (view.coffee's tabOffset/tabWidth/tabHeight/tabSideWidth/bevelClip)
-     * rather than a plain rounded rectangle.
+     * Colors match App Lab's own toolbox (code.org's browser JavaScript
+     * environment - a customized skin over this same Droplet library, not
+     * its generic defaults): four categories cover plain JavaScript -
+     * control (blue), math (orange, covering arithmetic AND comparison/
+     * boolean operators together the way App Lab's Math category does),
+     * variables (purple), and functions (green, which is also where App Lab
+     * puts a function call, alongside the definition it invokes). Approximated
+     * by eye from the App Lab toolbox screenshots, not pixel-sampled.
+     * Black monospace text throughout (css/droplet.css:
+     * ".droplet-main-canvas text { fill: #000 }") and the notched/interlocking
+     * block silhouette (view.coffee's tab/bevel geometry) come from the
+     * engine's own layoutOptions.tabConnector mode, not this stylesheet.
      */
     #modern-javascript-palette { display: grid; gap: .5rem; }
     .palette-category summary { margin: 0 0 .35rem; padding: .3rem .5rem; border-radius: 4px; font-size: .9rem; font-weight: 700; cursor: pointer; color: #fff; }
@@ -49,25 +52,25 @@
       padding: .4rem .6rem;
     }
     .palette-block:hover, .palette-block:focus-visible { filter: brightness(.96); outline: 2px solid var(--cat-stroke, #7a9ec4); outline-offset: 1px; }
+    /* App Lab's Math operators are rounded "value"/reporter blocks (ovals),
+       distinct from the notched statement-block shape everything else uses;
+       a block dropped into a socket renders as a compound socket instead
+       (see block-surface-dom.js's renderCompoundSocket), so only the
+       palette button itself needs this shape. */
+    .cat-math .palette-block { border-radius: 999px; padding-left: .8rem; padding-right: .8rem; }
 
-    /* command: variable declarations, assignment, calls */
-    .cat-command summary { background: #4a90d2; }
-    .cat-command .palette-block { --cat-fill: #90caf9; --cat-stroke: #4a90d2; }
-    /* arithmetic: + - * / % ** and other non-comparison operators */
-    .cat-arithmetic summary { background: #5b9e60; }
-    .cat-arithmetic .palette-block { --cat-fill: #a5d6a7; --cat-stroke: #5b9e60; }
-    /* logic: comparison and boolean operators */
-    .cat-logic summary { background: #2fa8c2; }
-    .cat-logic .palette-block { --cat-fill: #80deea; --cat-stroke: #2fa8c2; }
-    /* control: if/for/while */
-    .cat-control summary { background: #e0932e; }
-    .cat-control .palette-block { --cat-fill: #ffcc80; --cat-stroke: #e0932e; }
-    /* returns: return/break/continue */
-    .cat-returns summary { background: #d1c04a; }
-    .cat-returns .palette-block { --cat-fill: #fff59d; --cat-stroke: #d1c04a; }
-    /* functions: function declarations */
-    .cat-functions summary { background: #9c4fb0; }
-    .cat-functions .palette-block { --cat-fill: #ce93d8; --cat-stroke: #9c4fb0; }
+    /* control: if/if-else, while, for, break/continue */
+    .cat-control summary { background: #2f6bab; }
+    .cat-control .palette-block { --cat-fill: #4d90d6; --cat-stroke: #2f6bab; }
+    /* math: arithmetic, comparison, boolean operators, and Math.* */
+    .cat-math summary { background: #c4841f; }
+    .cat-math .palette-block { --cat-fill: #efa83d; --cat-stroke: #c4841f; }
+    /* variables: declaration, assignment, compound assignment */
+    .cat-variables summary { background: #7649a0; }
+    .cat-variables .palette-block { --cat-fill: #9c6fc4; --cat-stroke: #7649a0; }
+    /* functions: declare, call, return */
+    .cat-functions summary { background: #3f8a3f; }
+    .cat-functions .palette-block { --cat-fill: #63b563; --cat-stroke: #3f8a3f; }
 
     /* Recolor the rendered blocks on the surface to match the same
        categories. Text always stays black, matching the legacy renderer.
@@ -81,27 +84,18 @@
     #modern-javascript-editor [data-droplet-kind="socket"] > rect,
     #modern-javascript-editor [data-droplet-kind="recovery-socket"] > rect { rx: 3px; ry: 3px; fill: #fff; stroke: #9aa5b1; }
 
-    #modern-javascript-editor [data-droplet-category="command"] > rect,
-    #modern-javascript-editor [data-droplet-category="command"] > path
-      { fill: #90caf9; stroke: #4a90d2; filter: drop-shadow(1.5px 1.5px 0 #4a90d2); }
-    #modern-javascript-editor [data-droplet-category="arithmetic"] > rect,
-    #modern-javascript-editor [data-droplet-category="arithmetic"] > path
-      { fill: #a5d6a7; stroke: #5b9e60; filter: drop-shadow(1.5px 1.5px 0 #5b9e60); }
-    #modern-javascript-editor [data-droplet-category="logic"] > rect,
-    #modern-javascript-editor [data-droplet-category="logic"] > path
-      { fill: #80deea; stroke: #2fa8c2; filter: drop-shadow(1.5px 1.5px 0 #2fa8c2); }
     #modern-javascript-editor [data-droplet-category="control"] > rect,
     #modern-javascript-editor [data-droplet-category="control"] > path
-      { fill: #ffcc80; stroke: #e0932e; filter: drop-shadow(1.5px 1.5px 0 #e0932e); }
-    #modern-javascript-editor [data-droplet-category="returns"] > rect,
-    #modern-javascript-editor [data-droplet-category="returns"] > path
-      { fill: #fff59d; stroke: #d1c04a; filter: drop-shadow(1.5px 1.5px 0 #d1c04a); }
+      { fill: #4d90d6; stroke: #2f6bab; filter: drop-shadow(1.5px 1.5px 0 #2f6bab); }
+    #modern-javascript-editor [data-droplet-category="math"] > rect,
+    #modern-javascript-editor [data-droplet-category="math"] > path
+      { fill: #efa83d; stroke: #c4841f; filter: drop-shadow(1.5px 1.5px 0 #c4841f); }
+    #modern-javascript-editor [data-droplet-category="variables"] > rect,
+    #modern-javascript-editor [data-droplet-category="variables"] > path
+      { fill: #9c6fc4; stroke: #7649a0; filter: drop-shadow(1.5px 1.5px 0 #7649a0); }
     #modern-javascript-editor [data-droplet-category="functions"] > rect,
     #modern-javascript-editor [data-droplet-category="functions"] > path
-      { fill: #ce93d8; stroke: #9c4fb0; filter: drop-shadow(1.5px 1.5px 0 #9c4fb0); }
-    #modern-javascript-editor [data-droplet-category="containers"] > rect,
-    #modern-javascript-editor [data-droplet-category="containers"] > path
-      { fill: #80cbc4; stroke: #3f9187; filter: drop-shadow(1.5px 1.5px 0 #3f9187); }
+      { fill: #63b563; stroke: #3f8a3f; filter: drop-shadow(1.5px 1.5px 0 #3f8a3f); }
   </style>
   <script type="importmap">
     {
@@ -140,7 +134,7 @@
   <main class="workspace">
     <aside class="panel">
       <h2>Palette</h2>
-      <p>Blocks use the legacy Droplet editor's own notch shape and category colors. Drag one to an insertion guide, or select a block/socket first and click a palette block to insert or replace it.</p>
+      <p>Blocks use App Lab's own category colors and the legacy Droplet editor's notch shape. Drag one to an insertion guide, or select a block/socket first and click a palette block to insert or replace it.</p>
       <div id="modern-javascript-palette"></div>
     </aside>
     <div class="panels">

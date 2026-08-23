@@ -25,11 +25,12 @@ For manual modern-editor checks, start `npm run dev` and open
 8001. Each playground exposes the live source snapshot and parsed projection
 alongside CodeMirror text/block mode, a starter-block palette, and
 representative block operations. The JavaScript playground's palette and
-rendered blocks reproduce the legacy Droplet/Code.org editor's own category
-colors (`src/languages/javascript.coffee`, `src/view.coffee`), applied as a
-post-render pass since block category is a language-specific concept the
-modern block surface has no opinion on. Its notched, interlocking block
-silhouette (`view.coffee`'s tab/bevel geometry) is instead an opt-in
+rendered blocks reproduce App Lab's own toolbox category colors (control,
+math, variables, functions - approximated from App Lab's own UI, not the
+standalone library's generic category defaults), applied as a post-render
+pass since block category is a language-specific concept the modern block
+surface has no opinion on. Its notched, interlocking block silhouette
+(`src/view.coffee`'s tab/bevel geometry) is instead an opt-in
 `layoutOptions.tabConnector` rendering mode built into
 `packages/codemirror-editor` itself, off by default for other consumers.
 

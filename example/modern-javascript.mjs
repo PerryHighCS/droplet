@@ -7,124 +7,87 @@ const samples = {
   'Broken syntax': 'if (score >\n'
 };
 
-// The legacy CoffeeScript/Ace editor's JavaScript mode (src/languages/javascript.coffee)
-// assigns each AST node type to one of a small set of named categories, each
-// with its own color (src/view.coffee DEFAULT_OPTIONS.colors). Both the
-// palette groups below and the runtime classifier further down (which colors
-// arbitrary rendered code, not just palette-inserted blocks) reproduce that
-// mapping so this playground's blocks are colored the way the original
-// Code.org-derived Droplet editor colors them, not an invented scheme.
+// App Lab (code.org's browser-based JavaScript environment, itself a
+// customized skin over Droplet - see example.coffee's "categories"/"color"
+// config) uses a simpler, differently-colored toolbox than the standalone
+// library's own generic defaults: four categories cover everything a plain
+// (non-App-Lab-API) JavaScript program needs -
 //
-//   command   (blue,   #90caf9): variable declarations, assignment, calls
-//   functions (purple, #ce93d8): function declarations
-//   returns   (yellow, #fff59d): return/break/continue
-//   control   (orange, #ffcc80): if/for/while
-//   arithmetic(green,  #a5d6a7): + - * / % ** and other non-comparison ops
-//   logic     (cyan,   #80deea): === !== < > && || (comparison/boolean ops)
-//   containers(teal,   #80cbc4): member/array/object/new expressions
+//   control   (blue):   if/if-else, while, for
+//   math      (orange): all arithmetic AND comparison/boolean operators in
+//                        one category (App Lab does not split these the way
+//                        the standalone library's defaults do), plus Math.*
+//   variables (purple):  declaration, assignment, compound assignment
+//   functions (green):   declare, return - AND call, which App Lab groups
+//                        with the function it invokes rather than with
+//                        assignment
+//
+// App Lab also has UI controls/Canvas/Data/Turtle categories, all of them
+// App Lab's own runtime API (drawing, widgets, lists, turtle graphics) with
+// no equivalent in plain JavaScript - out of scope for a generic playground,
+// so this reproduces only the four categories above.
 const palette = [
-  {
-    name: 'Variables & calls', category: 'command', blocks: [
-      {id: 'var', label: 'var value = 1;', source: 'var value = 1;\n'},
-      {id: 'const', label: 'const value = 1;', source: 'const value = 1;\n'},
-      {id: 'assign', label: 'value = 1;', source: 'value = 1;\n'},
-      {id: 'add-assign', label: 'value += 1;', source: 'value += 1;\n'},
-      {id: 'sub-assign', label: 'value -= 1;', source: 'value -= 1;\n'},
-      {id: 'log', label: 'console.log(value);', source: 'console.log(value);\n'},
-      {id: 'alert', label: 'alert(value);', source: 'alert(value);\n'}
-    ]
-  },
-  {
-    name: 'Math', category: 'arithmetic', blocks: [
-      {id: 'add', label: 'value + value', source: 'value + value', kind: 'expression'},
-      {id: 'sub', label: 'value - value', source: 'value - value', kind: 'expression'},
-      {id: 'mul', label: 'value * value', source: 'value * value', kind: 'expression'},
-      {id: 'div', label: 'value / value', source: 'value / value', kind: 'expression'},
-      {id: 'mod', label: 'value % value', source: 'value % value', kind: 'expression'},
-      {id: 'pow', label: 'value ** value', source: 'value ** value', kind: 'expression'}
-    ]
-  },
-  {
-    name: 'Logic', category: 'logic', blocks: [
-      {id: 'eq', label: 'value === value', source: 'value === value', kind: 'expression'},
-      {id: 'ne', label: 'value !== value', source: 'value !== value', kind: 'expression'},
-      {id: 'lt', label: 'value < value', source: 'value < value', kind: 'expression'},
-      {id: 'gt', label: 'value > value', source: 'value > value', kind: 'expression'},
-      {id: 'and', label: 'value && value', source: 'value && value', kind: 'expression'},
-      {id: 'or', label: 'value || value', source: 'value || value', kind: 'expression'}
-    ]
-  },
   {
     name: 'Control', category: 'control', blocks: [
       {id: 'if', label: 'if (true) { }', source: 'if (true) {\n}\n'},
       {id: 'while', label: 'while (true) { }', source: 'while (true) {\n}\n'},
-      {id: 'for', label: 'for (var i = 0; i < 4; i++) { }', source: 'for (var i = 0; i < 4; i++) {\n}\n'}
-    ]
-  },
-  {
-    name: 'Returns', category: 'returns', blocks: [
-      {id: 'return', label: 'return value;', source: 'return value;\n'},
+      {id: 'for', label: 'for (var i = 0; i < 4; i++) { }', source: 'for (var i = 0; i < 4; i++) {\n}\n'},
       {id: 'break', label: 'break;', source: 'break;\n'},
       {id: 'continue', label: 'continue;', source: 'continue;\n'}
     ]
   },
   {
+    name: 'Math', category: 'math', blocks: [
+      {id: 'add', label: 'value + value', source: 'value + value', kind: 'expression'},
+      {id: 'sub', label: 'value - value', source: 'value - value', kind: 'expression'},
+      {id: 'mul', label: 'value * value', source: 'value * value', kind: 'expression'},
+      {id: 'div', label: 'value / value', source: 'value / value', kind: 'expression'},
+      {id: 'mod', label: 'value % value', source: 'value % value', kind: 'expression'},
+      {id: 'eq', label: 'value === value', source: 'value === value', kind: 'expression'},
+      {id: 'ne', label: 'value !== value', source: 'value !== value', kind: 'expression'},
+      {id: 'lt', label: 'value < value', source: 'value < value', kind: 'expression'},
+      {id: 'gt', label: 'value > value', source: 'value > value', kind: 'expression'},
+      {id: 'and', label: 'value && value', source: 'value && value', kind: 'expression'},
+      {id: 'or', label: 'value || value', source: 'value || value', kind: 'expression'},
+      {id: 'not', label: '!value', source: '!value', kind: 'expression'},
+      {id: 'random', label: 'Math.random()', source: 'Math.random()', kind: 'expression'},
+      {id: 'round', label: 'Math.round(value)', source: 'Math.round(value)', kind: 'expression'}
+    ]
+  },
+  {
+    name: 'Variables', category: 'variables', blocks: [
+      {id: 'var', label: 'var value = 1;', source: 'var value = 1;\n'},
+      {id: 'assign', label: 'value = 1;', source: 'value = 1;\n'},
+      {id: 'add-assign', label: 'value += 1;', source: 'value += 1;\n'},
+      {id: 'sub-assign', label: 'value -= 1;', source: 'value -= 1;\n'}
+    ]
+  },
+  {
     name: 'Functions', category: 'functions', blocks: [
       {id: 'def', label: 'function name() { }', source: 'function name() {\n}\n'},
-      // A call is grouped here for discoverability next to the definition it
-      // pairs with, but it still colors as 'command' (blue) - a CallExpression
-      // is 'command' in the legacy mapping, not 'functions' (purple, reserved
-      // for FunctionDeclaration/FunctionExpression) - so its button carries an
-      // explicit category override rather than inheriting this section's.
-      {id: 'call', label: 'name()', source: 'name()', kind: 'expression', category: 'command'}
+      {id: 'call', label: 'name()', source: 'name()', kind: 'expression'},
+      {id: 'log', label: 'console.log(value);', source: 'console.log(value);\n'},
+      {id: 'return', label: 'return value;', source: 'return value;\n'}
     ]
   }
 ];
 
-// Mirrors the CSS custom properties set per .cat-X in modern-javascript.html,
-// for the rare palette block (see 'call' above) whose own color needs to
-// differ from its toolbox section's.
 const CATEGORY_COLORS = {
-  command: {fill: '#90caf9', stroke: '#4a90d2'},
-  arithmetic: {fill: '#a5d6a7', stroke: '#5b9e60'},
-  logic: {fill: '#80deea', stroke: '#2fa8c2'},
-  control: {fill: '#ffcc80', stroke: '#e0932e'},
-  returns: {fill: '#fff59d', stroke: '#d1c04a'},
-  functions: {fill: '#ce93d8', stroke: '#9c4fb0'},
-  containers: {fill: '#80cbc4', stroke: '#3f9187'}
+  control: {fill: '#4d90d6', stroke: '#2f6bab'},
+  math: {fill: '#efa83d', stroke: '#c4841f'},
+  variables: {fill: '#9c6fc4', stroke: '#7649a0'},
+  functions: {fill: '#63b563', stroke: '#3f8a3f'}
 };
 
-// Reproduces src/languages/javascript.coffee's NODE_CATEGORIES/getColor: an
-// ExpressionStatement (an assignment or a bare call) takes its color from its
-// one expression child, and a BinaryExpression is "arithmetic" unless its
-// operator is a comparison, in which case it is "logic" - matching
-// LOGICAL_OPERATORS there. The one deliberate deviation is ContinueStatement:
-// upstream leaves it out of NODE_CATEGORIES entirely (falling through to
-// "command"/blue), which reads as an oversight rather than an intentional
-// choice, so this groups it with break/return ("returns"/yellow) instead.
-const COMPARISON_OPERATOR = /===|!==|==|!=|<=|>=|<|>|&&|\|\||\binstanceof\b|\bin\b/;
-
+// Colors arbitrary rendered code (not just palette-inserted blocks) the same
+// way App Lab colors its own toolbox: control-flow statements blue, all
+// arithmetic/comparison/boolean operators and Math.* orange, variable
+// declaration/assignment purple, and function declarations/calls/returns
+// green - a CallExpression is grouped with Functions here, matching App
+// Lab's palette (see the comment above), not the generic "assignment or
+// call is the same category" convention the standalone library defaults to.
 function dropletCategory(node, source) {
   switch (node.metadata?.type) {
-    case 'VariableDeclaration':
-    case 'AssignmentExpression':
-    case 'CallExpression':
-    case 'SequenceExpression':
-      return 'command';
-    case 'NewExpression':
-    case 'ObjectExpression':
-    case 'ArrayExpression':
-    case 'MemberExpression':
-      return 'containers';
-    case 'FunctionDeclaration':
-    case 'FunctionExpression':
-      return 'functions';
-    case 'ReturnStatement':
-    case 'BreakStatement':
-    case 'ContinueStatement':
-    case 'ThrowStatement':
-    case 'TryStatement':
-      return 'returns';
     case 'IfStatement':
     case 'SwitchStatement':
     case 'ForStatement':
@@ -132,21 +95,31 @@ function dropletCategory(node, source) {
     case 'ForOfStatement':
     case 'WhileStatement':
     case 'DoWhileStatement':
+    case 'BreakStatement':
+    case 'ContinueStatement':
       return 'control';
-    case 'LogicalExpression':
-      return 'logic';
+    case 'VariableDeclaration':
+    case 'AssignmentExpression':
+      return 'variables';
+    case 'FunctionDeclaration':
+    case 'FunctionExpression':
+    case 'CallExpression':
+    case 'NewExpression':
+    case 'ReturnStatement':
+      return 'functions';
     case 'BinaryExpression':
-      return COMPARISON_OPERATOR.test(source.slice(node.from, node.to)) ? 'logic' : 'arithmetic';
+    case 'LogicalExpression':
     case 'UnaryExpression':
     case 'UpdateExpression':
     case 'ConditionalExpression':
-      return 'arithmetic';
+    case 'MemberExpression':
+      return 'math';
     case 'ExpressionStatement': {
       const inner = (node.children ?? []).find((child) => child.kind === 'expression' || child.kind === 'statement');
-      return inner ? dropletCategory(inner, source) : 'command';
+      return inner ? dropletCategory(inner, source) : 'variables';
     }
     default:
-      return 'command';
+      return 'variables';
   }
 }
 
@@ -314,4 +287,4 @@ function setStatus(message) { status.value = message; status.textContent = messa
 
 modeButton.textContent = 'Use text mode';
 refresh();
-setStatus('Ready. Block mode is active; blocks use the legacy Droplet editor’s notch shape and category colors.');
+setStatus('Ready. Block mode is active; blocks use App Lab’s category colors and the legacy Droplet editor’s notch shape.');
