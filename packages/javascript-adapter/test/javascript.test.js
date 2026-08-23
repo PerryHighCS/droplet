@@ -526,6 +526,43 @@ test('caps a compact single-line elif/else clause\'s header at its own opening b
   assert.equal(elseClause.metadata.bodyEnd, elseSource.indexOf('}', elseClause.from));
 });
 
+test('projects a for-of/for-in loop\'s own header operands as sockets, not a duplicated body statement', () => {
+  // Without a socket role, ForOfStatement/ForInStatement's own `left`
+  // (a VariableDeclaration) projected with its natural 'statement' kind,
+  // sitting alongside the body's BlockStatement - structuralChildren's
+  // single-BlockStatement flatten check then saw two statement children and
+  // never flattened the body, rendering it as a second nested container
+  // with the loop variable duplicated as its own spurious block above it.
+  const ofSource = 'for (const x of list) {\n  console.log(x);\n}\n';
+  const forOf = findFirst(parseJavaScript(ofSource).root, (node) => node.metadata?.type === 'ForOfStatement');
+  assert.deepEqual(forOf.children.map((child) => child.kind), ['socket', 'socket', 'statement']);
+  const [left, right, body] = forOf.children;
+  assert.equal(ofSource.slice(left.from, left.to), 'const x');
+  assert.equal(ofSource.slice(right.from, right.to), 'list');
+  assert.equal(body.metadata?.type, 'BlockStatement');
+
+  const inSource = 'for (const key in obj) {\n  x(key);\n}\n';
+  const forIn = findFirst(parseJavaScript(inSource).root, (node) => node.metadata?.type === 'ForInStatement');
+  assert.deepEqual(forIn.children.map((child) => child.kind), ['socket', 'socket', 'statement']);
+});
+
+test('caps an unbraced container\'s header before its own body, instead of consuming it too', () => {
+  // Without a BlockStatement, headerTo fell back to the whole physical
+  // line - for a valid unbraced body ("if (x) work();"), that line also
+  // contains the body text childNodes/structuralChildren separately render
+  // as its own nested statement, duplicating it: once folded into the
+  // header, once as its own block.
+  const ifSource = 'if (x) work();\n';
+  const ifStatement = findFirst(parseJavaScript(ifSource).root, (node) => node.metadata?.type === 'IfStatement');
+  assert.equal(ifSource.slice(ifStatement.from, ifStatement.metadata.headerTo).trimEnd(), 'if (x)');
+  const consequent = findFirst({children: ifStatement.children}, (node) => node.kind === 'statement');
+  assert.equal(ifSource.slice(consequent.from, consequent.to), 'work();');
+
+  const whileSource = 'while (x) work();\n';
+  const whileStatement = findFirst(parseJavaScript(whileSource).root, (node) => node.metadata?.type === 'WhileStatement');
+  assert.equal(whileSource.slice(whileStatement.from, whileStatement.metadata.headerTo).trimEnd(), 'while (x)');
+});
+
 function findFirst(node, predicate) {
   if (predicate(node)) return node;
   for (const child of node.children) {

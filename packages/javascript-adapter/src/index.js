@@ -571,6 +571,13 @@ function metadataFor(node, kind, source, socketRole) {
   if (kind === 'statement' && containerStatementTypes.has(node.type)) {
     metadata.blockRole = 'container';
     const blockBody = node.type === 'BlockStatement' ? node : blockStatementChild(node);
+    // A valid unbraced body (`if (x) work();`, `while (x) work();`) is not a
+    // BlockStatement, so blockBody is undefined for it too - without this,
+    // headerTo fell back to the whole physical line, which for an unbraced
+    // body also contains the body text that childNodes/structuralChildren
+    // separately render as its own nested statement, duplicating it: once
+    // folded into the header, once as its own block below.
+    const unbracedBody = blockBody ? undefined : unbracedBodyNode(node);
     // The physical line end is the header boundary for the ordinary,
     // multi-line case (source.indexOf('\n') sits right after the opening
     // "{"), but for a compact single-line container (`if (x) { work(); }`)
@@ -579,7 +586,9 @@ function metadataFor(node, kind, source, socketRole) {
     // body text that also renders as a nested child right below it.
     metadata.headerTo = blockBody
       ? Math.min(lineTextEnd(source, node.start), blockBody.start + 1)
-      : lineTextEnd(source, node.start);
+      : unbracedBody
+        ? Math.min(lineTextEnd(source, node.start), unbracedBody.start)
+        : lineTextEnd(source, node.start);
     if (blockBody) {
       // Without this, a container's own end (node.end, used as the layout
       // engine's default bodyEnd) lands *after* the closing "}" - so a block
@@ -596,9 +605,32 @@ function metadataFor(node, kind, source, socketRole) {
       const singleLine = !source.slice(blockBody.start, blockBody.end).includes('\n');
       metadata.bodyEnd = singleLine ? blockBody.end - 1 : lineStart(source, blockBody.end - 1);
       metadata.blockEnd = blockBody.end;
+      // blockEnd is deliberately left unset for an unbraced body - it has no
+      // closing brace for add-clause to anchor a new "else"/"else if" on
+      // (see closingBraceEnd), and hasExtendableBody in
+      // clause-add-eligibility.js relies on blockEnd being absent to hide
+      // that control until a body actually has one. bodyEnd is still needed
+      // so layoutContainer's own footer text starts right after the body
+      // (not still inside it, re-displaying the now-correctly-capped header's
+      // own body text a third time as static footer text).
+    } else if (unbracedBody) {
+      metadata.bodyEnd = unbracedBody.end;
     }
   }
   return metadata;
+}
+
+// The construct-specific location of a non-block ("unbraced") body: an
+// IfStatement's is specifically its consequent (not its same-shaped
+// `alternate`, a bare "else work();"); every other body-carrying container
+// type here uses a plain `body` property.
+function unbracedBodyNode(node) {
+  if (node.type === 'IfStatement') return node.consequent;
+  if (node.type === 'WhileStatement' || node.type === 'DoWhileStatement' || node.type === 'ForStatement' ||
+      node.type === 'ForInStatement' || node.type === 'ForOfStatement' || node.type === 'WithStatement') {
+    return node.body;
+  }
+  return undefined;
 }
 
 function lineStart(source, position) {
@@ -649,6 +681,16 @@ function socketRoleFor(parent, key) {
   if (parent.type === 'IfStatement' && key === 'test') return 'if-condition';
   if ((parent.type === 'WhileStatement' || parent.type === 'DoWhileStatement') && key === 'test') return 'while-condition';
   if (parent.type === 'ForStatement' && (key === 'init' || key === 'test' || key === 'update')) return 'expression';
+  // Without a socket role, ForOfStatement/ForInStatement's own loop-header
+  // operands (`left`, a VariableDeclaration; `right`, the iterable
+  // expression) project as ordinary children - left's own 'statement' kind
+  // (VariableDeclaration ends with "Declaration") then sits alongside the
+  // body's BlockStatement, so structuralChildren's single-BlockStatement
+  // flatten check sees two statement children and never flattens the body,
+  // rendering it as a second nested container with the loop variable
+  // duplicated as its own spurious block above it.
+  if ((parent.type === 'ForInStatement' || parent.type === 'ForOfStatement') &&
+      (key === 'left' || key === 'right')) return 'expression';
   if ((parent.type === 'FunctionDeclaration' || parent.type === 'FunctionExpression') && key === 'id') return 'name';
   if ((parent.type === 'FunctionDeclaration' || parent.type === 'FunctionExpression') && key === 'params') return 'parameter';
   if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'callee') return 'call-target';
