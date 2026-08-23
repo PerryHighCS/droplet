@@ -278,6 +278,36 @@ test('a rejected socket commit does not leave a stale recovery target for a late
   editor.destroy();
 });
 
+test('a valid socket commit reprojects normally even while an unrelated opaque region coexists', () => {
+  // #reparse used to treat *any* opaque node anywhere in the freshly parsed
+  // document as proof the just-edited socket itself failed to reproject -
+  // but a mixed projection with an unrelated opaque child is already
+  // supported. A perfectly valid edit to one socket, with some other,
+  // unrelated statement still opaque elsewhere, incorrectly discarded the
+  // fresh (correct) parse and kept the edited socket stuck as a
+  // recovery-socket indefinitely, even though its own new text parses fine.
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'broken(\ntarget = value\n', blockMode: true, parse: parseMixedOpaqueAndSocket
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  assert.equal(parent.querySelectorAll('[data-droplet-kind="opaque-statement"]').length, 1);
+
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.value = 'answer';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+
+  assert.equal(editor.getValue(), 'broken(\ntarget = answer\n');
+  assert.equal(parent.querySelector('[data-droplet-kind="recovery-socket"]'), null,
+    'a socket whose own new text parses fine must not stay a recovery-socket just because an unrelated opaque region exists');
+  assert.equal(parent.querySelector('[data-droplet-layout-id="value"]')?.dataset.dropletKind, 'socket');
+  assert.equal(parent.querySelectorAll('[data-droplet-kind="opaque-statement"]').length, 1,
+    'the unrelated opaque statement must still be there - this is mixed-projection support, not opaque recovery');
+  editor.destroy();
+});
+
 test('deleting a selected socket commits an empty editable recovery range', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
@@ -611,6 +641,36 @@ function parseCommentExample(source) {
         {id: `comment:${commentFrom}`, kind: 'comment', from: commentFrom, to: commentTo, editable: true, children: [], metadata: {inline: false}}
       ]
     }, issues: []
+  };
+}
+
+// A permanently opaque first line (regardless of its own content - it is not
+// a "target = value" match and never one), alongside a real, editable socket
+// on the second line - models a mixed projection where one region is opaque
+// and an unrelated region is ordinary, live structure.
+function parseMixedOpaqueAndSocket(source) {
+  const [firstLine = '', secondLine = ''] = source.split('\n');
+  const secondFrom = firstLine.length + 1;
+  const match = /^target = (.*)$/.exec(secondLine);
+  const secondChild = match
+    ? {
+        id: 'stmt2', kind: 'statement', from: secondFrom, to: secondFrom + secondLine.length, editable: true, metadata: {},
+        children: [{
+          id: 'value', kind: 'socket',
+          from: secondFrom + 'target = '.length, to: secondFrom + secondLine.length,
+          editable: true, children: [], metadata: {socketRole: 'assignment-value'}
+        }]
+      }
+    : {id: 'stmt2', kind: 'opaque-statement', from: secondFrom, to: secondFrom + secondLine.length, editable: false, children: []};
+  return {
+    source,
+    root: {
+      id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [
+        {id: 'broken', kind: 'opaque-statement', from: 0, to: firstLine.length, editable: false, children: []},
+        secondChild
+      ]
+    },
+    issues: []
   };
 }
 

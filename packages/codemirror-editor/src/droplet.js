@@ -159,7 +159,7 @@ export class DropletCodeMirrorEditor {
     // corresponds to anything in the current source.
     const recovery = this.#socketRecovery;
     this.#socketRecovery = undefined;
-    this.#projection = (recovery && collectOpaqueNodes(parsed.root).length)
+    this.#projection = (recovery && targetFailedToReproject(parsed.root, recovery, this.getValue()))
       ? recoverSocketProjection(recovery.projection, this.getValue(), recovery.target, parsed.issues)
       : parsed;
     this.#publishProjection();
@@ -247,6 +247,20 @@ function changesTouchOpaqueNode(transaction, projection) {
     if (opaqueNodes.some((node) => intersects(node, from, to))) touched = true;
   });
   return touched;
+}
+
+// Recovery must trigger only when the *edited socket's own* updated range
+// failed to re-project as real structure - not merely because some opaque
+// node exists anywhere in the freshly parsed document. A mixed projection
+// with an unrelated opaque child is already supported (see
+// changesTouchOpaqueNode/collectOpaqueNodes above); checking for "any opaque
+// node anywhere" would otherwise discard a perfectly good fresh parse and
+// leave a validly-edited socket stuck as a recovery-socket indefinitely
+// whenever an unrelated opaque region happens to coexist alongside it.
+function targetFailedToReproject(root, recovery, source) {
+  const delta = source.length - recovery.projection.source.length;
+  const to = recovery.target.from + (recovery.target.to - recovery.target.from) + delta;
+  return collectOpaqueNodes(root).some((node) => intersects(node, recovery.target.from, to));
 }
 
 function collectOpaqueNodes(node) {
