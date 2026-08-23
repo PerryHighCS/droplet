@@ -108,10 +108,12 @@ const palette = [
   },
   {
     name: 'Functions', category: 'functions', blocks: [
+      // Just the zero-parameter/zero-argument forms: the "+" button (see
+      // renderParameterAddButton/renderCallArgumentAddButton in
+      // block-surface-dom.js) now adds parameters/arguments from there, so a
+      // separate pre-filled "(n)" palette variant is redundant.
       {id: 'def', label: 'function myFunction() { }', source: 'function myFunction() {\n}\n'},
-      {id: 'def-param', label: 'function myFunction(n) { }', source: 'function myFunction(n) {\n}\n'},
       {id: 'call', label: 'myFunction()', source: 'myFunction()', kind: 'expression'},
-      {id: 'call-arg', label: 'myFunction(n)', source: 'myFunction(n)', kind: 'expression'},
       {id: 'return', label: 'return ;', source: 'return;\n'}
       // App Lab also has a comment block ("// Comment"); the JavaScript
       // adapter does not project comments as their own node kind (see its
