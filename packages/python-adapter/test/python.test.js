@@ -1084,6 +1084,55 @@ test('projects an editable trailing socket after "+" leaves a dangling "," behin
   assert.equal(trailingItem.from, listSource.indexOf(']'));
 });
 
+test('finds the trailing socket even when the last real item is a keyword argument or a defaulted parameter', () => {
+  // The dangling-"," detection above only looked at a call's positional
+  // node.args, or a def's bare parameter names - a call's own keyword
+  // arguments (f(a, b=1)) are a separate AST field, and a parameter's
+  // default value expression (def f(a, b=1)) sits further into the source
+  // than its own name. Either one can be the last real item by position,
+  // and was missed entirely.
+  const position = (source) => (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (source) => (type, from, to, extra = {}) => {
+    const pos = position(source);
+    return {type, ...pos(from), end_lineno: pos(to).lineno, end_col_offset: pos(to).col_offset, ...extra};
+  };
+
+  const callSource = 'first(a, b=1, )\n';
+  const at = located(callSource);
+  const argA = at('Name', callSource.indexOf('a'), callSource.indexOf('a') + 1, {id: 'a'});
+  const kwValue = at('Num', callSource.indexOf('1'), callSource.indexOf('1') + 1, {});
+  const keyword = at('keyword', callSource.indexOf('b'), callSource.indexOf('1') + 1, {arg: 'b', value: kwValue});
+  const call = at('Call', 0, callSource.indexOf(')') + 1, {
+    func: at('Name', 0, 5, {id: 'first'}), args: [argA], keywords: [keyword]
+  });
+  const callExpr = at('Expr', 0, callSource.indexOf(')') + 1, {value: call});
+  const callParsed = parsePython(callSource, () => ({type: 'Module', body: [callExpr]}));
+  const trailingArgument = collectProjectedNodes(callParsed.root)
+    .find((node) => node.metadata?.socketRole === 'call-argument' && node.metadata?.empty);
+  assert.ok(trailingArgument, 'a new editable call-argument socket must appear after the keyword argument');
+  assert.equal(trailingArgument.from, callSource.indexOf(')'));
+
+  const defSource = 'def f(a, b=1, ):\n  pass\n';
+  const atDef = located(defSource);
+  const paramA = atDef('arg', defSource.indexOf('a'), defSource.indexOf('a') + 1, {arg: 'a'});
+  const paramB = atDef('arg', defSource.indexOf('b'), defSource.indexOf('b') + 1, {arg: 'b'});
+  const defaultValue = atDef('Num', defSource.indexOf('1'), defSource.indexOf('1') + 1, {});
+  const passStatement = atDef('Pass', defSource.indexOf('pass'), defSource.indexOf('pass') + 4);
+  const fn = atDef('FunctionDef', 0, defSource.indexOf('\n'), {
+    name: 'f',
+    args: {lineno: 1, posonlyargs: [], args: [paramA, paramB], kwonlyargs: [], defaults: [defaultValue]},
+    body: [passStatement], decorator_list: []
+  });
+  const defParsed = parsePython(defSource, () => ({type: 'Module', body: [fn]}));
+  const trailingParameter = collectProjectedNodes(defParsed.root)
+    .find((node) => node.metadata?.socketRole === 'parameter' && node.metadata?.empty);
+  assert.ok(trailingParameter, 'a new editable parameter socket must appear after the defaulted parameter');
+  assert.equal(trailingParameter.from, defSource.indexOf(')'));
+});
+
 test('removes a middle call argument, splicing its own separating comma', () => {
   const source = 'first(a, b, c)\n';
   const args = ['a', 'b', 'c'].map((letter) => ({

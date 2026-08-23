@@ -352,8 +352,13 @@ function addEmptyCallArgumentSocket(children, node, source, from, to, lines) {
   // argument count for the result (the trailing "," is not itself an
   // argument), so without this check the gap it leaves behind would have
   // nothing typed into it, and clicking "+" again would splice a second,
-  // invalid leading comma in front of the last real argument.
-  const lastArgumentEnd = lastLocatedEnd(node.args, source, lines);
+  // invalid leading comma in front of the last real argument. A call's own
+  // keyword arguments (f(a, b=1)) are a separate AST field from its
+  // positional ones - the last real argument by position can be either.
+  const lastArgumentEnd = lastLocatedEnd([
+    ...(Array.isArray(node.args) ? node.args : []),
+    ...(Array.isArray(node.keywords) ? node.keywords : [])
+  ], source, lines);
   if (lastArgumentEnd !== null && !/^\s*,\s*$/.test(source.slice(lastArgumentEnd, closingParenthesis))) return;
   children.push({
     id: `socket:call-argument:${closingParenthesis}:${closingParenthesis}`,
@@ -377,10 +382,15 @@ function addEmptyParameterSocket(children, node, source, from, to, lines) {
   const closingParenthesis = source.lastIndexOf(')', headerEnd);
   if (closingParenthesis < from) return;
   const args = node.args ?? {};
+  // A default value expression (def f(a, b=1)) sits further into the source
+  // than its own parameter's name - the last real parameter by position can
+  // be a default value, not just a bare name.
   const allParameters = [
     ...(Array.isArray(args.posonlyargs) ? args.posonlyargs : []),
     ...(Array.isArray(args.args) ? args.args : []),
     ...(Array.isArray(args.kwonlyargs) ? args.kwonlyargs : []),
+    ...(Array.isArray(args.defaults) ? args.defaults : []),
+    ...(Array.isArray(args.kw_defaults) ? args.kw_defaults : []),
     args.vararg, args.kwarg
   ];
   const lastParameterEnd = lastLocatedEnd(allParameters, source, lines);
@@ -416,6 +426,25 @@ function addEmptyListItemSocket(children, node, source, from, to, lines) {
     kind: 'socket', from: closingBracket, to: closingBracket, editable: true, children: [],
     metadata: {type: 'Name', socketRole: 'list-item', empty: true}
   });
+}
+
+// Depth-tracks matching delimiters (this file has no tokenizer to skip
+// comments/strings with the way the JavaScript adapter's Acorn-based one
+// does, so a delimiter character inside either would still be miscounted -
+// an accepted limitation matching this file's existing plain-text scans
+// elsewhere) to find where openPosition's own pair actually closes, not just
+// the next occurrence of closeChar.
+function matchingDelimiterEnd(source, openPosition, openChar, closeChar) {
+  if (openPosition === -1) return -1;
+  let depth = 0;
+  for (let i = openPosition; i < source.length; i += 1) {
+    if (source[i] === openChar) depth += 1;
+    else if (source[i] === closeChar) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
 }
 
 // The furthest end position among a set of Brython AST nodes that are
