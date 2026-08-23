@@ -19,7 +19,11 @@ test('maps Brython line and column locations to exact source ranges', () => {
   assert.equal(parsed.root.children[0].kind, 'statement');
   assert.deepEqual(parsed.root.children[0].children[0], {
     id: 'socket:Call:8:16', kind: 'socket', from: 8, to: 16, editable: true,
-    children: [], metadata: {type: 'Call', socketRole: 'assignment-value'}
+    children: [{
+      id: 'socket:call-argument:15:15', kind: 'socket', from: 15, to: 15, editable: true, children: [],
+      metadata: {type: 'CallArgument', socketRole: 'call-argument', empty: true}
+    }],
+    metadata: {type: 'Call', socketRole: 'assignment-value'}
   });
 });
 
@@ -45,8 +49,8 @@ test('sockets a function\'s name and individual parameters instead of its whole 
 
   assert.deepEqual(kids, [
     {text: 'greet', role: 'name'},
-    {text: 'a', role: 'expression'},
-    {text: 'b', role: 'expression'}
+    {text: 'a', role: 'parameter'},
+    {text: 'b', role: 'parameter'}
   ]);
 });
 
@@ -127,7 +131,7 @@ test('sockets a call\'s function name alongside its arguments, leaving the paren
     {text: 'result', role: 'assignment-target'},
     {text: 'name(first)', role: 'assignment-value'},
     {text: 'name', role: 'call-target'},
-    {text: 'first', role: 'expression'}
+    {text: 'first', role: 'call-argument'}
   ]);
 });
 
@@ -152,7 +156,7 @@ test('projects a standalone print call as argument sockets, including an editabl
 
   assert.deepEqual(sockets, [
     [{text: '', role: 'call-argument', empty: true}],
-    [{text: 'first', role: 'expression', empty: undefined}, {text: 'second', role: 'expression', empty: undefined}]
+    [{text: 'first', role: 'call-argument', empty: undefined}, {text: 'second', role: 'call-argument', empty: undefined}]
   ]);
 });
 
@@ -330,6 +334,132 @@ test('identifies Python suites and their header lines for structural rendering',
     type: 'For', blockRole: 'container', headerTo: source.indexOf('\n'),
     bodyFrom: source.indexOf('use(item)'), bodyEnd: source.length, bodyIndentation: '  '
   });
+});
+
+test('projects an if/elif/else chain as its own branch clauses, not one merged body', () => {
+  const source = 'if ready:\n  first()\nelif retry:\n  second()\nelse:\n  third()\n';
+  const position = (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (type, from, to, extra = {}) => ({
+    type, ...position(from), end_lineno: position(to).lineno, end_col_offset: position(to).col_offset, ...extra
+  });
+  const call = (name) => {
+    const from = source.indexOf(`${name}()`);
+    const to = from + name.length + 2;
+    return located('Expr', from, to, {
+      value: located('Call', from, to, {func: located('Name', from, from + name.length, {id: name}), args: []})
+    });
+  };
+  const name = (text, from) => located('Name', from, from + text.length, {id: text});
+
+  const elifFrom = source.indexOf('elif retry:');
+  const elseFrom = source.indexOf('else:');
+  const elifNode = located('If', elifFrom, source.length - 1, {
+    test: name('retry', source.indexOf('retry')),
+    body: [call('second')],
+    orelse: [call('third')]
+  });
+  const ifNode = located('If', 0, source.length - 1, {
+    test: name('ready', source.indexOf('ready')),
+    body: [call('first')],
+    orelse: [elifNode]
+  });
+
+  const statement = parsePython(source, () => ({type: 'Module', body: [ifNode]})).root.children[0];
+  const clauses = statement.children.filter((child) => child.kind === 'clause')
+    .sort((left, right) => left.from - right.from);
+
+  assert.deepEqual(clauses.map((clause) => ({
+    role: clause.metadata.clauseRole, header: source.slice(clause.from, clause.metadata.headerTo)
+  })), [
+    {role: 'elif', header: 'elif retry:'},
+    {role: 'else', header: 'else:'}
+  ]);
+  const elifCondition = clauses[0].children.find((child) => child.kind === 'socket');
+  assert.equal(source.slice(elifCondition.from, elifCondition.to), 'retry');
+  assert.equal(elifCondition.metadata.socketRole, 'if-condition');
+  assert.equal(source.slice(clauses[0].metadata.bodyFrom, clauses[0].metadata.bodyEnd).trim(), 'second()');
+  assert.equal(clauses[1].children.some((child) => child.kind === 'socket'), false);
+  assert.equal(source.slice(clauses[1].metadata.bodyFrom, clauses[1].metadata.bodyEnd).trim(), 'third()');
+  // The primary if-body must not also carry the elif/else statements - the
+  // generic located-child walk used to sweep orelse in as flat siblings.
+  assert.deepEqual(statement.children.filter((child) => child.kind === 'statement')
+    .map((child) => source.slice(child.from, child.to)), ['first()']);
+});
+
+test('does not treat a literal `else:` followed by a nested `if` as an elif branch', () => {
+  const source = 'if ready:\n  first()\nelse:\n  if retry:\n    second()\n';
+  const position = (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (type, from, to, extra = {}) => ({
+    type, ...position(from), end_lineno: position(to).lineno, end_col_offset: position(to).col_offset, ...extra
+  });
+  const call = (name) => {
+    const from = source.indexOf(`${name}()`);
+    const to = from + name.length + 2;
+    return located('Expr', from, to, {
+      value: located('Call', from, to, {func: located('Name', from, from + name.length, {id: name}), args: []})
+    });
+  };
+  const name = (text, from) => located('Name', from, from + text.length, {id: text});
+
+  const nestedIfFrom = source.indexOf('if retry:');
+  const nestedIf = located('If', nestedIfFrom, source.length - 1, {
+    test: name('retry', source.indexOf('retry')),
+    body: [call('second')],
+    orelse: []
+  });
+  const ifNode = located('If', 0, source.length - 1, {
+    test: name('ready', source.indexOf('ready')),
+    body: [call('first')],
+    orelse: [nestedIf]
+  });
+
+  const statement = parsePython(source, () => ({type: 'Module', body: [ifNode]})).root.children[0];
+  const clauses = statement.children.filter((child) => child.kind === 'clause');
+  assert.equal(clauses.length, 1);
+  assert.equal(clauses[0].metadata.clauseRole, 'else');
+  // The nested `if` is a real statement inside the else body, not folded
+  // into the chain as another branch.
+  const nestedStatement = clauses[0].children.find((child) => child.kind === 'statement');
+  assert.equal(nestedStatement.metadata.type, 'If');
+});
+
+test('projects a for-loop else clause the same way as an if/else', () => {
+  const source = 'for item in items:\n  use(item)\nelse:\n  finish()\n';
+  const position = (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (type, from, to, extra = {}) => ({
+    type, ...position(from), end_lineno: position(to).lineno, end_col_offset: position(to).col_offset, ...extra
+  });
+  const call = (name) => {
+    const from = source.indexOf(`${name}(`);
+    const to = source.indexOf(')', from) + 1;
+    return located('Expr', from, to, {value: located('Call', from, to, {
+      func: located('Name', from, from + name.length, {id: name}), args: []
+    })});
+  };
+
+  const forFrom = 0;
+  const forNode = located('For', forFrom, source.length - 1, {
+    target: located('Name', source.indexOf('item'), source.indexOf('item') + 4, {id: 'item'}),
+    iter: located('Name', source.indexOf('items'), source.indexOf('items') + 5, {id: 'items'}),
+    body: [call('use')],
+    orelse: [call('finish')]
+  });
+
+  const statement = parsePython(source, () => ({type: 'Module', body: [forNode]})).root.children[0];
+  const clauses = statement.children.filter((child) => child.kind === 'clause');
+  assert.equal(clauses.length, 1);
+  assert.equal(clauses[0].metadata.clauseRole, 'else');
+  assert.equal(source.slice(clauses[0].from, clauses[0].metadata.headerTo), 'else:');
+  assert.equal(source.slice(clauses[0].metadata.bodyFrom, clauses[0].metadata.bodyEnd).trim(), 'finish()');
 });
 
 test('moves a statement to a container body end using the suite indentation', () => {
@@ -635,6 +765,226 @@ test('copies a Python statement with destination indentation', () => {
   }, parsed, () => ({}));
 
   assert.equal(applySourceChanges(source, changes), 'first = 1\nsecond = 2\nfirst = 1');
+});
+
+test('adds an elif branch with a default condition and empty suite', () => {
+  const source = 'if ready:\n  pass\n';
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({type: 'add-clause', target: {from: 0, to: source.length}, role: 'elif'}, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif True:\n  pass\n');
+});
+
+test('adds an else branch after the last existing elif', () => {
+  const source = 'if ready:\n  pass\nelif retry:\n  pass\n';
+  const elifClause = {
+    id: 'clause:elif', kind: 'clause', from: source.indexOf('elif retry:'), to: source.length, children: [],
+    metadata: {
+      clauseRole: 'elif', headerTo: source.indexOf('elif retry:') + 'elif retry:'.length,
+      bodyFrom: source.lastIndexOf('pass'), bodyEnd: source.length, bodyIndentation: '  '
+    }
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elifClause],
+    metadata: {
+      type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'),
+      bodyEnd: source.indexOf('elif retry:'), bodyIndentation: '  '
+    }
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({type: 'add-clause', target: {from: 0, to: source.length}, role: 'else'}, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif retry:\n  pass\nelse:\n  pass\n');
+});
+
+test('adds a new elif before an existing else, not after it', () => {
+  const source = 'if ready:\n  pass\nelse:\n  pass\n';
+  const elseFrom = source.indexOf('else:');
+  const elseClause = {
+    id: 'clause:else', kind: 'clause', from: elseFrom, to: source.length, children: [],
+    metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elseClause],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: elseFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({type: 'add-clause', target: {from: 0, to: source.length}, role: 'elif'}, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif True:\n  pass\nelse:\n  pass\n');
+});
+
+test('rejects adding a second else branch', () => {
+  const source = 'if ready:\n  pass\nelse:\n  pass\n';
+  const elseFrom = source.indexOf('else:');
+  const elseClause = {
+    id: 'clause:else', kind: 'clause', from: elseFrom, to: source.length, children: [],
+    metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elseClause],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: elseFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  assert.throws(() => transformPython(
+    {type: 'add-clause', target: {from: 0, to: source.length}, role: 'else'}, parsed, () => ({})
+  ), /already has an else branch/);
+});
+
+test('removes an elif branch, splicing out its header and body', () => {
+  const source = 'if ready:\n  pass\nelif retry:\n  pass\nelse:\n  pass\n';
+  const elifFrom = source.indexOf('elif retry:');
+  const elseFrom = source.indexOf('else:');
+  const elifClause = {
+    id: 'clause:elif', kind: 'clause', from: elifFrom, to: elseFrom, children: [],
+    metadata: {clauseRole: 'elif', headerTo: elifFrom + 'elif retry:'.length, bodyEnd: elseFrom, bodyIndentation: '  '}
+  };
+  const elseClause = {
+    id: 'clause:else', kind: 'clause', from: elseFrom, to: source.length, children: [],
+    metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elifClause, elseClause],
+    metadata: {type: 'If', blockRole: 'container', bodyEnd: elifFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-clause', target: {from: elifClause.from, to: elifClause.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelse:\n  pass\n');
+});
+
+test('removes the only elif branch, leaving a bare if', () => {
+  const source = 'if ready:\n  pass\nelif retry:\n  pass\n';
+  const elifFrom = source.indexOf('elif retry:');
+  const elifClause = {
+    id: 'clause:elif', kind: 'clause', from: elifFrom, to: source.length, children: [],
+    metadata: {clauseRole: 'elif', headerTo: elifFrom + 'elif retry:'.length, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elifClause],
+    metadata: {type: 'If', blockRole: 'container', bodyEnd: elifFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-clause', target: {from: elifClause.from, to: elifClause.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\n');
+});
+
+test('appends a new empty argument after existing call arguments', () => {
+  const source = 'first(a)\n';
+  const argSocket = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argSocket],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: callSocket.from, to: callSocket.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first(a, )\n');
+});
+
+test('appends a new empty element to a list literal', () => {
+  const source = 'items = [a]\n';
+  const itemSocket = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'list-item'}
+  };
+  const listSocket = {
+    id: 'socket:list', kind: 'socket', from: source.indexOf('['), to: source.indexOf(']') + 1, children: [itemSocket],
+    metadata: {type: 'List', socketRole: 'assignment-value'}
+  };
+  const statement = {id: 'statement:assign', kind: 'statement', from: 0, to: source.length, children: [listSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: listSocket.from, to: listSocket.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'items = [a, ]\n');
+});
+
+test('appends a new empty parameter to a function definition', () => {
+  const source = 'def f(a, b):\n  pass\n';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const paramB = {
+    id: 'socket:b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length, children: [paramA, paramB],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a, b, ):\n  pass\n');
+});
+
+test('removes a middle call argument, splicing its own separating comma', () => {
+  const source = 'first(a, b, c)\n';
+  const args = ['a', 'b', 'c'].map((letter) => ({
+    id: `socket:${letter}`, kind: 'socket', from: source.indexOf(letter, 5), to: source.indexOf(letter, 5) + 1,
+    children: [], metadata: {type: 'Name', socketRole: 'call-argument'}
+  }));
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: args,
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: args[1].from, to: args[1].to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first(a, c)\n');
+});
+
+test('removes the last remaining call argument, leaving an empty call', () => {
+  const source = 'first(a)\n';
+  const argSocket = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argSocket],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: argSocket.from, to: argSocket.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first()\n');
 });
 
 test('rejects Python block changes that Brython cannot parse', () => {

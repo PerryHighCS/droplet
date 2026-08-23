@@ -291,6 +291,139 @@ test('selects but does not open a free-text editor for a compound socket as a wh
   assert.equal(svg.dataset.dropletSelectedId, 'binop');
 });
 
+test('clicking "+ elif" emits an add-clause operation targeting the whole if statement', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(bareIf());
+  const svg = surface.element.querySelector('svg');
+  const button = svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="elif"]');
+  assert.ok(button);
+
+  button.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
+
+  const ifStatement = surface.layout.nodes.find((node) => node.id === 'if');
+  assert.deepEqual(operations, [{type: 'add-clause', target: {from: ifStatement.source.from, to: ifStatement.source.to}, role: 'elif'}]);
+});
+
+test('clicking "+ else" emits an add-clause operation, and hides once an else already exists', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(ifWithElifClause());
+  const svg = surface.element.querySelector('svg');
+  const addElse = svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="else"]');
+  assert.ok(addElse);
+
+  addElse.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
+
+  const ifStatement = surface.layout.nodes.find((node) => node.id === 'if');
+  assert.deepEqual(operations, [{type: 'add-clause', target: {from: ifStatement.source.from, to: ifStatement.source.to}, role: 'else'}]);
+});
+
+test('hides "+ else" but keeps "+ elif" once an else branch already exists', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(ifWithElseClause());
+  const svg = surface.element.querySelector('svg');
+
+  assert.equal(svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="else"]'), null);
+  const addElif = svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="elif"]');
+  assert.ok(addElif);
+
+  // Python only requires elif before else, not that else be absent - a new
+  // elif must still be insertable, ending up before the existing else.
+  addElif.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
+  const ifStatement = surface.layout.nodes.find((node) => node.id === 'if');
+  assert.deepEqual(operations, [{type: 'add-clause', target: {from: ifStatement.source.from, to: ifStatement.source.to}, role: 'elif'}]);
+});
+
+test('clicking a clause\'s remove badge emits a remove-clause operation targeting that clause', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(ifWithElifClause());
+  const svg = surface.element.querySelector('svg');
+  const removeButton = svg.querySelector('[data-droplet-action="remove-clause"]');
+  assert.ok(removeButton);
+
+  removeButton.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
+
+  const elif = surface.layout.nodes.find((node) => node.id === 'elif');
+  assert.deepEqual(operations, [{type: 'remove-clause', target: {from: elif.source.from, to: elif.source.to}}]);
+});
+
+test('clicking a call\'s "+" button emits an insert-sequence-item operation', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(callWithArguments());
+  const svg = surface.element.querySelector('svg');
+  const addButton = svg.querySelector('[data-droplet-action="insert-sequence-item"]');
+  assert.ok(addButton);
+
+  addButton.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
+
+  const call = surface.layout.nodes.find((node) => node.id === 'call');
+  assert.deepEqual(operations, [{type: 'insert-sequence-item', target: {from: call.source.from, to: call.source.to}}]);
+});
+
+test('hides the "+" button on a call with only the synthetic empty argument socket', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
+  surface.update(emptyCall());
+  const svg = surface.element.querySelector('svg');
+
+  assert.equal(svg.querySelector('[data-droplet-action="insert-sequence-item"]'), null);
+  assert.equal(svg.querySelector('[data-droplet-action="remove-sequence-item"]'), null);
+});
+
+test('clicking a call argument\'s remove badge emits a remove-sequence-item operation for that argument', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(callWithArguments());
+  const svg = surface.element.querySelector('svg');
+  const removeButtons = [...svg.querySelectorAll('[data-droplet-action="remove-sequence-item"]')];
+  assert.equal(removeButtons.length, 2);
+  const a = surface.layout.nodes.find((node) => node.id === 'a');
+
+  removeButtons[0].dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
+
+  assert.deepEqual(operations, [{type: 'remove-sequence-item', target: {from: a.source.from, to: a.source.to}}]);
+});
+
+test('a press on a remove badge does not also start a drag of the socket underneath it', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(callWithArguments());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const removeButton = svg.querySelector('[data-droplet-action="remove-sequence-item"]');
+
+  removeButton.dispatchEvent(new dom.window.MouseEvent('pointerdown', {bubbles: true, button: 0, clientX: 0, clientY: 0}));
+  removeButton.dispatchEvent(new dom.window.MouseEvent('pointerup', {bubbles: true, button: 0, clientX: 0, clientY: 0}));
+  removeButton.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
+
+  assert.deepEqual(operations.map((operation) => operation.type), ['remove-sequence-item']);
+});
+
 test('renders a compound socket\'s operands once each, not duplicated by its own flat text', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
@@ -619,6 +752,84 @@ function compoundAssignmentSockets() {
           {id: 'right', kind: 'socket', from: 17, to: 22, editable: true, metadata: {socketRole: 'expression'}, children: []}
         ]}
       ]
+    }]
+  }};
+}
+
+function bareIf() {
+  const source = 'if ready:\n  pass\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'if', kind: 'statement', from: 0, to: source.length - 1, editable: true,
+      metadata: {type: 'If', blockRole: 'container', headerTo: 9, bodyFrom: 12, bodyEnd: source.length, bodyIndentation: '  '},
+      children: [{id: 'pass', kind: 'statement', from: 12, to: 16, editable: true, metadata: {}, children: []}]
+    }]
+  }};
+}
+
+function ifWithElifClause() {
+  const source = 'if ready:\n  pass\nelif retry:\n  pass\n';
+  const elifFrom = source.indexOf('elif retry:');
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'if', kind: 'statement', from: 0, to: source.length - 1, editable: true,
+      metadata: {type: 'If', blockRole: 'container', headerTo: 9, bodyFrom: 12, bodyEnd: elifFrom, bodyIndentation: '  '},
+      children: [
+        {id: 'pass', kind: 'statement', from: 12, to: 16, editable: true, metadata: {}, children: []},
+        {
+          id: 'elif', kind: 'clause', from: elifFrom, to: source.length, editable: true,
+          metadata: {clauseRole: 'elif', headerTo: elifFrom + 'elif retry:'.length, bodyEnd: source.length, bodyIndentation: '  '},
+          children: [{id: 'elif-pass', kind: 'statement', from: source.lastIndexOf('pass'), to: source.lastIndexOf('pass') + 4, editable: true, metadata: {}, children: []}]
+        }
+      ]
+    }]
+  }};
+}
+
+function ifWithElseClause() {
+  const source = 'if ready:\n  pass\nelse:\n  pass\n';
+  const elseFrom = source.indexOf('else:');
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'if', kind: 'statement', from: 0, to: source.length - 1, editable: true,
+      metadata: {type: 'If', blockRole: 'container', headerTo: 9, bodyFrom: 12, bodyEnd: elseFrom, bodyIndentation: '  '},
+      children: [
+        {id: 'pass', kind: 'statement', from: 12, to: 16, editable: true, metadata: {}, children: []},
+        {
+          id: 'else', kind: 'clause', from: elseFrom, to: source.length, editable: true,
+          metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '},
+          children: [{id: 'else-pass', kind: 'statement', from: source.lastIndexOf('pass'), to: source.lastIndexOf('pass') + 4, editable: true, metadata: {}, children: []}]
+        }
+      ]
+    }]
+  }};
+}
+
+function callWithArguments() {
+  const source = 'first(a, b)\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'call-statement', kind: 'statement', from: 0, to: source.length - 1, editable: true, metadata: {}, children: [{
+        id: 'call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, editable: true,
+        metadata: {type: 'Call', socketRole: 'expression'}, children: [
+          {id: 'a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, editable: true, metadata: {socketRole: 'call-argument'}, children: []},
+          {id: 'b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, editable: true, metadata: {socketRole: 'call-argument'}, children: []}
+        ]
+      }]
+    }]
+  }};
+}
+
+function emptyCall() {
+  const source = 'first()\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'call-statement', kind: 'statement', from: 0, to: source.length - 1, editable: true, metadata: {}, children: [{
+        id: 'call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, editable: true,
+        metadata: {type: 'Call', socketRole: 'expression'}, children: [
+          {id: 'empty', kind: 'socket', from: source.indexOf(')'), to: source.indexOf(')'), editable: true, metadata: {socketRole: 'call-argument', empty: true}, children: []}
+        ]
+      }]
     }]
   }};
 }

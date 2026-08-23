@@ -219,9 +219,22 @@ function layoutContainer(node, source, settings, left, top) {
   const commentChild = inlineComment
     ? [layoutAtomic(inlineComment, source, settings, left + headerWidth + settings.inlineCommentGap, top)]
     : [];
-  const right = Math.max(left + headerWidth, body.right + settings.horizontalPadding);
-  const footerTop = Math.max(bodyTop, body.bottom);
-  const footer = box(left, footerTop, right - left, settings.footerHeight);
+  // An if/elif/else chain (or a for/while's own else) is one construct with
+  // several branches, not several containers - each elif/else is a 'clause'
+  // child laid out as its own header+body section, stacked after the
+  // primary branch's body and before the one shared footer at the very end.
+  const clauses = (node.children ?? []).filter((child) => child.kind === 'clause').sort(compareSourceRanges);
+  const clauseSections = layoutClauses(clauses, source, settings, left, bodyLeft, body.bottom);
+  const right = Math.max(
+    left + headerWidth, body.right + settings.horizontalPadding, clauseSections.right,
+    canAddClause(node, clauses) ? left + settings.clauseControlsWidth : 0
+  );
+  const footerTop = Math.max(bodyTop, body.bottom, clauseSections.bottom);
+  // "Add elif"/"add else" render inside the footer - a footer sized for just
+  // its own curve is too short to hold them, so reserve extra height only
+  // while those controls can actually show (never once an else exists).
+  const footerHeight = settings.footerHeight + (canAddClause(node, clauses) ? settings.clauseControlsHeight : 0);
+  const footer = box(left, footerTop, right - left, footerHeight);
   const bounds = {left, top, right, bottom: footer.bottom};
   return {
     id: node.id,
@@ -235,9 +248,56 @@ function layoutContainer(node, source, settings, left, top) {
       body: {left: bodyLeft, top: bodyTop, right, bottom: footer.top},
       footer
     },
-    children: [...headerSockets, ...commentChild, ...body.children],
+    children: [...headerSockets, ...commentChild, ...body.children, ...clauseSections.children],
     insertionZones: body.insertionZones
   };
+}
+
+// Lays out zero or more elif/else (or for/while else) branches, each its own
+// header+body section stacked below the primary branch's body. Each
+// returned clause carries its own insertionZones so the recursive
+// collectInsertionZones walk finds them the same way it already finds any
+// other nested node's zones - the caller does not need to merge them into
+// its own flat insertionZones field.
+function layoutClauses(clauses, source, settings, left, bodyLeft, cursorTop) {
+  let cursor = cursorTop;
+  let right = left;
+  const children = [];
+  for (const clause of clauses) {
+    const clauseTop = cursor + settings.containerGap;
+    const headerSockets = layoutSockets(sourceSockets(clause), clause, source, settings, left, clauseTop);
+    const headerText = source.slice(clause.from, clause.metadata.headerTo).trimEnd();
+    const headerWidth = Math.max(
+      settings.minimumWidth,
+      settings.measureText(headerText) + settings.horizontalPadding * 2,
+      socketContentWidth(headerSockets, clause, clause.metadata.headerTo, source, settings, left)
+    );
+    const clauseBodyTop = clauseTop + settings.lineHeight + settings.containerGap;
+    const clauseBodyEnd = Number.isInteger(clause.metadata?.bodyEnd) ? clause.metadata.bodyEnd : clause.to;
+    const body = layoutChildren(structuralChildren(clause, source), source, settings, bodyLeft, clauseBodyTop, clauseBodyEnd, {
+      ...(clause.metadata?.bodyIndentation === undefined ? {} : {indentation: clause.metadata.bodyIndentation}),
+      ...(clause.metadata?.emptySuitePass ? {emptySuitePass: clause.metadata.emptySuitePass} : {})
+    });
+    const clauseRight = Math.max(left + headerWidth, body.right + settings.horizontalPadding);
+    const clauseBottom = Math.max(clauseBodyTop, body.bottom);
+    children.push({
+      id: clause.id,
+      kind: 'clause',
+      source: rangeOf(clause),
+      metadata: clause.metadata,
+      text: headerText,
+      bounds: {left, top: clauseTop, right: clauseRight, bottom: clauseBottom},
+      regions: {
+        header: box(left, clauseTop, headerWidth, settings.lineHeight),
+        body: {left: bodyLeft, top: clauseBodyTop, right: clauseRight, bottom: clauseBottom}
+      },
+      children: [...headerSockets, ...body.children],
+      insertionZones: body.insertionZones
+    });
+    cursor = clauseBottom;
+    right = Math.max(right, clauseRight);
+  }
+  return {children, right, bottom: cursor};
 }
 
 function structuralChildren(node, source) {
@@ -271,7 +331,12 @@ function sourceSockets(node) {
 function descendantStructuralNodes(node) {
   return (node.children ?? []).flatMap((child) => [
     ...(child.kind === 'statement' || (child.kind === 'comment' && !child.metadata?.inline) || child.kind === 'whitespace' ? [child] : []),
-    ...descendantStructuralNodes(child)
+    // A clause (an elif/else or for/while else branch) owns its own body -
+    // structuralChildren, called directly on the clause itself, is how its
+    // statements are reached. Descending into it here too would duplicate
+    // them into the primary body's own list, since branches typically share
+    // the primary body's indentation.
+    ...(child.kind === 'clause' ? [] : descendantStructuralNodes(child))
   ]);
 }
 
@@ -326,6 +391,7 @@ function hitTestNode(node, point) {
   }
   if (!contains(node.bounds, point)) return undefined;
   if (node.kind === 'container' && !contains(node.regions.header, point)) return undefined;
+  if (node.kind === 'clause' && !contains(node.regions.header, point)) return undefined;
   return node.kind === 'document' ? undefined : node;
 }
 
@@ -400,8 +466,28 @@ function normalizeOptions(options) {
     inlineCommentGap: positiveNumber(options.inlineCommentGap, 6),
     socketMinimumWidth: positiveNumber(options.socketMinimumWidth, 16),
     socketHorizontalPadding: nonNegativeNumber(options.socketHorizontalPadding, 3),
-    socketTextGap: nonNegativeNumber(options.socketTextGap, 4)
+    socketTextGap: nonNegativeNumber(options.socketTextGap, 4),
+    // Room reserved in an if/for/while's footer for its "add elif"/"add
+    // else" buttons - a plain footer's own curve is too short to hold them.
+    clauseControlsHeight: positiveNumber(options.clauseControlsHeight, 22),
+    clauseControlsWidth: positiveNumber(options.clauseControlsWidth, 130)
   };
+}
+
+const CLAUSE_ADD_ELIGIBLE_TYPES = new Set(['If', 'For', 'AsyncFor', 'While']);
+
+// Mirrors the DOM renderer's own "show add-elif/add-else" rule in purely
+// geometric terms: extra footer room is reserved exactly when, and only
+// when, those buttons will actually render there.
+function canAddClause(node, clauses) {
+  const type = node.metadata?.type;
+  if (!CLAUSE_ADD_ELIGIBLE_TYPES.has(type)) return false;
+  // "+ elif" stays offered even once an else exists (Python only requires
+  // elif before else, not that else be absent), so an If always reserves
+  // the footer room; a for/while's only possible branch is else, so once
+  // that exists there is nothing left to add.
+  if (type === 'If') return true;
+  return !clauses.some((clause) => clause.metadata?.clauseRole === 'else');
 }
 
 function positiveNumber(value, fallback) {

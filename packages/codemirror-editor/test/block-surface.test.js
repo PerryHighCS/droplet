@@ -133,6 +133,52 @@ test('lays out an if condition socket in the container header', () => {
   assert.equal(hitTestBlockLayout(layout, {x: condition.bounds.left + 2, y: condition.bounds.top + 2}).node.id, 'condition');
 });
 
+test('lays out an if/elif/else chain as stacked branch sections with one shared footer', () => {
+  const source = 'if ready:\n  first()\nelif retry:\n  second()\nelse:\n  third()\n';
+  const at = (text, from = 0) => source.indexOf(text, from);
+  const elifFrom = at('elif retry:');
+  const elseFrom = at('else:');
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('if', 0, source.length - 1, {blockRole: 'container', headerTo: at(':') + 1, bodyEnd: elifFrom, bodyIndentation: '  '}),
+    children: [
+      statement('first', at('first()'), at('first()') + 'first()'.length),
+      {
+        id: 'elif', kind: 'clause', from: elifFrom, to: elseFrom, editable: true,
+        metadata: {clauseRole: 'elif', headerTo: elifFrom + 'elif retry:'.length, bodyEnd: elseFrom, bodyIndentation: '  '},
+        children: [
+          {id: 'elif-condition', kind: 'socket', from: at('retry'), to: at('retry') + 5, editable: true, children: [], metadata: {socketRole: 'if-condition'}},
+          statement('second', at('second()'), at('second()') + 'second()'.length)
+        ]
+      },
+      {
+        id: 'else', kind: 'clause', from: elseFrom, to: source.length, editable: true,
+        metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '},
+        children: [statement('third', at('third()'), at('third()') + 'third()'.length)]
+      }
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+
+  const container = layout.nodes.find((node) => node.id === 'if');
+  const elif = layout.nodes.find((node) => node.id === 'elif');
+  const elseClause = layout.nodes.find((node) => node.id === 'else');
+  const first = layout.nodes.find((node) => node.id === 'first');
+  const second = layout.nodes.find((node) => node.id === 'second');
+  const third = layout.nodes.find((node) => node.id === 'third');
+
+  assert.equal(elif.kind, 'clause');
+  assert.equal(elseClause.kind, 'clause');
+  // Each branch's own body sits below its own header, and each branch
+  // starts below the previous branch's body - not overlapping it.
+  assert.ok(elif.regions.header.top >= first.bounds.bottom);
+  assert.ok(second.bounds.top >= elif.regions.header.bottom);
+  assert.ok(elseClause.regions.header.top >= second.bounds.bottom);
+  assert.ok(third.bounds.top >= elseClause.regions.header.bottom);
+  // One shared footer sits past the last branch's body, not one per branch.
+  assert.ok(container.regions.footer.top >= third.bounds.bottom);
+  assert.equal(hitTestBlockLayout(layout, {x: elif.regions.header.left + 2, y: elif.regions.header.top + 2}).node.id, 'elif');
+  assert.equal(hitTestBlockLayout(layout, {x: second.bounds.left + 2, y: second.bounds.top + 2}).node.id, 'second');
+});
+
 test('uses the same subtree geometry for a drag preview and gives a nested child hit priority', () => {
   const source = 'if ready:\n  first()\nsecond()\n';
   const layout = createBlockLayout(projection(source));

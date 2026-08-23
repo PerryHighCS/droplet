@@ -111,6 +111,14 @@ export class BlockSurface {
     // socket/comment again and reopen the editor, destroying and recreating
     // the input - clearing whatever selection the click just made.
     if (event.target?.tagName === 'INPUT') return;
+    // The elif/else and sequence add/remove affordances are their own
+    // clickable elements, not part of the ordinary hit-test/select flow -
+    // check for one before any of that runs.
+    const actionButton = event.target?.closest?.('[data-droplet-action]');
+    if (actionButton) {
+      this.#dispatchAction(actionButton);
+      return;
+    }
     const directNode = layoutNodeForElement(this.#layout, event.target);
     if (isInlineEditable(directNode)) {
       this.#selectNode(directNode);
@@ -159,6 +167,25 @@ export class BlockSurface {
       source: node.source,
       kind: node.kind === 'container' ? 'statement' : node.kind
     });
+  }
+
+  #dispatchAction(button) {
+    if (!this.#onOperation) return;
+    const target = {from: Number(button.dataset.dropletTargetFrom), to: Number(button.dataset.dropletTargetTo)};
+    switch (button.dataset.dropletAction) {
+      case 'add-clause':
+        this.#onOperation({type: 'add-clause', target, role: button.dataset.dropletRole});
+        break;
+      case 'remove-clause':
+        this.#onOperation({type: 'remove-clause', target});
+        break;
+      case 'insert-sequence-item':
+        this.#onOperation({type: 'insert-sequence-item', target});
+        break;
+      case 'remove-sequence-item':
+        this.#onOperation({type: 'remove-sequence-item', target});
+        break;
+    }
   }
 
   #openInlineEditor(node) {
@@ -245,6 +272,11 @@ export class BlockSurface {
 
   #beginDrag(event) {
     if (event.button !== 0 || !this.#layout || !this.#onOperation) return;
+    // A remove badge sits right at a socket's own corner and an add button
+    // right at a container/compound-socket's own edge, so a press there can
+    // also hit-test to the movable node underneath. The button click, not a
+    // drag, is what the press was for.
+    if (event.target?.closest?.('[data-droplet-action]')) return;
     const target = hitTestBlockLayout(this.#layout, pointFor(this.#svg, event));
     if (!target?.node || !isMovable(target.node)) return;
     this.#drag = {
@@ -614,6 +646,18 @@ function renderNode(node, document, options = {}) {
     renderContainerFrame(group, node, document);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
     renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document);
+    renderClauseControls(group, node, document);
+    renderParameterAddButton(group, node, document);
+  } else if (node.kind === 'clause') {
+    renderClauseHeaderFrame(group, node, document);
+    for (const child of socketChildren) group.append(renderNode(child, document, options));
+    renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document);
+    if (node.metadata?.clauseRole === 'elif' || node.metadata?.clauseRole === 'else') {
+      appendRemoveButton(group, document, {
+        action: 'remove-clause', x: node.regions.header.right - 2, y: node.regions.header.top + 2,
+        dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+      });
+    }
   } else if (node.kind === 'whitespace') {
     renderWhitespace(group, node, document);
   } else if (node.kind === 'socket' || node.kind === 'recovery-socket') {
@@ -640,35 +684,62 @@ function renderContainerFrame(group, node, document) {
   // to work with and can afford a much more generous curve.
   const blendRadius = 12;
   const spine = footer.left + 18;
-  path.setAttribute('d', [
+  // An elif/else (or for/while else) branch is a head of the same snake:
+  // its own header bulges out to its own width, exactly like the primary
+  // header does, with the spine narrowing back in between them. One
+  // continuous outline covers every branch instead of a separate box per
+  // branch, so nothing but the primary header's own protrusion draws a
+  // border across the body.
+  const clauseHeaders = (node.children ?? [])
+    .filter((child) => child.kind === 'clause')
+    .sort((left, right) => left.bounds.top - right.bounds.top)
+    .map((clause) => clause.regions.header);
+  const bulges = [header, ...clauseHeaders];
+  const commands = [
     // The top-left corner is where the closing wavy edge blends back in, so
     // it starts at blendRadius rather than the smaller box-corner radius.
-    `M ${header.left + (isSnake ? blendRadius : radius)} ${header.top}`,
-    `H ${header.right - radius}`,
-    `Q ${header.right} ${header.top} ${header.right} ${header.top + radius}`,
-    `V ${header.bottom - radius}`,
-    `Q ${header.right} ${header.bottom} ${header.right - radius} ${header.bottom}`,
-    // Round each place a wavy edge meets a flat bar, so the wave blends into
-    // the top/bottom bars instead of turning a sharp corner into the curve.
-    isSnake ? `H ${spine + blendRadius}` : `H ${spine}`,
-    ...(isSnake ? [
-      `Q ${spine} ${header.bottom} ${spine} ${header.bottom + blendRadius}`,
-      ...wavySpine(spine, header.bottom + blendRadius, footer.top - blendRadius),
-      `Q ${spine} ${footer.top} ${spine + blendRadius} ${footer.top}`
-    ] : [`V ${footer.top}`]),
+    `M ${header.left + (isSnake ? blendRadius : radius)} ${header.top}`
+  ];
+  bulges.forEach((bulge, index) => {
+    const nextTop = index + 1 < bulges.length ? bulges[index + 1].top : footer.top;
+    commands.push(
+      `H ${bulge.right - radius}`,
+      `Q ${bulge.right} ${bulge.top} ${bulge.right} ${bulge.top + radius}`,
+      `V ${bulge.bottom - radius}`,
+      `Q ${bulge.right} ${bulge.bottom} ${bulge.right - radius} ${bulge.bottom}`,
+      // Round each place a wavy edge meets a flat bar, so the wave blends
+      // into the bar instead of turning a sharp corner into the curve.
+      isSnake ? `H ${spine + blendRadius}` : `H ${spine}`
+    );
+    if (isSnake) {
+      commands.push(
+        `Q ${spine} ${bulge.bottom} ${spine} ${bulge.bottom + blendRadius}`,
+        ...wavySpine(spine, bulge.bottom + blendRadius, nextTop - blendRadius),
+        `Q ${spine} ${nextTop} ${spine + blendRadius} ${nextTop}`
+      );
+    } else {
+      commands.push(`V ${nextTop}`);
+    }
+  });
+  commands.push(
     `H ${footer.right - radius}`,
     `Q ${footer.right} ${footer.top} ${footer.right} ${footer.top + radius}`,
     `V ${footer.bottom - radius}`,
     `Q ${footer.right} ${footer.bottom} ${footer.right - radius} ${footer.bottom}`,
-    isSnake ? `H ${header.left + blendRadius}` : `H ${spine}`,
-    // Close the snake's body with a wavy outer-left edge back up to the header.
-    ...(isSnake ? [
+    isSnake ? `H ${header.left + blendRadius}` : `H ${spine}`
+  );
+  // Close the snake's body with a single wavy outer-left edge back up to the
+  // primary header - clause headers align with the primary header's own
+  // left edge, so this outer boundary never needs to bulge.
+  if (isSnake) {
+    commands.push(
       `Q ${header.left} ${footer.bottom} ${header.left} ${footer.bottom - blendRadius}`,
       ...wavySpine(header.left, footer.bottom - blendRadius, header.top + blendRadius),
       `Q ${header.left} ${header.top} ${header.left + blendRadius} ${header.top}`,
       'Z'
-    ] : [])
-  ].join(' '));
+    );
+  }
+  path.setAttribute('d', commands.join(' '));
   path.setAttribute('fill', isSnake ? SNAKE_FILL : 'none');
   path.setAttribute('stroke', isSnake ? SNAKE_STROKE : '#246ca8');
   path.setAttribute('stroke-width', '3');
@@ -676,6 +747,125 @@ function renderContainerFrame(group, node, document) {
   path.setAttribute('stroke-linejoin', 'round');
   group.append(path);
   if (isSnake) renderSnakeFace(group, header, document);
+}
+
+// An elif/else (or for/while else) branch is another head of the same
+// snake: the container's own outline (see renderContainerFrame) already
+// bulges out to cover this branch's header with a continuous border and
+// fill, so this only adds the same colon-eyes-and-tongue face the primary
+// header gets - no separate box, or its own edges would draw a second,
+// competing border right on top of the container's one continuous outline.
+function renderClauseHeaderFrame(group, node, document) {
+  if (isColonHeader(node)) renderSnakeFace(group, node.regions.header, document);
+}
+
+const CLAUSE_CHAIN_TYPES = new Set(['If', 'For', 'AsyncFor', 'While']);
+
+// "Add elif"/"add else" only ever appends after the chain's current last
+// branch (see block-surface-dom's remove/add operations) and only while an
+// else does not already exist - Python requires elif before else, and this
+// first pass only supports appending at the end.
+function renderClauseControls(group, node, document) {
+  const type = node.metadata?.type;
+  if (!CLAUSE_CHAIN_TYPES.has(type)) return;
+  const clauses = node.children.filter((child) => child.kind === 'clause');
+  const hasElse = clauses.some((clause) => clause.metadata?.clauseRole === 'else');
+  const dataset = {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to};
+  // Python only requires elif to come before else, not that else be absent -
+  // "+ elif" stays offered (inserting the new branch right before the
+  // existing else) even once one exists. "+ else" is the one that hides,
+  // since a statement can only ever have one.
+  const showElif = type === 'If';
+  const showElse = !hasElse;
+  const gap = 6;
+  const elifWidth = showElif ? buttonWidth('+ elif') : 0;
+  const elseWidth = showElse ? buttonWidth('+ else') : 0;
+  const totalWidth = elifWidth + elseWidth + (showElif && showElse ? gap : 0);
+  const {footer} = node.regions;
+  let x = footer.left + (footer.right - footer.left - totalWidth) / 2;
+  const y = footer.top + (footer.bottom - footer.top - ACTION_BUTTON_HEIGHT) / 2;
+  if (showElif) {
+    appendActionButton(group, document, {
+      action: 'add-clause', label: '+ elif', x, y, dataset: {...dataset, dropletRole: 'elif'}
+    });
+    x += elifWidth + gap;
+  }
+  if (showElse) {
+    appendActionButton(group, document, {
+      action: 'add-clause', label: '+ else', x, y, dataset: {...dataset, dropletRole: 'else'}
+    });
+  }
+}
+
+// A def's parameter list is rendered as direct header sockets on the
+// container (not a nested compound socket - see relabelParameterSockets in
+// the Python adapter), so its own add-parameter button lives here instead
+// of alongside renderCompoundSocket's call/list add-item button.
+function renderParameterAddButton(group, node, document) {
+  const type = node.metadata?.type;
+  if (type !== 'FunctionDef' && type !== 'AsyncFunctionDef') return;
+  if (!hasRealSequenceItem(node.children, 'parameter')) return;
+  appendActionButton(group, document, {
+    action: 'insert-sequence-item', label: '+', x: node.regions.header.right - 12, y: node.regions.header.top - 4,
+    dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+  });
+}
+
+function hasRealSequenceItem(children, role) {
+  return children.some((child) => child.metadata?.socketRole === role && !child.metadata?.empty);
+}
+
+const ACTION_BUTTON_HEIGHT = 15;
+const ACTION_BUTTON_PADDING_X = 5;
+
+function buttonWidth(label) {
+  return label.length * 6.5 + ACTION_BUTTON_PADDING_X * 2;
+}
+
+function appendActionButton(group, document, {action, label, x, y, dataset = {}}) {
+  const paddingX = ACTION_BUTTON_PADDING_X;
+  const width = buttonWidth(label);
+  const height = ACTION_BUTTON_HEIGHT;
+  const button = document.createElementNS(SVG_NAMESPACE, 'g');
+  button.dataset.dropletAction = action;
+  for (const [key, value] of Object.entries(dataset)) button.dataset[key] = String(value);
+  button.style.cursor = 'pointer';
+  const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
+  rect.setAttribute('x', String(x));
+  rect.setAttribute('y', String(y));
+  rect.setAttribute('width', String(width));
+  rect.setAttribute('height', String(height));
+  rect.setAttribute('rx', '7');
+  rect.setAttribute('fill', '#eaf4ff');
+  rect.setAttribute('stroke', '#4d7fb5');
+  rect.setAttribute('stroke-width', '1');
+  button.append(rect);
+  const label_ = createLabel(label, x + paddingX, y + 11, document);
+  label_.setAttribute('font-size', '11');
+  button.append(label_);
+  group.append(button);
+  return {width, height};
+}
+
+function appendRemoveButton(group, document, {action, x, y, dataset = {}}) {
+  const radius = 6;
+  const button = document.createElementNS(SVG_NAMESPACE, 'g');
+  button.dataset.dropletAction = action;
+  for (const [key, value] of Object.entries(dataset)) button.dataset[key] = String(value);
+  button.style.cursor = 'pointer';
+  const circle = document.createElementNS(SVG_NAMESPACE, 'circle');
+  circle.setAttribute('cx', String(x));
+  circle.setAttribute('cy', String(y));
+  circle.setAttribute('r', String(radius));
+  circle.setAttribute('fill', '#fdecec');
+  circle.setAttribute('stroke', '#b3413d');
+  circle.setAttribute('stroke-width', '1');
+  button.append(circle);
+  const label = createLabel('×', x - 3, y + 3, document);
+  label.setAttribute('font-size', '10');
+  label.setAttribute('fill', '#b3413d');
+  button.append(label);
+  group.append(button);
 }
 
 function isColonHeader(node) {
@@ -755,11 +945,31 @@ function renderSocket(group, node, document, options = {}) {
     label.setAttribute('text-anchor', 'middle');
     group.append(label);
   }
+  if (isSequenceItemRole(node.metadata?.socketRole) && !node.metadata?.empty) {
+    appendRemoveButton(group, document, {
+      action: 'remove-sequence-item', x: node.bounds.right, y: node.bounds.top,
+      dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+    });
+  }
+}
+
+function isSequenceItemRole(role) {
+  return role === 'call-argument' || role === 'list-item' || role === 'parameter';
 }
 
 function renderCompoundSocket(group, node, document, options) {
   for (const child of node.children) group.append(renderNode(child, document, options));
   renderSourceLabels(group, node, node.textLeft, node.bounds.top + 20, document);
+  // A Call/List's own sequence items render as this compound socket's direct
+  // children (unlike a def's parameters, which sit on the container - see
+  // renderParameterAddButton); its add button lives here to match.
+  const role = node.metadata?.type === 'List' ? 'list-item' : node.metadata?.type === 'Call' ? 'call-argument' : undefined;
+  if (role && hasRealSequenceItem(node.children, role)) {
+    appendActionButton(group, document, {
+      action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
+      dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+    });
+  }
 }
 
 function renderSourceLabels(group, node, left, top, document) {

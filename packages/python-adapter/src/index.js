@@ -144,6 +144,68 @@ export function transformPython(operation, parsed, pythonToAST) {
       }];
       break;
     }
+    case 'add-clause': {
+      const statement = findNode(parsed.root, operation.target, 'statement');
+      if (!statement) throw new RangeError('Clause target is not present in the current projection');
+      if (operation.role !== 'elif' && operation.role !== 'else') throw new RangeError('Unsupported clause role');
+      const clauses = (statement.children ?? []).filter((child) => child.kind === 'clause')
+        .sort((left, right) => left.from - right.from);
+      if (operation.role === 'else' && clauses.some((clause) => clause.metadata?.clauseRole === 'else')) {
+        throw new RangeError('This statement already has an else branch');
+      }
+      // An elif is always inserted after the last existing elif (or right
+      // after the primary body if there isn't one yet) - never after an
+      // else, even if one already exists, so Python's elif-before-else
+      // ordering holds without needing the caller to know that.
+      const previousClause = operation.role === 'elif'
+        ? clauses.filter((clause) => clause.metadata?.clauseRole === 'elif').at(-1)
+        : clauses.at(-1);
+      const insertAt = previousClause?.metadata?.bodyEnd ?? statement.metadata?.bodyEnd;
+      if (!Number.isInteger(insertAt)) throw new RangeError('Clause target has no body to extend');
+      const indentation = indentationAt(parsed.source, statement.from);
+      const bodyIndentation = statement.metadata?.bodyIndentation ?? `${indentation}  `;
+      const lineEnding = lineEndingAt(parsed.source, statement.to);
+      const header = operation.role === 'elif' ? 'elif True:' : 'else:';
+      changes = [{
+        from: insertAt, to: insertAt,
+        insert: `${indentation}${header}${lineEnding}${bodyIndentation}pass${lineEnding}`
+      }];
+      break;
+    }
+    case 'remove-clause': {
+      const clause = findNode(parsed.root, operation.target, 'clause');
+      if (!clause) throw new RangeError('Clause target is not present in the current projection');
+      const from = lineStartAt(parsed.source, clause.from);
+      const to = clause.metadata?.bodyEnd ?? clause.to;
+      changes = [{from, to, insert: ''}];
+      break;
+    }
+    case 'insert-sequence-item': {
+      const target = findAny(parsed.root, operation.target);
+      if (!target) throw new RangeError('Sequence target is not present in the current projection');
+      const closeChar = target.metadata?.type === 'List' ? ']' : ')';
+      const headerEnd = target.kind === 'statement' ? lineTextEnd(parsed.source, target.from) : target.to;
+      const closingPosition = parsed.source.lastIndexOf(closeChar, headerEnd - 1);
+      if (closingPosition < target.from) throw new RangeError('Sequence target has no closing delimiter');
+      changes = [{from: closingPosition, to: closingPosition, insert: ', '}];
+      break;
+    }
+    case 'remove-sequence-item': {
+      const item = findSocket(parsed.root, operation.target);
+      if (!item) throw new RangeError('Sequence item is not present in the current projection');
+      const parent = findParent(parsed.root, item);
+      if (!parent) throw new RangeError('Sequence item has no enclosing node');
+      const role = item.metadata?.socketRole;
+      const siblings = (parent.children ?? [])
+        .filter((child) => (child.kind === 'socket' || child.kind === 'recovery-socket') && child.metadata?.socketRole === role)
+        .sort((left, right) => left.from - right.from);
+      const index = siblings.findIndex((sibling) => sibling.from === item.from && sibling.to === item.to);
+      const next = siblings[index + 1];
+      const previous = siblings[index - 1];
+      const range = next ? {from: item.from, to: next.from} : previous ? {from: previous.to, to: item.to} : {from: item.from, to: item.to};
+      changes = [{from: range.from, to: range.to, insert: ''}];
+      break;
+    }
     default:
       throw new RangeError(`Unsupported Python block operation: ${operation?.type}`);
   }
@@ -198,8 +260,12 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
   const children = childNodes(node).map((child) => project(
     child.node, source, lines, child.socketRole ? 'socket' : kindFor(child.node), statementRange, child.socketRole
   ));
-  addEmptyPrintArgumentSocket(children, node, source, rawFrom, rawTo);
+  addEmptyCallArgumentSocket(children, node, source, rawFrom, rawTo);
   addNameSocket(children, node, source, rawFrom ?? from);
+  relabelParameterSockets(children, node, source, rawFrom ?? from);
+  addEmptyParameterSocket(children, node, source, rawFrom, rawTo);
+  addEmptyListItemSocket(children, node, source, rawFrom, rawTo);
+  if (clauseChainTypes.has(typeOf(node))) children.push(...projectClauses(node, source, lines, statementRange));
   return {
     id: `${kind}:${typeOf(node)}:${from}:${to}`,
     kind, from, to, editable: kind !== 'document',
@@ -229,15 +295,84 @@ function addNameSocket(children, node, source, from) {
   });
 }
 
-function addEmptyPrintArgumentSocket(children, node, source, from, to) {
-  if (!isPrintCall(node) || children.some((child) => child.kind === 'socket') || from === null || to === null) return;
+// A zero-argument call (print() included - it's a Call like any other) still
+// needs one directly-editable slot to type a first argument into; without
+// it there would be nothing to click. "Zero arguments" is read straight off
+// the AST's own args list, not off the projected socket children - a
+// zero-arg call already carries its own call-target (function name) socket,
+// and depending on other sockets already existing would be fragile (see the
+// parallel parameter case below, which hit exactly that bug).
+function addEmptyCallArgumentSocket(children, node, source, from, to) {
+  if (typeOf(node) !== 'Call' || locatedCount(node.args) > 0 || from === null || to === null) return;
   const closingParenthesis = source.lastIndexOf(')', to - 1);
   if (closingParenthesis < from) return;
   children.push({
-    id: `socket:print-argument:${closingParenthesis}:${closingParenthesis}`,
+    id: `socket:call-argument:${closingParenthesis}:${closingParenthesis}`,
     kind: 'socket', from: closingParenthesis, to: closingParenthesis, editable: true, children: [],
     metadata: {type: 'CallArgument', socketRole: 'call-argument', empty: true}
   });
+}
+
+// A def with zero parameters needs the same directly-editable empty slot,
+// placed before the closing parenthesis. Checked against the arguments
+// node's own fields directly, not against relabelParameterSockets' output -
+// that step depends on a name socket existing (needed to bound its own
+// search), which a hand-built fixture can omit; this must not.
+function addEmptyParameterSocket(children, node, source, from, to) {
+  const type = typeOf(node);
+  if (type !== 'FunctionDef' && type !== 'AsyncFunctionDef') return;
+  const args = node.args ?? {};
+  const hasParameters = locatedCount(args.posonlyargs) > 0 || locatedCount(args.args) > 0 ||
+    locatedCount(args.kwonlyargs) > 0 || (args.vararg && typeof args.vararg === 'object') ||
+    (args.kwarg && typeof args.kwarg === 'object');
+  if (hasParameters || from === null || to === null) return;
+  const headerEnd = lineTextEnd(source, from);
+  const closingParenthesis = source.lastIndexOf(')', headerEnd);
+  if (closingParenthesis < from) return;
+  children.push({
+    id: `socket:parameter:${closingParenthesis}:${closingParenthesis}`,
+    kind: 'socket', from: closingParenthesis, to: closingParenthesis, editable: true, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter', empty: true}
+  });
+}
+
+// An empty list literal (`[]`) needs the same treatment, placed just after
+// the opening bracket.
+function addEmptyListItemSocket(children, node, source, from, to) {
+  if (typeOf(node) !== 'List' || locatedCount(node.elts) > 0 || from === null || to === null) return;
+  const openingBracket = source.indexOf('[', from);
+  if (openingBracket < 0 || openingBracket >= to) return;
+  const position = openingBracket + 1;
+  children.push({
+    id: `socket:list-item:${position}:${position}`,
+    kind: 'socket', from: position, to: position, editable: true, children: [],
+    metadata: {type: 'Name', socketRole: 'list-item', empty: true}
+  });
+}
+
+function locatedCount(value) {
+  return (Array.isArray(value) ? value : value ? [value] : []).filter((item) => item && typeof item === 'object').length;
+}
+
+// Brython's parameter arg nodes are individually located, so they already
+// reach a socket through the normal walk (via the 'args' key on the
+// unlocated 'arguments' wrapper node, which isLocatedNode excludes,
+// letting the walk continue into its own args/posonlyargs/kwonlyargs
+// fields) - but with a generic 'expression' role indistinguishable from
+// any other socket. Relabel them to 'parameter' so the sequence add/remove
+// UI can find exactly the def's own parameter list.
+function relabelParameterSockets(children, node, source, from) {
+  const type = typeOf(node);
+  if ((type !== 'FunctionDef' && type !== 'AsyncFunctionDef') || from === null) return;
+  const nameSocket = children.find((child) => child.metadata?.socketRole === 'name');
+  if (!nameSocket) return;
+  const closingParenthesis = source.lastIndexOf(')', lineTextEnd(source, from));
+  for (const child of children) {
+    if (child.kind === 'socket' && child.metadata?.socketRole === 'expression' &&
+        child.from >= nameSocket.to && child.to <= closingParenthesis) {
+      child.metadata = {...child.metadata, socketRole: 'parameter'};
+    }
+  }
 }
 
 function metadataFor(node, kind, source, headerFrom, socketRole) {
@@ -246,21 +381,89 @@ function metadataFor(node, kind, source, headerFrom, socketRole) {
   if (kind === 'statement' && containerStatementTypes.has(typeOf(node))) {
     metadata.blockRole = 'container';
     metadata.headerTo = lineTextEnd(source, headerFrom);
-    const body = (node.body ?? []).filter((child) => child && typeof child === 'object');
-    const first = body[0];
-    const last = body.at(-1);
-    const lastTo = offset(last?.end_lineno, last?.end_col_offset, lineStarts(source), source, null);
-    const firstFrom = offset(first?.lineno, first?.col_offset, lineStarts(source), source, null);
-    if (lastTo !== null && firstFrom !== null) {
-      metadata.bodyFrom = firstFrom;
-      metadata.bodyEnd = lineEndAfter(source, lastTo);
-      metadata.bodyIndentation = indentationAt(source, firstFrom);
-      if (body.length === 1 && typeOf(first) === 'Pass') {
-        metadata.emptySuitePass = {from: firstFrom, to: lastTo};
-      }
-    }
+    Object.assign(metadata, bodyMetadataFor(source, node.body));
   }
   return metadata;
+}
+
+// Shared by a container's own primary body and, separately, each elif/else
+// clause's own body - both are "a list of statements with a start, an end,
+// and possibly a single synthetic pass" and need the identical treatment.
+function bodyMetadataFor(source, body) {
+  const filtered = (body ?? []).filter((child) => child && typeof child === 'object');
+  const first = filtered[0];
+  const last = filtered.at(-1);
+  const lines = lineStarts(source);
+  const lastTo = offset(last?.end_lineno, last?.end_col_offset, lines, source, null);
+  const firstFrom = offset(first?.lineno, first?.col_offset, lines, source, null);
+  if (lastTo === null || firstFrom === null) return {};
+  const metadata = {
+    bodyFrom: firstFrom, bodyEnd: lineEndAfter(source, lastTo), bodyIndentation: indentationAt(source, firstFrom)
+  };
+  if (filtered.length === 1 && typeOf(first) === 'Pass') metadata.emptySuitePass = {from: firstFrom, to: lastTo};
+  return metadata;
+}
+
+// Python's AST has no distinct "elif" node - `elif cond:` is a nested If
+// inside the outer If's orelse, whose own lineno/col_offset point at the
+// "elif" keyword itself. Distinguish that from a literal `else:\n  if...:`
+// (a genuine nested statement, which must NOT be merged into this chain) by
+// checking the actual source text at that position, not just the AST shape.
+function projectClauses(node, source, lines, statementRange) {
+  const orelse = (node.orelse ?? []).filter((child) => child && typeof child === 'object');
+  if (!orelse.length) return [];
+  if (typeOf(node) === 'If' && orelse.length === 1 && typeOf(orelse[0]) === 'If' && isElifText(orelse[0], source, lines)) {
+    const inner = orelse[0];
+    const clause = projectElifClause(inner, source, lines, statementRange);
+    return clause ? [clause, ...projectClauses(inner, source, lines, statementRange)] : [];
+  }
+  const clause = projectElseClause(node, orelse, source, lines, statementRange);
+  return clause ? [clause] : [];
+}
+
+function isElifText(node, source, lines) {
+  const from = offset(node.lineno, node.col_offset, lines, source, null);
+  return from !== null && source.slice(from, from + 4) === 'elif';
+}
+
+function projectElifClause(inner, source, lines, statementRange) {
+  const from = offset(inner.lineno, inner.col_offset, lines, source, null);
+  if (from === null) return undefined;
+  const headerTo = lineTextEnd(source, from);
+  const clauseRange = {from, to: statementRange.to};
+  const conditionSocket = project(inner.test, source, lines, 'socket', clauseRange, 'if-condition');
+  const body = (inner.body ?? []).filter((child) => child && typeof child === 'object');
+  const bodyChildren = body.map((stmt) => project(stmt, source, lines, kindFor(stmt), clauseRange));
+  const bodyMetadata = bodyMetadataFor(source, inner.body);
+  const to = bodyMetadata.bodyEnd ?? headerTo;
+  return {
+    id: `clause:elif:${from}:${to}`,
+    kind: 'clause', from, to, editable: true,
+    children: [conditionSocket, ...bodyChildren],
+    metadata: {clauseRole: 'elif', headerTo, ...bodyMetadata}
+  };
+}
+
+function projectElseClause(node, orelse, source, lines, statementRange) {
+  const previousBodyEnd = offset(
+    node.body?.at(-1)?.end_lineno, node.body?.at(-1)?.end_col_offset, lines, source, null
+  );
+  const firstFrom = offset(orelse[0].lineno, orelse[0].col_offset, lines, source, null);
+  if (previousBodyEnd === null || firstFrom === null) return undefined;
+  const headerMatch = /^[\t \f]*(else)[\t \f]*:/m.exec(source.slice(previousBodyEnd, firstFrom));
+  if (!headerMatch) return undefined;
+  const from = previousBodyEnd + headerMatch.index + headerMatch[0].indexOf('else');
+  const headerTo = lineTextEnd(source, from);
+  const clauseRange = {from, to: statementRange.to};
+  const bodyChildren = orelse.map((stmt) => project(stmt, source, lines, kindFor(stmt), clauseRange));
+  const bodyMetadata = bodyMetadataFor(source, orelse);
+  const to = bodyMetadata.bodyEnd ?? headerTo;
+  return {
+    id: `clause:else:${from}:${to}`,
+    kind: 'clause', from, to, editable: true,
+    children: bodyChildren,
+    metadata: {clauseRole: 'else', headerTo, ...bodyMetadata}
+  };
 }
 
 function addCommentNodes(root, comments) {
@@ -289,7 +492,7 @@ function addWhitespaceNodes(root, source) {
 }
 
 function triviaParent(node, range) {
-  const child = (node.children ?? []).find((candidate) => candidate.kind === 'statement' &&
+  const child = (node.children ?? []).find((candidate) => (candidate.kind === 'statement' || candidate.kind === 'clause') &&
     candidate.from <= range.from && candidate.to >= range.to);
   return child ? triviaParent(child, range) : node;
 }
@@ -334,7 +537,11 @@ function moveLineRangeChanges(source, statementRange, destination, destinationIn
 
 function containerEmptiedByMove(root, statement) {
   const parent = findParent(root, statement);
-  if (parent?.metadata?.blockRole !== 'container') return undefined;
+  // A clause (an elif/else or for/while else branch) is just as much a
+  // suite that needs a synthetic pass when its last statement leaves as an
+  // ordinary container body is - it just isn't tagged blockRole:'container'
+  // (that tag belongs to the whole if/for/while statement, not each branch).
+  if (parent?.metadata?.blockRole !== 'container' && parent?.kind !== 'clause') return undefined;
   const bodyStatements = (parent.children ?? []).filter((child) => child.kind === 'statement' &&
     child.from >= parent.metadata.bodyFrom && child.to <= parent.metadata.bodyEnd);
   return bodyStatements.length === 1 && bodyStatements[0] === statement ? parent : undefined;
@@ -464,8 +671,17 @@ function kindFor(node) {
 
 function childNodes(node) {
   const children = [];
+  // If/For/AsyncFor/While's orelse is projected explicitly as elif/else
+  // 'clause' children (see projectClauses) instead of through this generic
+  // walk, which has no notion of branch structure and would otherwise
+  // double-project the same statements as flat siblings of the primary
+  // body. Try/TryStar also have an 'orelse' field (their own except-else)
+  // but are not in clauseChainTypes, so their existing - already broken,
+  // out of scope here - behavior is untouched.
+  const skipOrelse = clauseChainTypes.has(typeOf(node));
   for (const [key, value] of Object.entries(node ?? {})) {
     if (key.startsWith('$') || locationKeys.has(key) || bookkeepingKeys.has(key)) continue;
+    if (skipOrelse && key === 'orelse') continue;
     collectLocatedChildren(value, socketRoleFor(node, key, value), children);
   }
   return children;
@@ -514,6 +730,8 @@ function socketRoleFor(parent, key, value) {
   // above as a fixed statement shape with only its own argument sockets, so
   // its own name should stay out of that.
   if (type === 'Call' && key === 'func' && !isPrintCall(parent)) return 'call-target';
+  if (type === 'Call' && key === 'args') return 'call-argument';
+  if (type === 'List' && key === 'elts') return 'list-item';
   return socketKeys.has(key) ? 'expression' : undefined;
 }
 
@@ -531,6 +749,12 @@ const containerStatementTypes = new Set([
   'AsyncFor', 'AsyncFunctionDef', 'AsyncWith', 'ClassDef', 'For', 'FunctionDef',
   'If', 'Match', 'Try', 'TryStar', 'While', 'With'
 ]);
+// The subset of containers whose orelse is projected as an explicit
+// elif/else clause chain (see projectClauses) rather than left to the
+// generic child walk. Try/TryStar also have an orelse field but are not
+// included - their handlers/finalbody/orelse structure is a separate,
+// larger effort and is intentionally left exactly as it was.
+const clauseChainTypes = new Set(['AsyncFor', 'For', 'If', 'While']);
 const locationKeys = new Set(['lineno', 'col_offset', 'end_lineno', 'end_col_offset']);
 const bookkeepingKeys = new Set(['type_ignores']);
 const socketKeys = new Set([
@@ -602,6 +826,21 @@ function findSocket(node, range) {
   }
   for (const child of node.children ?? []) {
     const found = findSocket(child, range);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+// Finds a node by exact range regardless of kind. Used for sequence
+// operations, whose enclosing node is a 'socket' for a Call/List used as an
+// expression but a 'statement' for a FunctionDef's own parameter list -
+// range is unambiguous either way, so kind-agnostic lookup avoids the
+// caller needing to know which shape it is.
+function findAny(node, range) {
+  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
+  if (node.from === range.from && node.to === range.to) return node;
+  for (const child of node.children ?? []) {
+    const found = findAny(child, range);
     if (found) return found;
   }
   return undefined;

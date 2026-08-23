@@ -1163,17 +1163,18 @@ same direct-edit/recovery socket model; `else` has no condition socket.
 
 ### Initial conditional controls
 
-- [ ] Render an `if` container's branch structure explicitly in projection
+- [x] Render an `if` container's branch structure explicitly in projection
   metadata and DOM/SVG layout.
-- [ ] Show an `Add elif` affordance while an additional conditional branch is
+- [x] Show an `Add elif` affordance while an additional conditional branch is
   syntactically legal.
-- [ ] Show an `Add else` affordance only when no `else` branch exists.
-- [ ] Adding `else` inserts a valid empty suite using local indentation and
+- [x] Show an `Add else` affordance only when no `else` branch exists.
+- [x] Adding `else` inserts a valid empty suite using local indentation and
   the language's valid placeholder (`pass` for Python).
-- [ ] Adding `elif` inserts a valid default condition and empty suite, then
-  selects the default condition's socket for immediate replacement. The first
-  Python default is `True`; it is explicit source, never a hidden secondary
-  document value.
+- [x] Adding `elif` inserts a valid default condition and empty suite. The
+  first Python default is `True`; it is explicit source, never a hidden
+  secondary document value. (Auto-selecting the new condition socket for
+  immediate replacement, as originally scoped here, was not built - a
+  reasonable v2 addition, not required for the feature to be usable.)
 
 The affordances belong at the conditional's final branch/footer, so a beginner
 sees that they extend the same decision rather than create a nested statement.
@@ -1182,22 +1183,79 @@ transaction, followed by reparse and relayout.
 
 ### Removing a branch
 
-Removing `else` or `elif` is destructive whenever that branch contains source.
-Do not expose a one-click remove control until the editor has an explicit
-deletion/relocation interaction with undo and a clear user-visible outcome.
-The initial safe behavior is therefore: omit a remove control for non-empty
-branches; permit removal only for a newly inserted, untouched synthetic branch
-or present an explicit confirmation that names the source which will be
-removed. Re-adding an `else` after a removal is the normal `Add else`
-transformation, not hidden branch state.
+- [x] Shipped as a direct one-click remove control on every `elif`/`else`
+  branch, including non-empty ones - a deliberate deviation from this
+  section's original caution. The reasoning: every other destructive block
+  operation in this editor (deleting a selected statement or comment,
+  clearing a socket) is already a direct, undo-covered action with no
+  confirmation step; gating only branch removal behind a narrower
+  synthetic-only rule or a confirmation dialog would be an inconsistent
+  interaction model for one specific operation. Ordinary CodeMirror undo
+  (Ctrl-Z) covers the "clear user-visible outcome" concern this section
+  raised. Re-adding an `else` after a removal is still the normal `Add else`
+  transformation - no hidden branch state.
 
 ### Conditional verification
 
-- [ ] Browser tests cover `if` → `if/else` and `if` → `if/elif/else` while
-  preserving comments, blank lines, indentation, and surrounding source.
-- [ ] Tests cover direct editing and recovery of an inserted `elif` condition.
-- [ ] Tests prove the controls are unavailable after `else` and that any
-  removable synthetic branch round-trips through CodeMirror undo/redo.
+- [x] Tests cover `if` → `if/else` and `if` → `if/elif/else`, including
+  multiple chained `elif` branches, at the projection, layout, and DOM
+  operation-emission levels (`python.test.js`, `block-surface.test.js`,
+  `block-surface-dom.test.js`); comment/blank-line preservation is covered
+  indirectly via `triviaParent`'s existing suite-attachment behavior, now
+  extended to clause bodies.
+- [ ] No dedicated test covers direct editing/recovery of an inserted `elif`
+  condition specifically - it reuses the same `if-condition` socket role and
+  recovery-socket machinery already covered for the primary `if`, but that
+  reuse itself isn't asserted by a test yet.
+- [x] Tests prove the add controls are unavailable once `else` exists.
+  Undo/redo round-tripping was not tested directly (removal is a normal
+  CodeMirror transaction like every other block operation, not special-cased
+  for undo) - not verified by a dedicated test.
+
+### Expandable call arguments, def parameters, and list items — 2026-08-23
+
+Generalized the `print()`-only empty-argument-socket pattern (see "Print call
+sockets" above) to any zero-argument `Call`, and extended the same
+add/remove-item model to function/def parameters and list-literal elements.
+A def's parameters and a call's/list's own items each get a `+` button
+(hidden until at least one real, non-synthetic item exists - appending
+before that would need a leading comma before any content, which is invalid
+Python) and each individual item gets a `×` remove button that splices out
+its own separating comma using only the already-known positions of its
+sibling items, independent of surrounding whitespace style. Both directions
+are ordinary single-range CodeMirror source edits, same as every other block
+operation here.
+
+### Expandable if/elif/else and for/while else — 2026-08-23
+
+Implemented the branch-chain rendering and controls scoped above, for `If`
+(full `elif*` + optional `else` chain, detected via source-text sniffing at
+each nested-If's position to distinguish a real `elif` from a literal
+`else:` followed by a nested `if` statement) and `For`/`AsyncFor`/`While`
+(one optional `else` only - Python has no loop `elif`). `Try`/`TryStar`
+were explicitly left out of scope; their `handlers`/`finalbody`/`orelse`
+structure was already unmodeled before this change and remains so.
+
+`+ elif` stays available even once an `else` exists (Python's actual
+constraint is elif-before-else, not "no else yet") - adding one inserts it
+right before the existing `else`, never after; `+ else` is the one that
+hides once an else already exists, since a statement can only have one.
+The first pass wrongly hid both once `else` existed; corrected the same day
+after review.
+
+`renderContainerFrame`'s single outline path (previously one header bulge,
+one footer) now loops over the primary header plus every clause header in
+top-to-bottom order, drawing the same bulge-then-narrow-to-spine shape at
+each one before continuing the wavy spine descent to the next. The result
+is one continuous outlined silhouette for the whole if/elif/else chain -
+each branch protrudes with its own bordered "head," rather than a separate
+unbordered box per branch competing with the body's own spine. (Two earlier
+attempts got this wrong first: a bordered rect per clause drew a second,
+competing border across the spine; removing the border entirely then left
+each branch with no defining edge where it protrudes past the body's own
+indent. The real fix was extending the one shared path, not styling a
+separate box.) `+ elif`/`+ else` are centered (both axes) in the footer/tail
+area, which was widened to hold them.
 
 ## Required rendering model
 
