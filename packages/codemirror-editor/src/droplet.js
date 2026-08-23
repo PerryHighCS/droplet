@@ -171,7 +171,19 @@ export class DropletCodeMirrorEditor {
       throw new TypeError('Socket editing requires a source range and string value');
     }
     this.#socketRecovery = {projection: this.#projection, target};
-    this.editor.dispatch({changes: {from: target.from, to: target.to, insert: source}});
+    try {
+      this.editor.dispatch({changes: {from: target.from, to: target.to, insert: source}});
+    } finally {
+      // A successful dispatch triggers exactly one #reparse, which already
+      // consumes-and-clears this synchronously before dispatch returns. But
+      // the projection's own transactionFilter (see createProjectionField)
+      // can reject a change that touches an opaque node instead of applying
+      // it - no docChanged update reaches #reparse then, so #socketRecovery
+      // (valid only for the one #reparse a successful dispatch triggers)
+      // would otherwise stay stale until some later, unrelated change
+      // happens to also produce an opaque node and reuses it.
+      if (this.#socketRecovery?.target === target) this.#socketRecovery = undefined;
+    }
   }
 
   #publishProjection() {

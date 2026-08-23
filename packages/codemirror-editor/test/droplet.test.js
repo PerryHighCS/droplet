@@ -222,6 +222,56 @@ test('an unrelated change after a still-broken socket commit does not reuse its 
   editor.destroy();
 });
 
+test('a rejected socket commit does not leave a stale recovery target for a later unrelated edit to reuse', () => {
+  // #socketRecovery is armed by #replaceSocketText immediately before its own
+  // dispatch, valid only for the one #reparse a *successful* dispatch
+  // triggers. The projection's own transactionFilter can reject a change
+  // that touches an opaque node instead - no docChanged update reaches
+  // #reparse then, so #socketRecovery was left stale until some later,
+  // unrelated edit happened to also produce an opaque node and incorrectly
+  // reused it (recomputing a "recovered" projection from the wrong
+  // snapshot/target instead of just the fresh parse).
+  const parent = appendParent();
+  // A deliberately malformed projection: an opaque-statement spans the whole
+  // statement, overlapping a real socket nested inside it - parsing does not
+  // itself validate that a socket and an opaque region never overlap.
+  function parseOverlappingOpaque(source) {
+    return {
+      source,
+      root: {
+        id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+          id: 'stmt', kind: 'statement', from: 0, to: source.length, editable: true, metadata: {},
+          children: [
+            {id: 'broken', kind: 'opaque-statement', from: 0, to: source.length, editable: false, children: []},
+            {id: 'target', kind: 'socket', from: 2, to: 5, editable: true, children: [], metadata: {socketRole: 'expression'}}
+          ]
+        }]
+      },
+      issues: []
+    };
+  }
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'ab123cd', blockMode: true, parse: parseOverlappingOpaque
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(parent.querySelector('[data-droplet-kind="socket"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.value = 'xxx';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+  assert.equal(editor.getValue(), 'ab123cd', 'the overlapping edit must have been rejected, not applied');
+
+  const end = editor.getValue().length;
+  editor.editor.dispatch({changes: {from: end, to: end, insert: 'Z'}});
+
+  function hasRecoverySocket(node) {
+    return node.kind === 'recovery-socket' || (node.children ?? []).some(hasRecoverySocket);
+  }
+  assert.equal(hasRecoverySocket(editor.getProjection().root), false, 'the stale recovery target must not be reused');
+  editor.destroy();
+});
+
 test('deleting a selected socket commits an empty editable recovery range', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
