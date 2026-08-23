@@ -96,6 +96,14 @@ export class BlockSurface {
 
   setReadOnly(readOnly) {
     this.#readOnly = readOnly === true;
+    if (!this.#readOnly) return;
+    // Flipping the flag alone only gates *future* interaction. An inline
+    // socket editor already open (or a drag already in progress) when
+    // readOnly turns on would otherwise stay live - committing that edit or
+    // completing that drag would still reach #replaceSocketText/
+    // applyBlockOperation, which now throw for a read-only editor.
+    this.#closeSocketEditor();
+    this.#cancelDrag();
   }
 
   destroy() {
@@ -372,6 +380,17 @@ export class BlockSurface {
       this.#deleteNode(drag.node);
     }
     event.preventDefault();
+  }
+
+  // Releases capture and clears the preview the same way #endDrag does, but
+  // never dispatches an operation - used when readOnly turns on mid-drag,
+  // where the drag must simply stop, not resolve to a move/copy/delete.
+  #cancelDrag() {
+    const drag = this.#drag;
+    if (!drag) return;
+    this.#drag = undefined;
+    if (this.#svg.hasPointerCapture?.(drag.pointerId)) this.#svg.releasePointerCapture(drag.pointerId);
+    clearDragPreviews(this.#svg);
   }
 
   #continuePaletteDrag(event) {

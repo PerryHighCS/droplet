@@ -328,6 +328,27 @@ test('update({readOnly}) blocks then re-allows socket edits through the surface'
   editor.destroy();
 });
 
+test('update({readOnly: true}) closes an inline socket editor that was already open', () => {
+  // Flipping the surface's readOnly flag alone only gates *future*
+  // interaction - an editor already open when readOnly turns on would
+  // otherwise stay live, and committing it would reach #replaceSocketText,
+  // which throws for a read-only editor.
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:value"]'));
+  assert.ok(parent.querySelector('.droplet-socket-editor'), 'the editor must actually be open before the transition');
+
+  editor.update({readOnly: true});
+
+  assert.equal(parent.querySelector('.droplet-socket-editor'), null, 'the open editor must close, not stay live');
+  assert.equal(editor.getValue(), 'target = value\n');
+  editor.destroy();
+});
+
 test('editing a rendered comment commits one CodeMirror source change on Enter', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
