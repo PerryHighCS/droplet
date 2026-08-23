@@ -88,6 +88,7 @@ export class BlockSurface {
     delete this.#svg.dataset.dropletSelectedId;
     this.#layout = createBlockLayout(projection, this.#layoutOptions);
     renderLayout(this.#svg, this.#layout, this.#dom.ownerDocument, this.#layoutOptions);
+    markActionButtonsReadOnly(this.#svg, this.#readOnly);
   }
 
   setVisible(visible) {
@@ -96,6 +97,12 @@ export class BlockSurface {
 
   setReadOnly(readOnly) {
     this.#readOnly = readOnly === true;
+    // The add/remove action buttons are otherwise only re-marked on the next
+    // renderLayout() (see update()) - without this, a button already on
+    // screen when readOnly toggles stays tabbable and announced as an
+    // enabled control (#dispatchAction already silently no-ops it, but nothing
+    // signals that to a keyboard or screen-reader user) until the next reparse.
+    markActionButtonsReadOnly(this.#svg, this.#readOnly);
     if (!this.#readOnly) return;
     // Flipping the flag alone only gates *future* interaction. An inline
     // socket editor already open (or a drag already in progress) when
@@ -938,6 +945,18 @@ const ACTION_BUTTON_PADDING_X = 5;
 
 function buttonWidth(label) {
   return label.length * 6.5 + ACTION_BUTTON_PADDING_X * 2;
+}
+
+// Every add/remove action button carries dropletAction (see
+// appendActionButton/appendRemoveButton) - a single pass over that shared
+// marker keeps every button's focus/activation state in sync with readOnly
+// without threading it through renderNode's whole call chain.
+function markActionButtonsReadOnly(svg, readOnly) {
+  for (const button of svg.querySelectorAll('[data-droplet-action]')) {
+    button.setAttribute('tabindex', readOnly ? '-1' : '0');
+    if (readOnly) button.setAttribute('aria-disabled', 'true');
+    else button.removeAttribute('aria-disabled');
+  }
 }
 
 // These SVG groups are the only affordance for their action (add/remove a

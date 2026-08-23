@@ -574,6 +574,34 @@ test('shows the "+" button on a function declaration with zero parameters', () =
   assert.ok(svg.querySelector('[data-droplet-action="insert-sequence-item"]'));
 });
 
+test('marks add/remove action buttons non-focusable and aria-disabled while read-only, live and on rerender', () => {
+  // #dispatchAction already silently no-ops these while readOnly, but
+  // nothing signaled that to a keyboard or screen-reader user - the button
+  // stayed tabbable and announced as an enabled control regardless.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), readOnly: false});
+  surface.update(functionDeclarationWithoutParameters());
+  const svg = surface.element.querySelector('svg');
+  const button = () => svg.querySelector('[data-droplet-action="insert-sequence-item"]');
+
+  assert.equal(button().getAttribute('tabindex'), '0');
+  assert.equal(button().hasAttribute('aria-disabled'), false);
+
+  surface.setReadOnly(true);
+  assert.equal(button().getAttribute('tabindex'), '-1');
+  assert.equal(button().getAttribute('aria-disabled'), 'true');
+
+  // A rerender while still read-only (e.g. an external text edit) must not
+  // let a freshly rendered button slip back to enabled.
+  surface.update(functionDeclarationWithoutParameters());
+  assert.equal(button().getAttribute('tabindex'), '-1');
+  assert.equal(button().getAttribute('aria-disabled'), 'true');
+
+  surface.setReadOnly(false);
+  assert.equal(button().getAttribute('tabindex'), '0');
+  assert.equal(button().hasAttribute('aria-disabled'), false);
+});
+
 test('clicking a call argument\'s remove badge emits a remove-sequence-item operation for that argument', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
