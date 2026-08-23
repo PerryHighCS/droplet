@@ -32,10 +32,10 @@ packages and a thin React wrapper.
    projection-derived Droplet surface with its own recursive geometry, hit
    testing, insertion zones, and subtree previews; it still emits only normal
    CodeMirror source transactions.
-5. Preserve exact source representation by default. Any intentional source
+6. Preserve exact source representation by default. Any intentional source
    rewrite must be narrow, test-covered, and attributable to an explicit block
    operation.
-6. Introduce TypeScript, modern packages, or a new build system only in the
+7. Introduce TypeScript, modern packages, or a new build system only in the
    modern implementation area or when the task explicitly calls for it. Do not
    migrate legacy modules opportunistically.
 
