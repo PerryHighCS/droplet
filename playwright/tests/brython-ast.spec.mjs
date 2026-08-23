@@ -331,7 +331,11 @@ test('Python block movement preserves nested suites, comments, and blank lines',
 test('manual modern Python playground loads with its source and projection panels', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
-  await expect(page.locator('#modern-python-editor .cm-editor')).toBeVisible();
+  // The playground starts with blockMode: true, and #publishProjection sets
+  // the CodeMirror view's inline display to "none" in that mode - the
+  // BlockSurface, not CodeMirror's own DOM, is what's actually visible.
+  await expect(page.locator('#modern-python-editor .droplet-block-surface')).toBeVisible();
+  await expect(page.locator('#modern-python-editor .cm-editor')).toBeHidden();
   await expect(page.locator('#modern-python-source')).toContainText('if outer:');
   await expect(page.locator('#modern-python-projection')).toContainText('Module');
 });
@@ -429,6 +433,10 @@ test('manual modern Python playground copies a block with Ctrl-drag', async ({pa
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
   const first = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'first = 1'}).first();
   const tail = page.locator('.droplet-block-surface [data-droplet-kind="statement"]').filter({hasText: 'tail = 0'}).first();
+  // "tail = 0" lands below the default 1280x720 viewport's fold; a raw
+  // page.mouse drag at its unscrolled coordinates cannot reach it (unlike a
+  // locator .click(), raw mouse actions do not scroll the target into view).
+  await tail.scrollIntoViewIfNeeded();
   const [firstBox, tailBox] = await Promise.all([first.boundingBox(), tail.boundingBox()]);
 
   await page.keyboard.down('Control');

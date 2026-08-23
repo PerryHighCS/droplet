@@ -200,7 +200,17 @@ export class DropletCodeMirrorEditor {
     // republishes once the surface actually becomes visible.
     if (this.#blockMode) this.#surface?.update(this.#projection);
     this.#surface?.setVisible(this.#blockMode);
-    if (this.editor?.view?.dom) this.editor.view.dom.style.display = this.#blockMode ? 'none' : '';
+    // CodeMirror's own base theme sets ".cm-editor"'s display with !important
+    // (guarding its flex layout against accidental external overrides) - a
+    // plain style.display assignment loses that cascade fight silently in a
+    // real browser (JSDOM's simplified computed-style resolution never
+    // exercises the theme's injected stylesheet, so unit tests never caught
+    // this), leaving the raw text view visibly stacked above the block
+    // surface instead of actually hidden. setProperty's own priority
+    // argument is required to win that fight; a plain assignment cannot.
+    if (this.editor?.view?.dom) {
+      this.editor.view.dom.style.setProperty('display', this.#blockMode ? 'none' : '', this.#blockMode ? 'important' : '');
+    }
   }
 }
 
