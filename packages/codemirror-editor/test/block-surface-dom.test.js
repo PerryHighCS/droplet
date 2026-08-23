@@ -233,6 +233,45 @@ test('completes a drop on pointercancel instead of losing the release', () => {
   assert.deepEqual(operations, [{type: 'delete-node', source: {from: 0, to: 7}, kind: 'statement'}]);
 });
 
+test('cancels rather than completes a drop on a touch pointercancel', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+
+  // Unlike a trackpad-driven drag (see the test above), a touch pointercancel
+  // means the OS took the gesture over for its own purposes (scrolling, a
+  // system gesture) rather than the user releasing over a destination -
+  // resolving it as a drop could move or delete a block the user never
+  // actually let go of.
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerdown', {bubbles: true, button: 0, pointerId: 1, pointerType: 'touch',
+    clientX: first.bounds.left + 2, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.PointerEvent('pointermove', {bubbles: true, button: 0, pointerId: 1, pointerType: 'touch',
+    clientX: -400, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.PointerEvent('pointercancel', {bubbles: true, pointerId: 1, pointerType: 'touch'}));
+
+  assert.deepEqual(operations, []);
+
+  // The drag state must actually be cleared, not just left un-dispatched -
+  // a fresh pointerdown/up right after should behave like an ordinary new
+  // drag, not be swallowed by stale state from the cancelled one.
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerdown', {bubbles: true, button: 0, pointerId: 2,
+    clientX: first.bounds.left + 2, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.PointerEvent('pointermove', {bubbles: true, button: 0, pointerId: 2,
+    clientX: first.bounds.left, clientY: surface.layout.bounds.bottom + 20}));
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerup', {bubbles: true, button: 0, pointerId: 2,
+    clientX: first.bounds.left, clientY: surface.layout.bounds.bottom + 20}));
+
+  assert.deepEqual(operations, [
+    {type: 'move-statement', source: {from: 0, to: 7}, destination: {from: 17, to: 17, indentation: ''}}
+  ]);
+});
+
 test('completes a drop released outside the SVG entirely, via the document-level fallback', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];

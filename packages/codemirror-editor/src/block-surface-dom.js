@@ -20,6 +20,7 @@ export class BlockSurface {
   #suppressClick = false;
   #document;
   #endDragFromDocument;
+  #cancelDragFromDocument;
   #readOnly = false;
 
   constructor({parent, onSelect, onOperation, onSocketEdit, layoutOptions = {}, readOnly = false}) {
@@ -57,8 +58,13 @@ export class BlockSurface {
     // delivering pointercancel instead of pointerup (a gesture interrupting
     // the sequence, or the pointer briefly leaving the capturing element).
     // Without handling it, the drag state never clears and the release the
-    // user just made is silently lost.
-    this.#svg.addEventListener('pointercancel', (event) => this.#endDrag(event));
+    // user just made is silently lost - so a non-touch cancel still resolves
+    // the drag the same way #endDrag does. A touch pointercancel is a
+    // different situation: the OS taking the gesture over for its own
+    // purposes (scrolling, a system gesture) is not the user releasing over a
+    // chosen destination, and resolving it as one could move, copy, or delete
+    // a block the user never actually dropped - so that case only cancels.
+    this.#svg.addEventListener('pointercancel', (event) => this.#handlePointerCancel(event));
     // Pointer capture on the SVG normally keeps a release targeted at it even
     // once the cursor leaves its bounds (dragging above/below the surface),
     // but that is not perfectly reliable across every browser/input-device
@@ -66,8 +72,9 @@ export class BlockSurface {
     // - and the user's release from being silently dropped - when it isn't.
     this.#document = parent.ownerDocument;
     this.#endDragFromDocument = (event) => this.#endDrag(event);
+    this.#cancelDragFromDocument = (event) => this.#handlePointerCancel(event);
     this.#document.addEventListener('pointerup', this.#endDragFromDocument, true);
-    this.#document.addEventListener('pointercancel', this.#endDragFromDocument, true);
+    this.#document.addEventListener('pointercancel', this.#cancelDragFromDocument, true);
     this.#dom.addEventListener('dragover', (event) => this.#continuePaletteDrag(event));
     this.#dom.addEventListener('dragleave', (event) => this.#leavePaletteDrag(event));
     this.#dom.addEventListener('drop', (event) => this.#dropPaletteBlock(event));
@@ -116,7 +123,7 @@ export class BlockSurface {
   destroy() {
     this.#closeSocketEditor();
     this.#document.removeEventListener('pointerup', this.#endDragFromDocument, true);
-    this.#document.removeEventListener('pointercancel', this.#endDragFromDocument, true);
+    this.#document.removeEventListener('pointercancel', this.#cancelDragFromDocument, true);
     this.#dom.remove();
     this.#layout = undefined;
   }
@@ -393,6 +400,18 @@ export class BlockSurface {
       this.#deleteNode(drag.node);
     }
     event.preventDefault();
+  }
+
+  // A touch pointercancel means the OS took the gesture over for its own
+  // purposes (touch scrolling, a system gesture) - not the user releasing
+  // over a chosen destination - so it only cancels, the same way readOnly
+  // turning on mid-drag does. Every other pointercancel (trackpad, pen, mouse
+  // capture loss) still resolves the drag via #endDrag, the same as a real
+  // pointerup - see the SVG/document pointercancel wiring in the constructor.
+  #handlePointerCancel(event) {
+    if (event.pointerType !== 'touch') { this.#endDrag(event); return; }
+    if (!this.#drag || event.pointerId !== this.#drag.pointerId) return;
+    this.#cancelDrag();
   }
 
   // Releases capture and clears the preview the same way #endDrag does, but
