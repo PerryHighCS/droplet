@@ -293,11 +293,18 @@ function layoutClauses(clauses, source, settings, left, bodyLeft, cursorTop) {
   for (const clause of clauses) {
     const clauseTop = cursor + settings.containerGap;
     const headerSockets = layoutSockets(sourceSockets(clause), clause, source, settings, left, clauseTop);
-    const headerText = source.slice(clause.from, clause.metadata.headerTo).trimEnd();
+    // Guarded the same way a primary container's own header is (validHeaderTo):
+    // metadata.headerTo is trusted adapter output, not validated by
+    // assertProjection - an incomplete/malformed projection with it absent or
+    // out of range would otherwise throw here, or (source.slice's own
+    // behavior when its end argument is undefined) silently consume the rest
+    // of the document as this clause's "header".
+    const clauseHeaderTo = validHeaderTo(clause, source);
+    const headerText = source.slice(clause.from, clauseHeaderTo).trimEnd();
     const headerWidth = Math.max(
       settings.minimumWidth,
       settings.measureText(headerText) + settings.horizontalPadding * 2,
-      socketContentWidth(headerSockets, clause, clause.metadata.headerTo, source, settings, left)
+      socketContentWidth(headerSockets, clause, clauseHeaderTo, source, settings, left)
     );
     const clauseBodyTop = clauseTop + settings.lineHeight + settings.containerGap;
     const clauseBodyEnd = Number.isInteger(clause.metadata?.bodyEnd) ? clause.metadata.bodyEnd : clause.to;

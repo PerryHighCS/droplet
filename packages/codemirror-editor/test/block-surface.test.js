@@ -179,6 +179,46 @@ test('lays out an if/elif/else chain as stacked branch sections with one shared 
   assert.equal(hitTestBlockLayout(layout, {x: second.bounds.left + 2, y: second.bounds.top + 2}).node.id, 'second');
 });
 
+test('falls back to a valid clause header end when metadata.headerTo is missing or malformed', () => {
+  // metadata.headerTo is trusted adapter output - assertProjection does not
+  // validate it. Slicing straight to an absent/malformed value (source.slice
+  // treats undefined as "to the end") would consume the rest of the document
+  // as the clause's own "header" instead of falling back the same way a
+  // primary container's own header already does (validHeaderTo).
+  const source = 'if ready:\n  first()\nelif retry:\n  second()\nelse:\n  third()\n';
+  const at = (text, from = 0) => source.indexOf(text, from);
+  const elifFrom = at('elif retry:');
+  const elseFrom = at('else:');
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('if', 0, source.length - 1, {blockRole: 'container', headerTo: at(':') + 1, bodyEnd: elifFrom, bodyIndentation: '  '}),
+    children: [
+      statement('first', at('first()'), at('first()') + 'first()'.length),
+      {
+        id: 'elif', kind: 'clause', from: elifFrom, to: elseFrom, editable: true,
+        // headerTo deliberately omitted.
+        metadata: {clauseRole: 'elif', bodyEnd: elseFrom, bodyIndentation: '  '},
+        children: [
+          {id: 'elif-condition', kind: 'socket', from: at('retry'), to: at('retry') + 5, editable: true, children: [], metadata: {socketRole: 'if-condition'}},
+          statement('second', at('second()'), at('second()') + 'second()'.length)
+        ]
+      },
+      {
+        id: 'else', kind: 'clause', from: elseFrom, to: source.length, editable: true,
+        metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '},
+        children: [statement('third', at('third()'), at('third()') + 'third()'.length)]
+      }
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+
+  const elif = layout.nodes.find((node) => node.id === 'elif');
+  const second = layout.nodes.find((node) => node.id === 'second');
+  const third = layout.nodes.find((node) => node.id === 'third');
+
+  assert.equal(elif.text, 'elif retry:');
+  assert.ok(second.bounds.top >= elif.regions.header.bottom);
+  assert.ok(third.bounds.top >= second.bounds.bottom);
+});
+
 test('uses the same subtree geometry for a drag preview and gives a nested child hit priority', () => {
   const source = 'if ready:\n  first()\nsecond()\n';
   const layout = createBlockLayout(projection(source));
