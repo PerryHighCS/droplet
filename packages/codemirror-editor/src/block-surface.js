@@ -270,9 +270,19 @@ function layoutContainer(node, source, settings, left, top) {
   // once the footer bar itself is taller than that band, as it is whenever
   // footerText is shown. Widen it to the footer's actual drawn bounds so a
   // drop anywhere on the visible footer bar is recognized as "insert inside
-  // this container", not just that thin band.
-  const insertionZones = body.insertionZones.map((zone) =>
-    zone.role === 'body-end' ? {...zone, bounds: footer} : zone);
+  // this container" - but the shared footer visually sits right after the
+  // *last branch* (the last clause, when any exist), not the primary body,
+  // so only the primary body's own zone gets widened when there is no
+  // clause to claim the footer instead.
+  const insertionZones = clauses.length
+    ? body.insertionZones
+    : body.insertionZones.map((zone) => zone.role === 'body-end' ? {...zone, bounds: footer} : zone);
+  const clauseChildren = clauses.length
+    ? clauseSections.children.map((section, index) => index < clauseSections.children.length - 1 ? section : {
+        ...section,
+        insertionZones: section.insertionZones.map((zone) => zone.role === 'body-end' ? {...zone, bounds: footer} : zone)
+      })
+    : clauseSections.children;
   return {
     id: node.id,
     kind: 'container',
@@ -286,7 +296,7 @@ function layoutContainer(node, source, settings, left, top) {
       body: {left: bodyLeft, top: bodyTop, right, bottom: footer.top},
       footer
     },
-    children: [...headerSockets, ...commentChild, ...body.children, ...clauseSections.children],
+    children: [...headerSockets, ...commentChild, ...body.children, ...clauseChildren],
     insertionZones
   };
 }
@@ -310,7 +320,14 @@ function layoutClauses(clauses, source, settings, left, bodyLeft, cursorTop) {
     // out of range would otherwise throw here, or (source.slice's own
     // behavior when its end argument is undefined) silently consume the rest
     // of the document as this clause's "header".
-    const clauseHeaderTo = validHeaderTo(clause, source);
+    const rawClauseHeaderTo = validHeaderTo(clause, source);
+    // An inline comment attached to the clause's own header line
+    // ("elif retry:  # note") is a direct child of the clause, not its body -
+    // exclude its range from the header text and lay it out as its own
+    // block, the same way layoutContainer does for the primary header.
+    const inlineComment = (clause.children ?? [])
+      .find((child) => child.kind === 'comment' && child.metadata?.inline && child.from < rawClauseHeaderTo);
+    const clauseHeaderTo = inlineComment ? inlineComment.from : rawClauseHeaderTo;
     const headerText = source.slice(clause.from, clauseHeaderTo).trimEnd();
     const headerWidth = Math.max(
       settings.minimumWidth,
@@ -323,6 +340,9 @@ function layoutClauses(clauses, source, settings, left, bodyLeft, cursorTop) {
       ...(clause.metadata?.bodyIndentation === undefined ? {} : {indentation: clause.metadata.bodyIndentation}),
       ...(clause.metadata?.emptySuitePass ? {emptySuitePass: clause.metadata.emptySuitePass} : {})
     });
+    const commentChild = inlineComment
+      ? [layoutAtomic(inlineComment, source, settings, left + headerWidth + settings.inlineCommentGap, clauseTop)]
+      : [];
     const clauseRight = Math.max(left + headerWidth, body.right + settings.horizontalPadding);
     const clauseBottom = Math.max(clauseBodyTop, body.bottom);
     children.push({
@@ -336,7 +356,7 @@ function layoutClauses(clauses, source, settings, left, bodyLeft, cursorTop) {
         header: box(left, clauseTop, headerWidth, settings.lineHeight),
         body: {left: bodyLeft, top: clauseBodyTop, right: clauseRight, bottom: clauseBottom}
       },
-      children: [...headerSockets, ...body.children],
+      children: [...headerSockets, ...commentChild, ...body.children],
       insertionZones: body.insertionZones
     });
     cursor = clauseBottom;

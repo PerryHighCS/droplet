@@ -288,6 +288,75 @@ test('falls back to a valid clause header end when metadata.headerTo is missing 
   assert.ok(third.bounds.top >= second.bounds.bottom);
 });
 
+test('widens the last clause\'s own body-end zone to the shared footer, not the primary body\'s', () => {
+  // The shared footer visually sits right after the *last branch*, not the
+  // primary body - widening the primary body's own body-end zone to the
+  // footer's bounds (as if there were no clauses) let a drop anywhere on the
+  // visible footer insert before the first clause instead of at the end of
+  // the final elif/else body.
+  const source = 'if ready:\n  first()\nelif retry:\n  second()\nelse:\n  third()\n';
+  const at = (text, from = 0) => source.indexOf(text, from);
+  const elifFrom = at('elif retry:');
+  const elseFrom = at('else:');
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('if', 0, source.length - 1, {blockRole: 'container', headerTo: at(':') + 1, bodyEnd: elifFrom, bodyIndentation: '  '}),
+    children: [
+      statement('first', at('first()'), at('first()') + 'first()'.length),
+      {
+        id: 'elif', kind: 'clause', from: elifFrom, to: elseFrom, editable: true,
+        metadata: {clauseRole: 'elif', headerTo: elifFrom + 'elif retry:'.length, bodyEnd: elseFrom, bodyIndentation: '  '},
+        children: [
+          {id: 'elif-condition', kind: 'socket', from: at('retry'), to: at('retry') + 5, editable: true, children: [], metadata: {socketRole: 'if-condition'}},
+          statement('second', at('second()'), at('second()') + 'second()'.length)
+        ]
+      },
+      {
+        id: 'else', kind: 'clause', from: elseFrom, to: source.length, editable: true,
+        metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '},
+        children: [statement('third', at('third()'), at('third()') + 'third()'.length)]
+      }
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+
+  const container = layout.nodes.find((node) => node.id === 'if');
+  const elseClause = layout.nodes.find((node) => node.id === 'else');
+  const elseBodyEnd = elseClause.insertionZones.find((zone) => zone.destination.from === source.length);
+  assert.ok(elseBodyEnd, 'the last clause must still have its own body-end zone');
+  assert.deepEqual(elseBodyEnd.bounds, container.regions.footer, 'it must claim the shared footer\'s full drawn bounds');
+
+  const primaryBodyEnd = layout.insertionZones.find((zone) => zone.destination.from === elifFrom);
+  assert.ok(primaryBodyEnd, 'the primary body must still have its own body-end zone');
+  assert.notDeepEqual(primaryBodyEnd.bounds, container.regions.footer, 'it must not also claim the shared footer');
+});
+
+test('renders an inline comment on a clause header beside its text, not folded into it', () => {
+  const source = 'if ready:\n  first()\nelif retry:  # note\n  second()\n';
+  const at = (text, from = 0) => source.indexOf(text, from);
+  const elifFrom = at('elif retry:');
+  const commentFrom = at('# note');
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('if', 0, source.length - 1, {blockRole: 'container', headerTo: at(':') + 1, bodyEnd: elifFrom, bodyIndentation: '  '}),
+    children: [
+      statement('first', at('first()'), at('first()') + 'first()'.length),
+      {
+        id: 'elif', kind: 'clause', from: elifFrom, to: source.length, editable: true,
+        metadata: {clauseRole: 'elif', headerTo: elifFrom + 'elif retry:  # note'.length, bodyEnd: source.length, bodyIndentation: '  '},
+        children: [
+          {id: 'elif-condition', kind: 'socket', from: at('retry'), to: at('retry') + 5, editable: true, children: [], metadata: {socketRole: 'if-condition'}},
+          {id: 'note', kind: 'comment', from: commentFrom, to: commentFrom + 6, editable: true, children: [], metadata: {inline: true}},
+          statement('second', at('second()'), at('second()') + 'second()'.length)
+        ]
+      }
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+
+  const elifNode = layout.nodes.find((node) => node.id === 'elif');
+  const commentNode = layout.nodes.find((node) => node.id === 'note');
+  assert.equal(elifNode.text, 'elif retry:', 'the comment must not be folded into the header text');
+  assert.equal(commentNode.kind, 'comment');
+  assert.ok(commentNode.bounds.left > elifNode.regions.header.right, 'the comment must render beside the header, not inside it');
+});
+
 test('uses the same subtree geometry for a drag preview and gives a nested child hit priority', () => {
   const source = 'if ready:\n  first()\nsecond()\n';
   const layout = createBlockLayout(projection(source));
