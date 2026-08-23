@@ -138,12 +138,19 @@ export function transformJavaScript(operation, parsed) {
       // "+" is then a no-op: there is already somewhere to type the first item.
       if (!hasRealSequenceItem(target)) { changes = []; break; }
       // A statement target (a function declaration, or a call used as the
-      // whole statement - a container is still 'statement' kind at this raw,
-      // pre-layout level) searches only its own header/statement line for
-      // the closing ")", so a call inside the body/elsewhere on a later line
-      // isn't matched instead; a socket target (a call nested as a value)
-      // already ends exactly at its own ")".
-      const headerEnd = target.kind === 'statement' ? lineTextEnd(parsed.source, target.from) : target.to;
+      // whole statement) searches only its own header, not the whole
+      // physical line - for a compact single-line container
+      // (`function f(a) { g(); }`), the line also contains the body, and a
+      // raw backward search there could match a nested call's own closing
+      // paren instead of this sequence's own. A container's own
+      // metadata.headerTo already stops right after its opening "{" for
+      // exactly this reason; a bare call-as-statement has no body of its own
+      // to be confused with, so its whole line is still safe to search; a
+      // socket target (a call nested as a value) already ends exactly at
+      // its own ")".
+      const headerEnd = target.kind !== 'statement' ? target.to
+        : Number.isInteger(target.metadata?.headerTo) ? target.metadata.headerTo
+        : lineTextEnd(parsed.source, target.from);
       const closingParenthesis = parsed.source.lastIndexOf(')', headerEnd - 1);
       if (closingParenthesis < target.from) throw new RangeError('Sequence target has no closing delimiter');
       changes = [{from: closingParenthesis, to: closingParenthesis, insert: ', '}];

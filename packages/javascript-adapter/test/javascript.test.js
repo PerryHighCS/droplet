@@ -305,6 +305,22 @@ test('does not attach an empty argument socket outside a parenless "new" express
   assert.ok(callArgumentSockets[0].from >= callStatement.from && callArgumentSockets[0].to <= callStatement.to);
 });
 
+test('adds a parameter to a compact single-line function whose body has its own nested call', () => {
+  // insert-sequence-item's target search used the whole physical line for a
+  // statement target, not just its own header - for a compact single-line
+  // function (`function f(a) { g(); }`), the line also contains the body,
+  // and a backward search for ")" from the line's end found g()'s own
+  // closing paren (the last one in the text) instead of f's own parameter
+  // list, corrupting the wrong call entirely.
+  const source = 'function f(a) { g(); }\n';
+  const parsed = parseJavaScript(source);
+  const fn = findFirst(parsed.root, (node) => node.metadata?.type === 'FunctionDeclaration');
+
+  const changes = transformJavaScript({type: 'insert-sequence-item', target: {from: fn.from, to: fn.to}}, parsed);
+
+  assert.equal(applySourceChanges(source, changes), 'function f(a, ) { g(); }\n');
+});
+
 test('"+" on an empty call/def is a no-op, not an invalid leading comma', () => {
   // A zero-item call/def already has a directly-editable synthetic empty
   // socket (see emptyCallArgumentSocket/emptyParameterSocket) - splicing a
