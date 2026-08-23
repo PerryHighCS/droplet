@@ -68,6 +68,12 @@ test('block mode displays structured statements on the BlockSurface and hides th
 
   assert.equal(parent.querySelectorAll('.droplet-block-surface [data-droplet-kind="statement"]').length, 1);
   assert.equal(editor.editor.view.dom.style.display, 'none');
+  // CodeMirror's own base theme sets .cm-editor's display with !important,
+  // which silently wins over a plain (non-important) inline style in a real
+  // browser even though JSDOM's own computed-style resolution never
+  // exercises that theme stylesheet and would pass either way - the
+  // priority itself, not just the value, is what actually hides it.
+  assert.equal(editor.editor.view.dom.style.getPropertyPriority('display'), 'important');
   editor.setBlockMode(false);
   assert.equal(parent.querySelector('.droplet-block-surface').style.display, 'none');
   assert.equal(editor.editor.view.dom.style.display, '');
