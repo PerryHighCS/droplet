@@ -69,7 +69,7 @@ export function transformPython(operation, parsed, pythonToAST) {
       const emptyPass = emptySuitePass(parsed, operation.destination);
       changes = emptyPass
         ? [replaceEmptySuitePass(parsed.source, emptyPass, operation.source)]
-        : [insertStatementChange(parsed.source, operation.destination.from, operation.source)];
+        : [insertStatementChange(parsed.source, operation.destination.from, operation.source, operation.destination.indentation)];
       break;
     }
     case 'move-statement': {
@@ -124,8 +124,8 @@ export function transformPython(operation, parsed, pythonToAST) {
         lineRange(parsed.source, comment);
       if (operation.destination.from >= commentRange.from && operation.destination.from <= commentRange.to) return [];
       changes = comment.metadata?.inline
-        ? moveInlineCommentChanges(parsed.source, comment, commentRange, operation.destination.from)
-        : moveLineRangeChanges(parsed.source, commentRange, operation.destination.from);
+        ? moveInlineCommentChanges(parsed.source, comment, commentRange, operation.destination.from, operation.destination.indentation)
+        : moveLineRangeChanges(parsed.source, commentRange, operation.destination.from, operation.destination.indentation);
       break;
     }
     case 'copy-node': {
@@ -134,11 +134,21 @@ export function transformPython(operation, parsed, pythonToAST) {
         throw new RangeError('Copy source is not present in the current projection');
       }
       assertInsertionPoint(parsed.source, operation.destination);
-      const copiedSource = parsed.source.slice(node.from, node.to);
-      const emptyPass = emptySuitePass(parsed, operation.destination);
+      // A statement's own range (like any node here) excludes its first
+      // line's leading indentation, but a multi-line body's continuation
+      // lines keep their absolute indentation - slicing from node.from alone
+      // would drop the first line's indentation while leaving the rest at
+      // their old absolute depth, so a nested multi-line suite copied to a
+      // different depth kept/added its old depth on top of the new one.
+      const copiedSource = parsed.source.slice(lineStartAt(parsed.source, node.from), node.to);
+      // Only a statement's own emptySuitePass destination replaces the
+      // placeholder "pass" outright - a comment can't stand alone as a
+      // suite's only content, so copying one onto an empty suite must leave
+      // the pass in place and insert the comment as its own line instead.
+      const emptyPass = node.kind === 'statement' ? emptySuitePass(parsed, operation.destination) : undefined;
       changes = emptyPass
         ? [replaceEmptySuitePass(parsed.source, emptyPass, copiedSource)]
-        : [insertStatementChange(parsed.source, operation.destination.from, copiedSource)];
+        : [insertStatementChange(parsed.source, operation.destination.from, copiedSource, operation.destination.indentation)];
       break;
     }
     case 'delete-node': {
@@ -378,8 +388,13 @@ function addEmptyParameterSocket(children, node, source, from, to, lines) {
   const type = typeOf(node);
   if (type !== 'FunctionDef' && type !== 'AsyncFunctionDef') return;
   if (from === null || to === null) return;
-  const headerEnd = lineTextEnd(source, from);
-  const closingParenthesis = source.lastIndexOf(')', headerEnd);
+  // A compact single-line def's own parameter list closes before its body
+  // even starts (`def f(): g()`) - the physical line also contains the body,
+  // and searching backward from the line's end for ")" could match a nested
+  // call's own closing paren there instead of this def's own. Depth-tracking
+  // through the def's own opening "(" finds its actual matching close
+  // regardless of what a same-line body contains.
+  const closingParenthesis = matchingDelimiterEnd(source, source.indexOf('(', from), '(', ')');
   if (closingParenthesis < from) return;
   const args = node.args ?? {};
   // A default value expression (def f(a, b=1)) sits further into the source
@@ -613,8 +628,12 @@ function expandDecoratorRange(node, source, lines, range) {
   return decoratorFrom === range.from ? range : {from: decoratorFrom, to: range.to};
 }
 
-function insertStatementChange(source, destination, statementSource) {
-  const indentation = indentationAt(source, destination);
+function insertStatementChange(source, destination, statementSource, explicitIndentation) {
+  // A layout-supplied destination indentation is authoritative over the
+  // physical line at `destination` - a container body-end destination is
+  // often at EOF or at the next outer-scope line, where indentationAt reads
+  // the wrong (often empty) depth entirely.
+  const indentation = explicitIndentation ?? indentationAt(source, destination);
   const lineEnding = lineEndingAt(source, destination);
   const text = reindentPythonLines(statementSource, leadingWhitespace(statementSource, 0), indentation);
   if (destination === source.length) {
@@ -724,8 +743,8 @@ function inlineCommentRange(source, comment) {
   return {from, to: comment.to};
 }
 
-function moveInlineCommentChanges(source, comment, commentRange, destination) {
-  const insertion = insertStatementChange(source, destination, source.slice(comment.from, comment.to));
+function moveInlineCommentChanges(source, comment, commentRange, destination, explicitIndentation) {
+  const insertion = insertStatementChange(source, destination, source.slice(comment.from, comment.to), explicitIndentation);
   return [
     {from: commentRange.from, to: commentRange.to, insert: ''},
     insertion

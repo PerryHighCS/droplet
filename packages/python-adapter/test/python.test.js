@@ -736,6 +736,51 @@ test('inserts Python statements using the destination indentation without normal
   assert.throws(() => createEmptyPythonSuite('  value'), /indentation/);
 });
 
+test('honors an explicit destination indentation for a body-end at EOF, where the physical line reads none', () => {
+  // A container body-end destination is often at EOF or at the next outer-
+  // scope line, where indentationAt(destination.from) reads the wrong
+  // (often empty) depth entirely - the layout's own explicit destination
+  // indentation is authoritative and must be used instead when supplied.
+  const source = 'def f():\n    pass\n';
+  const parsed = projection(source, []);
+
+  const changes = transformPython({
+    type: 'insert-statement', destination: {from: source.length, to: source.length, indentation: '    '}, source: 'return 1'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'def f():\n    pass\n    return 1');
+});
+
+test('copying a comment onto an empty suite leaves the synthetic pass in place instead of replacing it', () => {
+  // A comment can't stand alone as a suite's only content - replacing the
+  // pass outright (as a statement copy does) would leave a comment-only
+  // suite body, invalid Python. Only a statement's own copy may replace it.
+  const source = 'if ready:\n    pass\n# note\n';
+  const passStatement = {
+    id: 'statement:pass', kind: 'statement', from: source.indexOf('pass'), to: source.indexOf('pass') + 4, children: [],
+    metadata: {type: 'Pass'}
+  };
+  const ifStatement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.indexOf('pass') + 4, children: [passStatement],
+    metadata: {
+      type: 'If', blockRole: 'container', bodyFrom: passStatement.from, bodyEnd: passStatement.to,
+      bodyIndentation: '    ', emptySuitePass: {from: passStatement.from, to: passStatement.to}
+    }
+  };
+  const comment = {
+    id: 'comment:note', kind: 'comment', from: source.indexOf('# note'), to: source.indexOf('# note') + 6, children: [],
+    metadata: {inline: false}
+  };
+  const parsed = projection(source, [ifStatement, comment]);
+
+  const changes = transformPython({
+    type: 'copy-node', source: {from: comment.from, to: comment.to}, kind: 'comment',
+    destination: {from: passStatement.from, to: passStatement.from, emptySuitePass: {from: passStatement.from, to: passStatement.to}}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n    # note\n    pass\n# note\n');
+});
+
 test('moves only Python statement lines and preserves comments, blanks, and local indentation', () => {
   const source = 'if ready:\n  first = 1  # retain\n  second = 2\n\n';
   const first = {id: 'statement:first', kind: 'statement', from: 12, to: 31, children: []};
@@ -790,6 +835,30 @@ test('copies a Python statement with destination indentation', () => {
   }, parsed, () => ({}));
 
   assert.equal(applySourceChanges(source, changes), 'first = 1\nsecond = 2\nfirst = 1');
+});
+
+test('copies a nested multi-line statement preserving its relative indentation, not its old absolute depth', () => {
+  // A statement's own range (like any node here) excludes its first line's
+  // leading indentation, while continuation lines keep their absolute
+  // indentation - slicing from node.from alone dropped the first line's
+  // indentation but left the rest at their old absolute depth, so
+  // reindenting only stripped nothing from those lines and stacked the new
+  // target indentation on top of the stale one instead of the relative depth.
+  const source = 'if a:\n    if b:\n        x = 1\n        y = 2\n';
+  const innerFrom = source.indexOf('if b:');
+  const innerTo = source.length - 1;
+  const statement = {id: 'statement:inner', kind: 'statement', from: innerFrom, to: innerTo, children: []};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({
+    type: 'copy-node', source: {from: innerFrom, to: innerTo}, kind: 'statement',
+    destination: {from: source.length, to: source.length, indentation: ''}
+  }, parsed, () => ({}));
+
+  assert.equal(
+    applySourceChanges(source, changes),
+    'if a:\n    if b:\n        x = 1\n        y = 2\nif b:\n    x = 1\n    y = 2'
+  );
 });
 
 test('adds an elif branch with a default condition and empty suite', () => {
@@ -1131,6 +1200,38 @@ test('finds the trailing socket even when the last real item is a keyword argume
     .find((node) => node.metadata?.socketRole === 'parameter' && node.metadata?.empty);
   assert.ok(trailingParameter, 'a new editable parameter socket must appear after the defaulted parameter');
   assert.equal(trailingParameter.from, defSource.indexOf(')'));
+});
+
+test('places a zero-parameter def\'s synthetic socket at its own closing parenthesis, not a nested call\'s', () => {
+  // addEmptyParameterSocket searched backward from the physical line's end -
+  // for a compact single-line def with no parameters ("def f(): g()"), the
+  // line also contains the body, and that search found g()'s own closing
+  // paren (the last one in the text) instead of f's own, placing the
+  // synthetic empty socket inside the nested call instead of before f's ")".
+  const position = (source) => (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (source) => (type, from, to, extra = {}) => {
+    const pos = position(source);
+    return {type, ...pos(from), end_lineno: pos(to).lineno, end_col_offset: pos(to).col_offset, ...extra};
+  };
+
+  const source = 'def f(): g()\n';
+  const at = located(source);
+  const gCall = at('Call', source.indexOf('g'), source.indexOf('g()') + 3, {
+    func: at('Name', source.indexOf('g'), source.indexOf('g') + 1, {id: 'g'}), args: []
+  });
+  const gExpr = at('Expr', source.indexOf('g'), source.indexOf('g()') + 3, {value: gCall});
+  const fn = at('FunctionDef', 0, source.indexOf('\n'), {
+    name: 'f', args: {lineno: 1, posonlyargs: [], args: [], kwonlyargs: []}, body: [gExpr], decorator_list: []
+  });
+  const parsed = parsePython(source, () => ({type: 'Module', body: [fn]}));
+
+  const emptyParameter = collectProjectedNodes(parsed.root)
+    .find((node) => node.metadata?.socketRole === 'parameter' && node.metadata?.empty);
+  assert.ok(emptyParameter, 'the zero-parameter def must still get its own empty parameter socket');
+  assert.equal(emptyParameter.from, source.indexOf(')'), 'the socket must sit at f\'s own closing parenthesis, not g()\'s');
 });
 
 test('removes a middle call argument, splicing its own separating comma', () => {
