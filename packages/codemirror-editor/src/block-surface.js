@@ -46,17 +46,26 @@ export function hitTestBlockLayout(layout, point) {
 function layoutDocument(node, source, settings) {
   const children = structuralChildren(node);
   const content = layoutChildren(children, source, settings, 0, 0, node.to, {indentation: ''});
+  const bounds = {
+    left: 0, top: 0,
+    right: Math.max(settings.minimumWidth, content.right),
+    bottom: Math.max(settings.lineHeight, content.bottom)
+  };
+  // An empty document's sole body-end zone (see layoutChildren) is a thin
+  // band centered on the empty cursor position, not the document's whole
+  // visible empty row - a drop anywhere below that band would silently miss
+  // every zone. Widen it to the document's own bounds, the way
+  // layoutContainer widens its body-end zone to its footer's drawn bounds.
+  const insertionZones = children.length
+    ? content.insertionZones
+    : content.insertionZones.map((zone) => zone.role === 'body-end' ? {...zone, bounds} : zone);
   return {
     id: node.id,
     kind: 'document',
     source: rangeOf(node),
-    bounds: {
-      left: 0, top: 0,
-      right: Math.max(settings.minimumWidth, content.right),
-      bottom: Math.max(settings.lineHeight, content.bottom)
-    },
+    bounds,
     children: content.children,
-    insertionZones: content.insertionZones
+    insertionZones
   };
 }
 
@@ -341,15 +350,38 @@ function structuralChildren(node, source) {
     child.kind === 'statement' || (child.kind === 'comment' && !child.metadata?.inline) || child.kind === 'whitespace' || child.kind?.startsWith('opaque-'));
   if (source && typeof node.metadata?.bodyIndentation === 'string') {
     // Brython can retain an outer-scope statement beneath an earlier suite in
-    // its object tree. Source indentation is the authoritative suite boundary.
+    // its object tree, so a real statement needs the indentation check below:
+    // source indentation, not AST nesting, is the authoritative suite
+    // boundary there. A blank line or standalone comment isn't subject to
+    // that same quirk - it reaches this node's children at all only because
+    // the adapter's own triviaParent walk (a separate, range-based search
+    // over the already-projected tree, not Brython's raw AST) already found
+    // no more specific clause/statement to attach it to. A blank line also
+    // has no indentation of its own to check in the first place - the
+    // indentation filter would always exclude it, and it would silently
+    // disappear from every branch's rendering instead of staying visibly
+    // ordered in the one triviaParent already chose for it.
     return descendantStructuralNodes(node)
-      .filter((child) => leadingIndentation(source, child.from) === node.metadata.bodyIndentation)
+      .filter((child) => child.kind !== 'statement' || leadingIndentation(source, child.from) === node.metadata.bodyIndentation)
       .sort(compareSourceRanges);
   }
   // Acorn represents a JavaScript braced body as a BlockStatement child. It is
-  // structural syntax, not a second user-visible C block inside an if/for.
-  if (isContainer(node) && children.length === 1 && children[0].metadata?.type === 'BlockStatement') {
-    return structuralChildren(children[0], source);
+  // structural syntax, not a second user-visible C block inside an if/for -
+  // flatten it into this container's own body. A branch-boundary comment or
+  // blank line between that block's own closing brace and a following
+  // elif/else clause (see ifClauses) rides alongside it here as another
+  // direct child, not inside the block itself; requiring it to be the only
+  // child before flattening at all used to render the block as a spurious
+  // second nested container whenever such trivia was present. Only the
+  // statement itself needs to be alone - any such trivia becomes a trailing
+  // sibling of the flattened body instead.
+  const statementChildren = children.filter((child) => child.kind === 'statement');
+  const blockStatement = statementChildren.length === 1 && statementChildren[0].metadata?.type === 'BlockStatement'
+    ? statementChildren[0]
+    : undefined;
+  if (isContainer(node) && blockStatement) {
+    const trivia = children.filter((child) => child !== blockStatement);
+    return [...structuralChildren(blockStatement, source), ...trivia].sort(compareSourceRanges);
   }
   return children.sort(compareSourceRanges);
 }

@@ -179,6 +179,75 @@ test('lays out an if/elif/else chain as stacked branch sections with one shared 
   assert.equal(hitTestBlockLayout(layout, {x: second.bounds.left + 2, y: second.bounds.top + 2}).node.id, 'second');
 });
 
+test('renders a blank line between an if body and its else instead of dropping it from every branch', () => {
+  // A blank line (or standalone comment) between a branch's own body and a
+  // following elif/else has no indentation of its own - Python attaches it
+  // to the enclosing if statement (triviaParent finds no more specific
+  // clause/statement to own it), and the primary body's own indentation
+  // filter used to exclude it there too, since it can never match a real
+  // statement's leading whitespace. It disappeared from every branch's
+  // rendering instead of staying visibly ordered in the one it was
+  // actually attached to.
+  const source = 'if ready:\n  first()\n\nelse:\n  second()\n';
+  const at = (text, from = 0) => source.indexOf(text, from);
+  const elseFrom = at('else:');
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('if', 0, source.length - 1, {blockRole: 'container', headerTo: at(':') + 1, bodyEnd: elseFrom, bodyIndentation: '  '}),
+    children: [
+      statement('first', at('first()'), at('first()') + 'first()'.length),
+      {id: 'blank', kind: 'whitespace', from: at('first()') + 'first()'.length + 1, to: elseFrom - 1, editable: false, children: [], metadata: {text: '', lineEnding: '\n'}},
+      {
+        id: 'else', kind: 'clause', from: elseFrom, to: source.length, editable: true,
+        metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '},
+        children: [statement('second', at('second()'), at('second()') + 'second()'.length)]
+      }
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+
+  const first = layout.nodes.find((node) => node.id === 'first');
+  const blank = layout.nodes.find((node) => node.id === 'blank');
+  const elseClause = layout.nodes.find((node) => node.id === 'else');
+  assert.ok(blank, 'the blank line must still render, not disappear');
+  assert.equal(blank.kind, 'whitespace');
+  assert.ok(blank.bounds.top >= first.bounds.bottom);
+  assert.ok(elseClause.regions.header.top >= blank.bounds.bottom);
+});
+
+test('flattens a JavaScript body block even when a branch-boundary blank line sits alongside it', () => {
+  // Acorn represents a braced body as its own BlockStatement child, normally
+  // flattened away as structural syntax rather than a second user-visible
+  // box. A blank line or standalone comment between that block's closing
+  // brace and a following "else" (see ifClauses in the JavaScript adapter)
+  // rides alongside the BlockStatement as another direct child of the same
+  // IfStatement - requiring the BlockStatement to be the *only* child before
+  // flattening used to leave it unflattened whenever such trivia existed,
+  // rendering it as a spurious nested container inside the primary one.
+  const source = 'if (x) {\n  a();\n}\n\nelse {\n  b();\n}\n';
+  const at = (text, from = 0) => source.indexOf(text, from);
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('if', 0, source.length - 1, {type: 'IfStatement', blockRole: 'container', headerTo: at('{') + 1, bodyEnd: at('}')}),
+    children: [
+      {
+        ...statement('block', at('{'), at('}') + 1, {type: 'BlockStatement'}),
+        children: [statement('a', at('a();'), at('a();') + 'a();'.length)]
+      },
+      {id: 'blank', kind: 'whitespace', from: at('}') + 1, to: at('}') + 2, editable: false, children: [], metadata: {text: '', lineEnding: '\n'}},
+      {
+        id: 'else', kind: 'clause', from: at('else'), to: at('}', at('b();')) + 1, editable: true,
+        metadata: {type: 'BlockStatement', clauseRole: 'else', headerTo: at('{', at('else')) + 1, bodyEnd: at('}', at('b();'))},
+        children: [statement('b', at('b();'), at('b();') + 'b();'.length)]
+      }
+    ]
+  }])}, {measureText: (text) => text.length * 10});
+
+  const containers = layout.nodes.filter((node) => node.kind === 'container');
+  assert.deepEqual(containers.map((node) => node.id), ['if'], 'the body block must not render as its own second container');
+  const a = layout.nodes.find((node) => node.id === 'a');
+  const elseClause = layout.nodes.find((node) => node.id === 'else');
+  assert.ok(a);
+  assert.ok(elseClause.regions.header.top >= a.bounds.bottom);
+});
+
 test('falls back to a valid clause header end when metadata.headerTo is missing or malformed', () => {
   // metadata.headerTo is trusted adapter output - assertProjection does not
   // validate it. Slicing straight to an absent/malformed value (source.slice
@@ -255,6 +324,13 @@ test('prefers an inner container insertion zone and retains its source indentati
 
   assert.equal(zone.depth, 2);
   assert.deepEqual(zone.destination, {from: source.length, to: source.length, indentation: '    '});
+});
+
+test('an empty document\'s insertion zone covers its whole visible empty row, not a thin band at its top', () => {
+  const layout = createBlockLayout({source: '', root: documentNode('', [])});
+
+  assert.equal(hitTestBlockLayout(layout, {x: 5, y: layout.bounds.bottom - 1})?.kind, 'insertion');
+  assert.equal(hitTestBlockLayout(layout, {x: 5, y: 0})?.kind, 'insertion');
 });
 
 function projection(source) {
