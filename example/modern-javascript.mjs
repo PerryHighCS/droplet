@@ -25,15 +25,26 @@ const samples = {
 // App Lab also has UI controls/Canvas/Data/Turtle categories, all of them
 // App Lab's own runtime API (drawing, widgets, lists, turtle graphics) with
 // no equivalent in plain JavaScript - out of scope for a generic playground,
-// so this reproduces only the four categories above.
+// so this reproduces only the four categories above. Its Control category
+// also includes getTime/setTimeout/clearTimeout/timedLoop/stopTimedLoop -
+// App Lab's own timing runtime, likewise excluded here, and break/continue
+// do not appear in its toolbox at all, so they are left out too.
+//
+// A block's own value/argument sockets are filled with a "value" placeholder
+// (not left empty like App Lab's own blocks) only where JavaScript's grammar
+// requires *some* expression there (an operator's operands, a while/if
+// condition) - a socket that is genuinely optional in valid JavaScript (a
+// call's arguments, a function's parameters, a bare `return;`) uses a real
+// empty, directly-editable socket instead, matching App Lab exactly (see
+// emptyCallArgumentSocket/emptyParameterSocket/emptyReturnValueSocket in
+// packages/javascript-adapter).
 const palette = [
   {
     name: 'Control', category: 'control', blocks: [
       {id: 'if', label: 'if (true) { }', source: 'if (true) {\n}\n'},
+      {id: 'if-else', label: 'if (true) { } else { }', source: 'if (true) {\n} else {\n}\n'},
       {id: 'while', label: 'while (true) { }', source: 'while (true) {\n}\n'},
-      {id: 'for', label: 'for (var i = 0; i < 4; i++) { }', source: 'for (var i = 0; i < 4; i++) {\n}\n'},
-      {id: 'break', label: 'break;', source: 'break;\n'},
-      {id: 'continue', label: 'continue;', source: 'continue;\n'}
+      {id: 'for', label: 'for (var i = 0; i < 4; i++) { }', source: 'for (var i = 0; i < 4; i++) {\n}\n'}
     ]
   },
   {
@@ -43,15 +54,23 @@ const palette = [
       {id: 'mul', label: 'value * value', source: 'value * value', kind: 'expression'},
       {id: 'div', label: 'value / value', source: 'value / value', kind: 'expression'},
       {id: 'mod', label: 'value % value', source: 'value % value', kind: 'expression'},
-      {id: 'eq', label: 'value === value', source: 'value === value', kind: 'expression'},
-      {id: 'ne', label: 'value !== value', source: 'value !== value', kind: 'expression'},
-      {id: 'lt', label: 'value < value', source: 'value < value', kind: 'expression'},
+      {id: 'eq', label: 'value == value', source: 'value == value', kind: 'expression'},
+      {id: 'ne', label: 'value != value', source: 'value != value', kind: 'expression'},
       {id: 'gt', label: 'value > value', source: 'value > value', kind: 'expression'},
+      {id: 'ge', label: 'value >= value', source: 'value >= value', kind: 'expression'},
+      {id: 'lt', label: 'value < value', source: 'value < value', kind: 'expression'},
+      {id: 'le', label: 'value <= value', source: 'value <= value', kind: 'expression'},
       {id: 'and', label: 'value && value', source: 'value && value', kind: 'expression'},
       {id: 'or', label: 'value || value', source: 'value || value', kind: 'expression'},
       {id: 'not', label: '!value', source: '!value', kind: 'expression'},
+      {id: 'random-number', label: 'randomNumber(1, 10)', source: 'randomNumber(1, 10)', kind: 'expression'},
+      {id: 'round', label: 'Math.round()', source: 'Math.round()', kind: 'expression'},
+      {id: 'abs', label: 'Math.abs()', source: 'Math.abs()', kind: 'expression'},
+      {id: 'max', label: 'Math.max()', source: 'Math.max()', kind: 'expression'},
+      {id: 'min', label: 'Math.min()', source: 'Math.min()', kind: 'expression'},
       {id: 'random', label: 'Math.random()', source: 'Math.random()', kind: 'expression'},
-      {id: 'round', label: 'Math.round(value)', source: 'Math.round(value)', kind: 'expression'}
+      {id: 'pow', label: 'Math.pow(value, value)', source: 'Math.pow(value, value)', kind: 'expression'},
+      {id: 'sqrt', label: 'Math.sqrt()', source: 'Math.sqrt()', kind: 'expression'}
     ]
   },
   {
@@ -64,10 +83,16 @@ const palette = [
   },
   {
     name: 'Functions', category: 'functions', blocks: [
-      {id: 'def', label: 'function name() { }', source: 'function name() {\n}\n'},
-      {id: 'call', label: 'name()', source: 'name()', kind: 'expression'},
+      {id: 'def', label: 'function myFunction() { }', source: 'function myFunction() {\n}\n'},
+      {id: 'def-param', label: 'function myFunction(n) { }', source: 'function myFunction(n) {\n}\n'},
+      {id: 'call', label: 'myFunction()', source: 'myFunction()', kind: 'expression'},
+      {id: 'call-arg', label: 'myFunction(n)', source: 'myFunction(n)', kind: 'expression'},
       {id: 'log', label: 'console.log(value);', source: 'console.log(value);\n'},
-      {id: 'return', label: 'return value;', source: 'return value;\n'}
+      {id: 'return', label: 'return ;', source: 'return;\n'}
+      // App Lab also has a comment block ("// Comment"); the JavaScript
+      // adapter does not project comments as their own node kind (see its
+      // module doc), so there is nothing here for a comment block to attach
+      // to yet.
     ]
   }
 ];
