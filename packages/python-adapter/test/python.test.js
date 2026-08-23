@@ -949,6 +949,43 @@ test('appends a new empty element to a list literal', () => {
   assert.equal(applySourceChanges(source, changes), 'items = [a, ]\n');
 });
 
+test('"+" on an empty call/list/def is a no-op, not an invalid leading comma', () => {
+  // A zero-item call/list/def already has a directly-editable synthetic
+  // empty socket (see emptyCallArgumentSocket/emptyParameterSocket/
+  // emptyListItemSocket) - splicing a leading "," in before any real item
+  // exists produces invalid syntax (`print(, )`), since a call/parameter
+  // list/list literal allows no leading elision.
+  let source = 'first()\n';
+  let callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  let statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  let parsed = projection(source, [statement]);
+  assert.deepEqual(transformPython(
+    {type: 'insert-sequence-item', target: {from: callSocket.from, to: callSocket.to}}, parsed, () => ({})
+  ), []);
+
+  source = 'items = []\n';
+  let listSocket = {
+    id: 'socket:list', kind: 'socket', from: source.indexOf('['), to: source.indexOf(']') + 1, children: [],
+    metadata: {type: 'List', socketRole: 'assignment-value'}
+  };
+  statement = {id: 'statement:assign', kind: 'statement', from: 0, to: source.length, children: [listSocket]};
+  parsed = projection(source, [statement]);
+  assert.deepEqual(transformPython(
+    {type: 'insert-sequence-item', target: {from: listSocket.from, to: listSocket.to}}, parsed, () => ({})
+  ), []);
+
+  source = 'def f():\n  pass\n';
+  statement = {id: 'statement:def', kind: 'statement', from: 0, to: source.length, children: [],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}};
+  parsed = projection(source, [statement]);
+  assert.deepEqual(transformPython(
+    {type: 'insert-sequence-item', target: {from: statement.from, to: statement.to}}, parsed, () => ({})
+  ), []);
+});
+
 test('appends a new empty parameter to a function definition', () => {
   const source = 'def f(a, b):\n  pass\n';
   const paramA = {

@@ -197,6 +197,13 @@ export function transformPython(operation, parsed, pythonToAST) {
     case 'insert-sequence-item': {
       const target = findAny(parsed.root, operation.target);
       if (!target) throw new RangeError('Sequence target is not present in the current projection');
+      // A synthetic empty socket (see emptyCallArgumentSocket/
+      // emptyParameterSocket/emptyListItemSocket) already gives a zero-item
+      // call/def/list a directly-editable first slot - splicing a leading
+      // "," in before any real item exists produces invalid syntax
+      // (`print(, )`), since a call/parameter/list allows no leading elision.
+      // "+" is then a no-op: there is already somewhere to type the first item.
+      if (!hasRealSequenceItem(target)) { changes = []; break; }
       const closeChar = target.metadata?.type === 'List' ? ']' : ')';
       const headerEnd = target.kind === 'statement' ? lineTextEnd(parsed.source, target.from) : target.to;
       const closingPosition = parsed.source.lastIndexOf(closeChar, headerEnd - 1);
@@ -657,6 +664,28 @@ function reindentPythonLines(source, fromIndentation, toIndentation) {
 
 function ensureLineEnding(source, lineEnding) {
   return /(?:\r\n|\r|\n)$/.test(source) ? '' : lineEnding;
+}
+
+// A call/list's own argument/item sockets sit directly on the target found
+// for a value-nested call/list (a compound socket) or a def's own parameter
+// list - but a call used as a whole statement has no socket of its own to
+// search from, only the Call/List node itself, one level down, as its sole
+// child (see projectNode). findAny also prefers the outer of two nodes
+// whose ranges happen to tie (checking the node itself before its
+// children), so an ancestor transparently wrapping a single identically-
+// ranged child is the same kind of pass-through. Descend through either,
+// but not into an already-matched real item's own separate sequence.
+function hasRealSequenceItem(node) {
+  const direct = (node.children ?? []).some((child) => !child.metadata?.empty && isSequenceItemRole(child.metadata?.socketRole));
+  if (direct) return true;
+  const wrapper = (node.children ?? []).find((child) =>
+    (child.kind === 'socket' && (child.metadata?.type === 'Call' || child.metadata?.type === 'List')) ||
+    (child.from === node.from && child.to === node.to));
+  return wrapper ? hasRealSequenceItem(wrapper) : false;
+}
+
+function isSequenceItemRole(role) {
+  return role === 'call-argument' || role === 'parameter' || role === 'list-item';
 }
 
 function indentationAt(source, position) {

@@ -130,6 +130,13 @@ export function transformJavaScript(operation, parsed) {
     case 'insert-sequence-item': {
       const target = findAny(parsed.root, operation.target);
       if (!target) throw new RangeError('Sequence target is not present in the current projection');
+      // A synthetic empty socket (see emptyCallArgumentSocket/
+      // emptyParameterSocket) already gives a zero-item call/def a directly-
+      // editable first slot - splicing a leading "," in before any real item
+      // exists produces invalid syntax (`print(, )`), since an argument or
+      // parameter list, unlike an array literal, allows no leading elision.
+      // "+" is then a no-op: there is already somewhere to type the first item.
+      if (!hasRealSequenceItem(target)) { changes = []; break; }
       // A statement target (a function declaration, or a call used as the
       // whole statement - a container is still 'statement' kind at this raw,
       // pre-layout level) searches only its own header/statement line for
@@ -279,6 +286,21 @@ function templateLiteralRanges(text) {
 // after it.
 function isAppendPastUnterminatedLine(source, destination) {
   return destination === source.length && source.length > 0 && !source.endsWith('\n');
+}
+
+// A call/def's own argument/parameter sockets sit directly on the target
+// node found for a value-nested call (a compound socket) or a function
+// declaration - but a call used as a whole statement has no socket of its
+// own to search from, only an intermediate 'expression' wrapper (see
+// projectNode/structuralChildren) bridging the statement down to its
+// CallExpression's actual sockets. One level of descent through that
+// wrapper covers both shapes without also reaching into an unrelated nested
+// call's own separate argument list (which projects as 'socket', not
+// 'expression', so this never descends into it).
+function hasRealSequenceItem(node) {
+  return (node.children ?? []).some((child) =>
+    (!child.metadata?.empty && (child.metadata?.socketRole === 'call-argument' || child.metadata?.socketRole === 'parameter')) ||
+    (child.kind === 'expression' && hasRealSequenceItem(child)));
 }
 
 // Shared by move-statement and copy-node: splices a relocated statement's

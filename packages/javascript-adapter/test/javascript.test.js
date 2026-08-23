@@ -250,6 +250,28 @@ test('inserts and removes sequence items for a def, a call statement, and a nest
   assert.equal(applySourceChanges(source, changes), 'myFunction(a, c);\n');
 });
 
+test('"+" on an empty call/def is a no-op, not an invalid leading comma', () => {
+  // A zero-item call/def already has a directly-editable synthetic empty
+  // socket (see emptyCallArgumentSocket/emptyParameterSocket) - splicing a
+  // leading "," in before any real item exists produced invalid syntax
+  // (`print(, )`), since an argument/parameter list allows no leading
+  // elision the way an array literal does.
+  let source = 'print();\n';
+  let parsed = parseJavaScript(source);
+  let target = findFirst(parsed.root, (node) => node.kind === 'statement' && node.metadata?.type === 'ExpressionStatement');
+  assert.deepEqual(transformJavaScript({type: 'insert-sequence-item', target: {from: target.from, to: target.to}}, parsed), []);
+
+  source = 'function empty() {\n}\n';
+  parsed = parseJavaScript(source);
+  target = findFirst(parsed.root, (node) => node.metadata?.type === 'FunctionDeclaration');
+  assert.deepEqual(transformJavaScript({type: 'insert-sequence-item', target: {from: target.from, to: target.to}}, parsed), []);
+
+  source = 'x = f();\n';
+  parsed = parseJavaScript(source);
+  target = findFirst(parsed.root, (node) => node.kind === 'socket' && node.metadata?.type === 'CallExpression');
+  assert.deepEqual(transformJavaScript({type: 'insert-sequence-item', target: {from: target.from, to: target.to}}, parsed), []);
+});
+
 test('a def or call with real parameters/arguments and no trailing "," gets no phantom empty socket', () => {
   // emptySequenceSocket matches "nothing between the last real item and the
   // closing )" - without requiring an actual "," there, `myFunction(n)`
