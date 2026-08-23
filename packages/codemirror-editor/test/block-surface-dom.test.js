@@ -296,6 +296,40 @@ test('an unrelated second pointer does not steer or end a drag the first pointer
   }]);
 });
 
+test('a second pointerdown mid-drag does not overwrite the drag the first pointer already started', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(assignmentSockets());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const target = surface.layout.nodes.find((node) => node.id === 'target');
+  const value = surface.layout.nodes.find((node) => node.id === 'value');
+
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerdown', {
+    bubbles: true, button: 0, pointerId: 1, clientX: target.bounds.left + 2, clientY: target.bounds.top + 2
+  }));
+  // A second, unrelated pointer presses a different movable node while
+  // pointer 1's drag is still in progress. It must not replace pointer 1's
+  // own drag state (its node, start point, or pointerId).
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerdown', {
+    bubbles: true, button: 0, pointerId: 2, clientX: value.bounds.left + 2, clientY: value.bounds.top + 2
+  }));
+
+  svg.dispatchEvent(new dom.window.PointerEvent('pointermove', {
+    bubbles: true, button: 0, pointerId: 1, clientX: value.bounds.left + 2, clientY: value.bounds.top + 2
+  }));
+  svg.dispatchEvent(new dom.window.PointerEvent('pointerup', {
+    bubbles: true, button: 0, pointerId: 1, clientX: value.bounds.left + 2, clientY: value.bounds.top + 2
+  }));
+
+  assert.deepEqual(operations, [{
+    type: 'replace-socket', target: {from: 9, to: 14}, source: 'target'
+  }]);
+});
+
 test('drops an expression palette block onto a socket as a replacement operation', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];

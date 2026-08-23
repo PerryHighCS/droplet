@@ -298,7 +298,13 @@ export class BlockSurface {
   }
 
   #beginDrag(event) {
-    if (event.button !== 0 || !this.#layout || !this.#onOperation || this.#readOnly) return;
+    // A drag is bound to the one pointer that started it (see #continueDrag/
+    // #endDrag's own pointerId checks) - a second pointer pressing a movable
+    // node while that drag is still active must not overwrite its node,
+    // start point, or pointerId. Left unguarded, the first pointer's own
+    // eventual pointerup would fail the pointerId check in #endDrag and its
+    // release would be silently lost.
+    if (event.button !== 0 || !this.#layout || !this.#onOperation || this.#readOnly || this.#drag) return;
     // A remove badge sits right at a socket's own corner and an add button
     // right at a container/compound-socket's own edge, so a press there can
     // also hit-test to the movable node underneath. The button click, not a
