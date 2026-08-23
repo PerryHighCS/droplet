@@ -46,6 +46,45 @@ test('uses a layout insertion zone for one statement move intent and matching pr
   }]);
 });
 
+test('reuses the drag preview elements across pointermoves within the same zone, not on every move', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: () => {}});
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerdown', {bubbles: true, button: 0,
+    clientX: first.bounds.left + 2, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointermove', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.top + 2}));
+  const floating = svg.querySelector('.droplet-drag-preview');
+  const placement = svg.querySelector('.droplet-drop-preview');
+  const guide = svg.querySelector('.droplet-drop-guide');
+  assert.ok(floating && placement && guide);
+
+  // A second move landing in the same "before second" half - same zone -
+  // must not rebuild the placement/guide, only reposition the floating copy.
+  svg.dispatchEvent(new dom.window.MouseEvent('pointermove', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 4, clientY: second.bounds.top + 3}));
+  assert.equal(svg.querySelector('.droplet-drag-preview'), floating);
+  assert.equal(svg.querySelector('.droplet-drop-preview'), placement);
+  assert.equal(svg.querySelector('.droplet-drop-guide'), guide);
+
+  // A move to the opposite half is a different zone: the placement and guide
+  // are rebuilt, but the floating preview - which only ever needs a new
+  // transform - is still the exact same element.
+  svg.dispatchEvent(new dom.window.MouseEvent('pointermove', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.bottom - 2}));
+  assert.equal(svg.querySelector('.droplet-drag-preview'), floating);
+  assert.notEqual(svg.querySelector('.droplet-drop-preview'), placement);
+  assert.notEqual(svg.querySelector('.droplet-drop-guide'), guide);
+
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerup', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.bottom - 2}));
+});
+
 test('uses the upper and lower halves of a statement as before and after drop targets', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];

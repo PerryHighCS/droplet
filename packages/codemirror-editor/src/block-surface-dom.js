@@ -287,7 +287,9 @@ export class BlockSurface {
       lastPoint: pointFor(this.#svg, event),
       moved: false,
       destination: undefined,
-      operation: undefined
+      operation: undefined,
+      preview: undefined,
+      lastZone: undefined
     };
     this.#svg.setPointerCapture?.(event.pointerId);
     event.preventDefault();
@@ -304,7 +306,15 @@ export class BlockSurface {
       escapeDestination(this.#layout, point, this.#drag.node, this.#drag.copy);
     this.#drag.destination = resolved?.destination;
     this.#drag.operation = resolved?.operation;
-    renderDragPreviews(this.#svg, this.#layout, this.#drag.node, point, resolved?.zone);
+    // The dragged subtree's own geometry never changes mid-drag - computed
+    // once here (not eagerly in #beginDrag, so a plain click that never
+    // crosses the movement threshold above never pays for it) and reused for
+    // every remaining pointermove, instead of rescanning layout.nodes and
+    // rebuilding both preview copies' DOM on every single one.
+    this.#drag.preview ??= createSubtreePreview(this.#layout, this.#drag.node.id);
+    const zoneChanged = !sameDropZone(resolved?.zone, this.#drag.lastZone);
+    this.#drag.lastZone = resolved?.zone;
+    updateDragPreviews(this.#svg, this.#drag.preview, point, resolved?.zone, zoneChanged);
     event.preventDefault();
   }
 
@@ -567,16 +577,24 @@ function isOutsideCanvas(layout, point) {
   return point.x < 0 || point.y < 0 || point.x > layout.bounds.right + 16 || point.y > layout.bounds.bottom + 16;
 }
 
-function renderDragPreviews(svg, layout, node, point, zone) {
-  clearDragPreviews(svg);
+// The floating copy just follows the pointer (only its own transform needs
+// updating, every move); the placement copy and the guide represent the
+// resolved drop zone, which usually stays the same across many consecutive
+// moves within it, so they only need rebuilding when it actually changes -
+// see sameDropZone, and #continueDrag's own preview/zoneChanged caching.
+function updateDragPreviews(svg, preview, point, zone, zoneChanged) {
   const document = svg.ownerDocument;
-  const preview = createSubtreePreview(layout, node.id);
-  const floating = document.createElementNS(SVG_NAMESPACE, 'g');
-  floating.classList.add('droplet-drag-preview');
+  let floating = svg.querySelector('.droplet-drag-preview');
+  if (!floating) {
+    floating = document.createElementNS(SVG_NAMESPACE, 'g');
+    floating.classList.add('droplet-drag-preview');
+    floating.setAttribute('opacity', '.85');
+    floating.append(renderNode(preview, document, {showSocketText: true}));
+    svg.append(floating);
+  }
   floating.setAttribute('transform', `translate(${point.x + 12} ${point.y + 12})`);
-  floating.setAttribute('opacity', '.85');
-  floating.append(renderNode(preview, document, {showSocketText: true}));
-  svg.append(floating);
+  if (!zoneChanged) return;
+  svg.querySelectorAll('.droplet-drop-preview, .droplet-drop-guide').forEach((element) => element.remove());
   if (!zone) return;
   const placement = document.createElementNS(SVG_NAMESPACE, 'g');
   placement.classList.add('droplet-drop-preview');
@@ -591,6 +609,18 @@ function renderDragPreviews(svg, layout, node, point, zone) {
   guide.setAttribute('height', '3');
   guide.setAttribute('fill', '#4d7fb5');
   svg.append(placement, guide);
+}
+
+// Reference equality doesn't work here - destinationForTarget constructs a
+// fresh zone object literal on essentially every call, even when hovering
+// the exact same logical target across consecutive pointermove events - so
+// this compares the values that actually affect rendering instead (bounds,
+// since that is all updateDragPreviews reads from a zone).
+function sameDropZone(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.bounds.left === right.bounds.left && left.bounds.top === right.bounds.top &&
+    left.bounds.right === right.bounds.right && left.bounds.bottom === right.bounds.bottom;
 }
 
 function renderExternalDropGuide(svg, zone) {
