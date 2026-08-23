@@ -250,6 +250,46 @@ test('inserts and removes sequence items for a def, a call statement, and a nest
   assert.equal(applySourceChanges(source, changes), 'myFunction(a, c);\n');
 });
 
+test('adds an editable trailing socket even when a call argument is itself a nested call', () => {
+  // emptySequenceSocket used to find the closing ")" with a plain indexOf,
+  // which stops at the first one it sees - for f(g()), that is g()'s own
+  // closing paren, not f's. The "," insert-sequence-item spliced in front of
+  // it still happened to parse (a nested call's own close paren reads as
+  // "the end of the previous argument" either way), but the empty socket it
+  // should have projected right after was computed from that same wrong
+  // position and never appeared.
+  const source = 'f(g());\n';
+  const parsed = parseJavaScript(source);
+  const statement = findFirst(parsed.root, (node) => node.kind === 'statement' && node.metadata?.type === 'ExpressionStatement');
+  const changes = transformJavaScript({type: 'insert-sequence-item', target: {from: statement.from, to: statement.to}}, parsed);
+  const result = applySourceChanges(source, changes);
+  assert.equal(result, 'f(g(), );\n');
+
+  const reprojected = parseJavaScript(result);
+  const trailingSocket = findFirst(reprojected.root, (node) =>
+    node.kind === 'socket' && node.metadata?.socketRole === 'call-argument' && node.metadata?.empty && node.from === 7);
+  assert.ok(trailingSocket, 'a new editable empty socket must appear right before the outer call\'s own closing paren');
+});
+
+test('does not attach an empty argument socket outside a parenless "new" expression\'s own range', () => {
+  // A parenless `new Foo` is complete, valid JavaScript with no argument
+  // list - the unbounded search for its own "(" used to walk straight past
+  // it into whatever statement came next and attach a socket to that
+  // statement's own "(" instead, well outside this node's own range.
+  const source = 'new Foo;\nbar();\n';
+  const parsed = parseJavaScript(source);
+  const [newStatement, callStatement] = parsed.root.children;
+
+  assert.deepEqual(newStatement.children.map((child) => child.kind), ['expression']);
+  const callArgumentSockets = [];
+  (function collect(node) {
+    if (node.metadata?.socketRole === 'call-argument') callArgumentSockets.push(node);
+    (node.children ?? []).forEach(collect);
+  })(parsed.root);
+  assert.equal(callArgumentSockets.length, 1, 'only bar()\'s own call-argument socket should exist');
+  assert.ok(callArgumentSockets[0].from >= callStatement.from && callArgumentSockets[0].to <= callStatement.to);
+});
+
 test('"+" on an empty call/def is a no-op, not an invalid leading comma', () => {
   // A zero-item call/def already has a directly-editable synthetic empty
   // socket (see emptyCallArgumentSocket/emptyParameterSocket) - splicing a

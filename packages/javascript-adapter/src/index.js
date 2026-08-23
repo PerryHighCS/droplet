@@ -438,7 +438,7 @@ function elseClause(from, block, source) {
 function emptyParameterSocket(node, source) {
   if (node.type !== 'FunctionDeclaration' && node.type !== 'FunctionExpression') return [];
   const openParen = source.indexOf('(', node.id ? node.id.end : node.start);
-  if (openParen === -1) return [];
+  if (openParen === -1 || openParen >= node.end) return [];
   return emptySequenceSocket(source, openParen, node.params, 'parameter');
 }
 
@@ -450,7 +450,12 @@ function emptyParameterSocket(node, source) {
 function emptyCallArgumentSocket(node, source) {
   if (node.type !== 'CallExpression' && node.type !== 'NewExpression') return [];
   const openParen = source.indexOf('(', node.callee.end);
-  if (openParen === -1) return [];
+  // A parenless `new Foo` is complete, valid JavaScript with no argument
+  // list at all - the unbounded search above would otherwise walk straight
+  // past it into whatever statement happens to come next and attach a
+  // socket to that statement's own "(" instead, well outside this node's
+  // own range.
+  if (openParen === -1 || openParen >= node.end) return [];
   return emptySequenceSocket(source, openParen, node.arguments, 'call-argument');
 }
 
@@ -462,7 +467,11 @@ function emptyCallArgumentSocket(node, source) {
 // too (nothing but whitespace between "n" and ")"), producing a phantom
 // empty socket alongside "n" before "+" is ever clicked.
 function emptySequenceSocket(source, openParen, items, socketRole) {
-  const closeParen = source.indexOf(')', openParen);
+  // A plain indexOf would match the first ")" anywhere after the opening
+  // one, including one that closes a nested call inside an argument
+  // (`f(g())`) rather than this sequence's own closing delimiter - walk
+  // matching depth through the real token stream instead.
+  const closeParen = matchingCloseParen(source, openParen);
   if (closeParen === -1) return [];
   const lastItemEnd = items.length ? items.at(-1).end : openParen + 1;
   const between = source.slice(lastItemEnd, closeParen);
@@ -473,6 +482,29 @@ function emptySequenceSocket(source, openParen, items, socketRole) {
     kind: 'socket', from: closeParen, to: closeParen, editable: true, children: [],
     metadata: {type: 'Identifier', socketRole, empty: true}
   }];
+}
+
+// Retokenizes from an opening "(" and tracks nesting depth to find the
+// closing ")" it actually matches - a plain indexOf would stop at the first
+// ")" it sees, which for an argument that is itself a call or a parenthesized
+// expression (`f(g())`, `f((a))`) belongs to that nested pair, not this one.
+function matchingCloseParen(source, openParen) {
+  try {
+    let depth = 0;
+    const stream = tokenizer(source.slice(openParen), {ecmaVersion: 'latest'});
+    for (let token = stream.getToken(); token.type.label !== 'eof'; token = stream.getToken()) {
+      if (token.type.label === '(') depth++;
+      else if (token.type.label === ')') {
+        depth--;
+        if (depth === 0) return openParen + token.start;
+      }
+    }
+  } catch {
+    // Best effort - a syntax the tokenizer trips on here already failed to
+    // parse as part of the whole document, so there is no sequence socket to
+    // project either way.
+  }
+  return -1;
 }
 
 // A bare `return;` - a valid, argument-less return - gets the same empty
