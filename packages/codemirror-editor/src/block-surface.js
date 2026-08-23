@@ -5,6 +5,8 @@
  * supplies text measurement, renders the resulting boxes and paths, and sends
  * the selected source-range intent back through the language adapter.
  */
+import {canAddElifClause, canAddElseClause} from './clause-add-eligibility.js';
+
 export function createBlockLayout(projection, options = {}) {
   assertProjection(projection);
   const settings = normalizeOptions(options);
@@ -508,23 +510,12 @@ function normalizeOptions(options) {
   };
 }
 
-// 'If'/'For'/'AsyncFor'/'While' are Python's AST type names; 'IfStatement' is
-// JavaScript's - the only chain-capable JS construct, since JS has no
-// for/while-else the way Python does.
-const CLAUSE_ADD_ELIGIBLE_TYPES = new Set(['If', 'IfStatement', 'For', 'AsyncFor', 'While']);
-
-// Mirrors the DOM renderer's own "show add-elif/add-else" rule in purely
-// geometric terms: extra footer room is reserved exactly when, and only
-// when, those buttons will actually render there.
+// Reserves extra footer room exactly when, and only when, the DOM renderer's
+// own "add elif"/"add else" buttons (see canAddElifClause/canAddElseClause
+// in clause-add-eligibility.js, the single source of truth both share) will
+// actually render there.
 function canAddClause(node, clauses) {
-  const type = node.metadata?.type;
-  if (!CLAUSE_ADD_ELIGIBLE_TYPES.has(type)) return false;
-  // "+ elif" stays offered even once an else exists (an if-chain only
-  // requires elif/else-if to come before else, not that else be absent), so
-  // an If/IfStatement always reserves the footer room; a for/while's only
-  // possible branch is else, so once that exists there is nothing left to add.
-  if (type === 'If' || type === 'IfStatement') return true;
-  return !clauses.some((clause) => clause.metadata?.clauseRole === 'else');
+  return canAddElifClause(node) || canAddElseClause(node, clauses);
 }
 
 function positiveNumber(value, fallback) {

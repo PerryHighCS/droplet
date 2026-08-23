@@ -1,4 +1,5 @@
 import {createBlockLayout, createSubtreePreview, hitTestBlockLayout} from './block-surface.js';
+import {canAddElifClause, canAddElseClause} from './clause-add-eligibility.js';
 
 /**
  * DOM/SVG host for a BlockSurface layout. It owns visual geometry only: source
@@ -779,27 +780,21 @@ function renderClauseHeaderFrame(group, node, document) {
   if (isColonHeader(node)) renderSnakeFace(group, node.regions.header, document);
 }
 
-// 'If'/'For'/'AsyncFor'/'While' are Python's AST type names; 'IfStatement' is
-// JavaScript's.
-const CLAUSE_CHAIN_TYPES = new Set(['If', 'IfStatement', 'For', 'AsyncFor', 'While']);
-
 // "Add elif"/"add else" only ever appends after the chain's current last
 // branch (see block-surface-dom's remove/add operations) and only while an
 // else does not already exist - an if-chain only requires elif/else-if
 // before else, and this first pass only supports appending at the end.
+// showElif/showElse come from clause-add-eligibility.js, the single source
+// of truth block-surface.js's own footer-width reservation also uses, so the
+// two can't drift out of sync.
 function renderClauseControls(group, node, document) {
   const type = node.metadata?.type;
-  if (!CLAUSE_CHAIN_TYPES.has(type)) return;
   const clauses = node.children.filter((child) => child.kind === 'clause');
-  const hasElse = clauses.some((clause) => clause.metadata?.clauseRole === 'else');
+  const showElif = canAddElifClause(node);
+  const showElse = canAddElseClause(node, clauses);
+  if (!showElif && !showElse) return;
   const dataset = {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to};
-  // An if-chain only requires elif/else-if to come before else, not that
-  // else be absent - "+ elif"/"+ else if" stays offered (inserting the new
-  // branch right before the existing else) even once one exists. "+ else"
-  // is the one that hides, since a statement can only ever have one.
-  const showElif = type === 'If' || type === 'IfStatement';
   const elifLabel = type === 'IfStatement' ? '+ else if' : '+ elif';
-  const showElse = !hasElse;
   const gap = 6;
   const elifWidth = showElif ? buttonWidth(elifLabel) : 0;
   const elseWidth = showElse ? buttonWidth('+ else') : 0;
