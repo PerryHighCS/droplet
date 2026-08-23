@@ -86,6 +86,59 @@ test('replaces only a known call argument socket', () => {
   );
 });
 
+test('inserts and removes sequence items for a def, a call statement, and a nested call', () => {
+  // A def's parameters and a call's own arguments (see childNodes/
+  // socketRoleFor) both extend/shrink by splicing "," before the sequence's
+  // own closing ")" - the exact position differs by context (a def/call
+  // statement's own line vs. a call nested as a value's own end), which is
+  // why all three are covered here, not just one.
+  let source = 'function myFunction(n) {\n}\n';
+  let parsed = parseJavaScript(source);
+  let target = findFirst(parsed.root, (node) => node.metadata?.type === 'FunctionDeclaration');
+  let changes = transformJavaScript({type: 'insert-sequence-item', target: {from: target.from, to: target.to}}, parsed);
+  assert.equal(applySourceChanges(source, changes), 'function myFunction(n, ) {\n}\n');
+
+  source = 'myFunction(n);\n';
+  parsed = parseJavaScript(source);
+  target = findFirst(parsed.root, (node) => node.kind === 'statement' && node.metadata?.type === 'ExpressionStatement');
+  changes = transformJavaScript({type: 'insert-sequence-item', target: {from: target.from, to: target.to}}, parsed);
+  assert.equal(applySourceChanges(source, changes), 'myFunction(n, );\n');
+
+  source = 'return myFunction(n);\n';
+  parsed = parseJavaScript(source);
+  target = findFirst(parsed.root, (node) => node.kind === 'socket' && node.metadata?.type === 'CallExpression');
+  changes = transformJavaScript({type: 'insert-sequence-item', target: {from: target.from, to: target.to}}, parsed);
+  assert.equal(applySourceChanges(source, changes), 'return myFunction(n, );\n');
+
+  source = 'myFunction(a, b, c);\n';
+  parsed = parseJavaScript(source);
+  const middle = findFirst(parsed.root, (node) => node.kind === 'socket' && source.slice(node.from, node.to) === 'b');
+  changes = transformJavaScript({type: 'remove-sequence-item', target: {from: middle.from, to: middle.to}}, parsed);
+  assert.equal(applySourceChanges(source, changes), 'myFunction(a, c);\n');
+});
+
+test('the "," insert-sequence-item leaves behind still has an editable, removable slot', () => {
+  // The "," itself is not a param/argument, so without this there would be
+  // nothing new to click after "+", and removing the item that was there
+  // *before* "+" was clicked would leave a dangling "," - `myFunction(, )` -
+  // which is not valid JavaScript.
+  let source = 'myFunction(n);\n';
+  let parsed = parseJavaScript(source);
+  const call = findFirst(parsed.root, (node) => node.kind === 'statement' && node.metadata?.type === 'ExpressionStatement');
+  let changes = transformJavaScript({type: 'insert-sequence-item', target: {from: call.from, to: call.to}}, parsed);
+  source = applySourceChanges(source, changes);
+  assert.equal(source, 'myFunction(n, );\n');
+
+  parsed = parseJavaScript(source);
+  const emptySlot = findFirst(parsed.root, (node) => node.kind === 'socket' && node.metadata?.socketRole === 'call-argument' && node.metadata?.empty);
+  assert.ok(emptySlot, 'expected an empty call-argument socket after the dangling ","');
+  assert.equal(emptySlot.from, emptySlot.to);
+
+  const originalArgument = findFirst(parsed.root, (node) => node.kind === 'socket' && source.slice(node.from, node.to) === 'n');
+  changes = transformJavaScript({type: 'remove-sequence-item', target: {from: originalArgument.from, to: originalArgument.to}}, parsed);
+  assert.equal(applySourceChanges(source, changes), 'myFunction();\n');
+});
+
 test('labels JavaScript assignment sides and if conditions as distinct sockets', () => {
   const source = 'let target = value;\ntarget = next;\nif (ready) { run(); }\n';
   const sockets = collectNodes(parseJavaScript(source).root).filter((node) => node.kind === 'socket')
@@ -98,7 +151,7 @@ test('labels JavaScript assignment sides and if conditions as distinct sockets',
     {text: 'next', role: 'assignment-value'},
     {text: 'ready', role: 'if-condition'},
     {text: 'run', role: 'call-target'},
-    {text: '', role: 'expression'}
+    {text: '', role: 'call-argument'}
   ]);
 });
 

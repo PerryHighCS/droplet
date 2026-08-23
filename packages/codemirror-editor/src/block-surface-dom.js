@@ -671,6 +671,7 @@ function renderNode(node, document, options = {}) {
     renderAtomicFrame(group, node, document, options);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
     renderSourceLabels(group, node, node.bounds.left + 8, node.bounds.top + 20, document);
+    renderCallArgumentAddButton(group, node, document);
   }
   for (const child of otherChildren) group.append(renderNode(child, document, options));
   return group;
@@ -824,12 +825,31 @@ function renderClauseControls(group, node, document) {
 // container (not a nested compound socket - see relabelParameterSockets in
 // the Python adapter), so its own add-parameter button lives here instead
 // of alongside renderCompoundSocket's call/list add-item button.
+// 'FunctionDef'/'AsyncFunctionDef' are Python's AST type names;
+// 'FunctionDeclaration'/'FunctionExpression' are JavaScript's.
+const PARAMETER_ADD_ELIGIBLE_TYPES = new Set(['FunctionDef', 'AsyncFunctionDef', 'FunctionDeclaration', 'FunctionExpression']);
+
 function renderParameterAddButton(group, node, document) {
-  const type = node.metadata?.type;
-  if (type !== 'FunctionDef' && type !== 'AsyncFunctionDef') return;
+  if (!PARAMETER_ADD_ELIGIBLE_TYPES.has(node.metadata?.type)) return;
   if (!hasRealSequenceItem(node.children, 'parameter')) return;
   appendActionButton(group, document, {
     action: 'insert-sequence-item', label: '+', x: node.regions.header.right - 12, y: node.regions.header.top - 4,
+    dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
+  });
+}
+
+// A call used as an entire statement (`myFunction();`, `console.log(x);`) is
+// flat, atomic text, not a compound socket with its own bounds (see
+// renderCompoundSocket, which covers a call nested as a value instead) - its
+// arguments still reach here as this statement's own direct sockets, though
+// (see sourceSockets/structuralChildren in block-surface.js: a JavaScript
+// expression wrapper contributes no visible block of its own, only its own
+// sockets), so a real 'call-argument' among them is exactly the signal that
+// this statement's own expression is a call and needs the button.
+function renderCallArgumentAddButton(group, node, document) {
+  if (!hasRealSequenceItem(node.children, 'call-argument')) return;
+  appendActionButton(group, document, {
+    action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
     dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
   });
 }
@@ -1009,8 +1029,13 @@ function renderCompoundSocket(group, node, document, options) {
   renderSourceLabels(group, node, node.textLeft, node.bounds.top + 20, document);
   // A Call/List's own sequence items render as this compound socket's direct
   // children (unlike a def's parameters, which sit on the container - see
-  // renderParameterAddButton); its add button lives here to match.
-  const role = node.metadata?.type === 'List' ? 'list-item' : node.metadata?.type === 'Call' ? 'call-argument' : undefined;
+  // renderParameterAddButton); its add button lives here to match. 'List'/
+  // 'Call' are Python's AST type names; 'CallExpression'/'NewExpression' are
+  // JavaScript's (JavaScript has no array-literal-as-its-own-node the way
+  // Python's List is - an array literal socket has no add/remove button yet).
+  const role = node.metadata?.type === 'List' ? 'list-item'
+    : (node.metadata?.type === 'Call' || node.metadata?.type === 'CallExpression' || node.metadata?.type === 'NewExpression') ? 'call-argument'
+    : undefined;
   if (role && hasRealSequenceItem(node.children, role)) {
     appendActionButton(group, document, {
       action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,

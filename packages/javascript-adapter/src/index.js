@@ -101,6 +101,37 @@ export function transformJavaScript(operation, parsed) {
       changes = [{from, to: clause.to, insert: ''}];
       break;
     }
+    case 'insert-sequence-item': {
+      const target = findAny(parsed.root, operation.target);
+      if (!target) throw new RangeError('Sequence target is not present in the current projection');
+      // A statement target (a function declaration, or a call used as the
+      // whole statement - a container is still 'statement' kind at this raw,
+      // pre-layout level) searches only its own header/statement line for
+      // the closing ")", so a call inside the body/elsewhere on a later line
+      // isn't matched instead; a socket target (a call nested as a value)
+      // already ends exactly at its own ")".
+      const headerEnd = target.kind === 'statement' ? lineTextEnd(parsed.source, target.from) : target.to;
+      const closingParenthesis = parsed.source.lastIndexOf(')', headerEnd - 1);
+      if (closingParenthesis < target.from) throw new RangeError('Sequence target has no closing delimiter');
+      changes = [{from: closingParenthesis, to: closingParenthesis, insert: ', '}];
+      break;
+    }
+    case 'remove-sequence-item': {
+      const item = findSocket(parsed.root, operation.target);
+      if (!item) throw new RangeError('Sequence item is not present in the current projection');
+      const parent = findParent(parsed.root, item);
+      if (!parent) throw new RangeError('Sequence item has no enclosing node');
+      const role = item.metadata?.socketRole;
+      const siblings = (parent.children ?? [])
+        .filter((child) => (child.kind === 'socket' || child.kind === 'recovery-socket') && child.metadata?.socketRole === role)
+        .sort((left, right) => left.from - right.from);
+      const index = siblings.findIndex((sibling) => sibling.from === item.from && sibling.to === item.to);
+      const next = siblings[index + 1];
+      const previous = siblings[index - 1];
+      const range = next ? {from: item.from, to: next.from} : previous ? {from: previous.to, to: item.to} : {from: item.from, to: item.to};
+      changes = [{from: range.from, to: range.to, insert: ''}];
+      break;
+    }
     case 'delete-node': {
       const node = findNode(parsed.root, operation.source, operation.kind);
       if (!node || node.kind !== 'statement') throw new RangeError('Statement deletion source is not present in the current projection');
@@ -243,34 +274,44 @@ function elseClause(from, block, source) {
 
 // A zero-parameter function still needs one directly-editable slot to type a
 // first parameter name into - without it there is nothing to click, since an
-// empty `params` array contributes no child at all.
+// empty `params` array contributes no child at all. The same slot is needed
+// again after "+" (insert-sequence-item) splices in a "," with nothing after
+// it yet: that comma is not itself a param, so it does not show up in
+// `params` either, and without this the "+" button would add room for a new
+// parameter with no way to actually type one in.
 function emptyParameterSocket(node, source) {
-  if ((node.type !== 'FunctionDeclaration' && node.type !== 'FunctionExpression') || node.params.length > 0) {
-    return [];
-  }
+  if (node.type !== 'FunctionDeclaration' && node.type !== 'FunctionExpression') return [];
   const openParen = source.indexOf('(', node.id ? node.id.end : node.start);
-  const closeParen = openParen === -1 ? -1 : source.indexOf(')', openParen);
-  if (closeParen === -1) return [];
-  return [{
-    id: `socket:parameter:${closeParen}:${closeParen}`,
-    kind: 'socket', from: closeParen, to: closeParen, editable: true, children: [],
-    metadata: {type: 'Identifier', socketRole: 'parameter', empty: true}
-  }];
+  if (openParen === -1) return [];
+  return emptySequenceSocket(source, openParen, node.params, 'parameter');
 }
 
 // A zero-argument call - `myFunction()`, `Math.random()` - is syntactically
 // complete JavaScript (unlike a while/if condition, a call's argument list
 // can be empty), so it gets the same directly-editable empty slot rather
-// than requiring a placeholder identifier to have anything to click.
+// than requiring a placeholder identifier to have anything to click - and,
+// as with a parameter list above, so does the gap "+" leaves behind.
 function emptyCallArgumentSocket(node, source) {
-  if ((node.type !== 'CallExpression' && node.type !== 'NewExpression') || node.arguments.length > 0) return [];
+  if (node.type !== 'CallExpression' && node.type !== 'NewExpression') return [];
   const openParen = source.indexOf('(', node.callee.end);
-  const closeParen = openParen === -1 ? -1 : source.indexOf(')', openParen);
+  if (openParen === -1) return [];
+  return emptySequenceSocket(source, openParen, node.arguments, 'call-argument');
+}
+
+// Shared by both: an empty, directly-editable slot belongs right before the
+// closing ")" whenever there is nothing real there yet to click on instead -
+// either no items at all, or only a dangling "," (with optional whitespace)
+// that "+" left between the last real item and the ")".
+function emptySequenceSocket(source, openParen, items, socketRole) {
+  const closeParen = source.indexOf(')', openParen);
   if (closeParen === -1) return [];
+  const lastItemEnd = items.length ? items.at(-1).end : openParen + 1;
+  const between = source.slice(lastItemEnd, closeParen);
+  if (!/^\s*,?\s*$/.test(between)) return [];
   return [{
-    id: `socket:expression:${closeParen}:${closeParen}`,
+    id: `socket:${socketRole}:${closeParen}:${closeParen}`,
     kind: 'socket', from: closeParen, to: closeParen, editable: true, children: [],
-    metadata: {type: 'Identifier', socketRole: 'expression', empty: true}
+    metadata: {type: 'Identifier', socketRole, empty: true}
   }];
 }
 
@@ -360,7 +401,7 @@ function socketRoleFor(parent, key) {
   if ((parent.type === 'FunctionDeclaration' || parent.type === 'FunctionExpression') && key === 'id') return 'name';
   if ((parent.type === 'FunctionDeclaration' || parent.type === 'FunctionExpression') && key === 'params') return 'parameter';
   if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'callee') return 'call-target';
-  if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'arguments') return 'expression';
+  if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && key === 'arguments') return 'call-argument';
   if ((parent.type === 'BinaryExpression' || parent.type === 'LogicalExpression') &&
       (key === 'left' || key === 'right')) return 'expression';
   if (parent.type === 'ReturnStatement' && key === 'argument') return 'expression';
@@ -441,6 +482,28 @@ function findSocket(node, range) {
   for (const child of node.children) {
     const found = findSocket(child, range);
     if (found) return found;
+  }
+  return undefined;
+}
+
+// Unlike findNode/findSocket, matches by range alone regardless of kind - an
+// insert-sequence-item target may be a def/call's own 'statement' range or a
+// call nested as a value's 'socket' range.
+function findAny(node, range) {
+  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
+  if (node.from === range.from && node.to === range.to) return node;
+  for (const child of node.children ?? []) {
+    const found = findAny(child, range);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function findParent(node, target) {
+  for (const child of node.children ?? []) {
+    if (child === target) return node;
+    const parent = findParent(child, target);
+    if (parent) return parent;
   }
   return undefined;
 }
