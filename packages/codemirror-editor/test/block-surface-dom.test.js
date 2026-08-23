@@ -663,14 +663,21 @@ function projection() {
   return {
     source,
     root: {
-      id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
-        id: 'if', kind: 'statement', from: 0, to: 20, editable: true,
-        metadata: {blockRole: 'container', headerTo: 9, bodyEnd: 20},
-        children: [
-          {id: 'first', kind: 'statement', from: 12, to: 19, editable: true, metadata: {}, children: []},
-          {id: 'blank', kind: 'whitespace', from: 20, to: 21, editable: false, metadata: {text: ''}, children: []}
-        ]
-      }]
+      id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [
+        {
+          id: 'if', kind: 'statement', from: 0, to: 20, editable: true,
+          metadata: {blockRole: 'container', headerTo: 9, bodyEnd: 20},
+          children: [
+            {id: 'first', kind: 'statement', from: 12, to: 19, editable: true, metadata: {}, children: []}
+          ]
+        },
+        // A blank line after the container's own body (bodyEnd: 20) belongs
+        // to the document, not the container's suite - it sits outside the
+        // "if" node's own [0, 20) range, so it is a sibling here, not nested
+        // inside "if"'s own children the way it was previously (an invalid
+        // projection shape the layout code happened not to validate).
+        {id: 'blank', kind: 'whitespace', from: 20, to: 21, editable: false, metadata: {text: ''}, children: []}
+      ]
     }
   };
 }
