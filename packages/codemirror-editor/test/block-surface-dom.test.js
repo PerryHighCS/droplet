@@ -385,6 +385,16 @@ test('clicking "+ elif" emits an add-clause operation targeting the whole if sta
   assert.deepEqual(operations, [{type: 'add-clause', target: {from: ifStatement.source.from, to: ifStatement.source.to}, role: 'elif'}]);
 });
 
+test('hides "+ elif" and "+ else" for an unbraced JavaScript if with no clause yet, where add-clause would throw', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: () => {}});
+  surface.update(bareUnbracedJsIf());
+  const svg = surface.element.querySelector('svg');
+
+  assert.equal(svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="elif"]'), null);
+  assert.equal(svg.querySelector('[data-droplet-action="add-clause"][data-droplet-role="else"]'), null);
+});
+
 test('a keyboard-focused "+ elif" button is a real button and activates on Enter and Space', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
@@ -928,6 +938,21 @@ function compoundAssignmentSockets() {
           {id: 'right', kind: 'socket', from: 17, to: 22, editable: true, metadata: {socketRole: 'expression'}, children: []}
         ]}
       ]
+    }]
+  }};
+}
+
+function bareUnbracedJsIf() {
+  // Acorn only sets blockEnd (see metadataFor in the JavaScript adapter)
+  // when the primary consequent is itself a BlockStatement - `if (x)
+  // work();` has none, and add-clause has no closing brace to anchor a
+  // brand-new clause on.
+  const source = 'if (ready) pass();\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'if', kind: 'statement', from: 0, to: source.length - 1, editable: true,
+      metadata: {type: 'IfStatement', blockRole: 'container', headerTo: source.length - 1},
+      children: [{id: 'pass', kind: 'statement', from: 11, to: 18, editable: true, metadata: {}, children: []}]
     }]
   }};
 }

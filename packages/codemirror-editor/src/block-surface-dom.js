@@ -844,7 +844,7 @@ function renderClauseHeaderFrame(group, node, document) {
 function renderClauseControls(group, node, document) {
   const type = node.metadata?.type;
   const clauses = node.children.filter((child) => child.kind === 'clause');
-  const showElif = canAddElifClause(node);
+  const showElif = canAddElifClause(node, clauses);
   const showElse = canAddElseClause(node, clauses);
   if (!showElif && !showElse) return;
   const dataset = {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to};

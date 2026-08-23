@@ -547,7 +547,7 @@ function normalizeOptions(options) {
 // in clause-add-eligibility.js, the single source of truth both share) will
 // actually render there.
 function canAddClause(node, clauses) {
-  return canAddElifClause(node) || canAddElseClause(node, clauses);
+  return canAddElifClause(node, clauses) || canAddElseClause(node, clauses);
 }
 
 function positiveNumber(value, fallback) {

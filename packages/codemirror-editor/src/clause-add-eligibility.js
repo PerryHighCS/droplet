@@ -16,14 +16,29 @@ export const CLAUSE_ADD_ELIGIBLE_TYPES = new Set(['If', 'IfStatement', 'For', 'A
 // and, unlike "else", it stays offered even once an else exists, since an
 // if-chain only requires elif/else-if to come before else, not that else be
 // absent (inserting the new branch right before the existing else).
-export function canAddElifClause(node) {
+export function canAddElifClause(node, clauses) {
   const type = node.metadata?.type;
-  return type === 'If' || type === 'IfStatement';
+  if (type !== 'If' && type !== 'IfStatement') return false;
+  return hasExtendableBody(node, clauses);
 }
 
 // A statement can only ever have one else branch.
 export function canAddElseClause(node, clauses) {
   const type = node.metadata?.type;
   if (!CLAUSE_ADD_ELIGIBLE_TYPES.has(type)) return false;
-  return !clauses.some((clause) => clause.metadata?.clauseRole === 'else');
+  if (clauses.some((clause) => clause.metadata?.clauseRole === 'else')) return false;
+  return hasExtendableBody(node, clauses);
+}
+
+// A JavaScript IfStatement whose primary consequent isn't braced (`if (x)
+// work();`) has no blockEnd for the transform to anchor a brand-new clause
+// on (see closingBraceEnd in the JavaScript adapter) - offering the button
+// there would let a click throw "Clause target has no body to extend". Once
+// a clause already exists, add-clause anchors on that clause's own end
+// instead and never needs blockEnd, so this only actually restricts a
+// JavaScript chain with neither a braced primary body nor any clause yet.
+// Python's own containers have no braced-body concept and never set
+// blockEnd, so this never restricts them.
+function hasExtendableBody(node, clauses) {
+  return node.metadata?.type !== 'IfStatement' || Number.isInteger(node.metadata?.blockEnd) || clauses.length > 0;
 }
