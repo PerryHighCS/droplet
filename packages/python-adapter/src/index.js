@@ -281,11 +281,11 @@ function project(node, source, lines, kind = kindFor(node), boundary = {from: 0,
   const children = childNodes(node).map((child) => project(
     child.node, source, lines, child.socketRole ? 'socket' : kindFor(child.node), statementRange, child.socketRole
   ));
-  addEmptyCallArgumentSocket(children, node, source, rawFrom, rawTo);
+  addEmptyCallArgumentSocket(children, node, source, rawFrom, rawTo, lines);
   addNameSocket(children, node, source, rawFrom ?? from);
   relabelParameterSockets(children, node, source, rawFrom ?? from);
-  addEmptyParameterSocket(children, node, source, rawFrom, rawTo);
-  addEmptyListItemSocket(children, node, source, rawFrom, rawTo);
+  addEmptyParameterSocket(children, node, source, rawFrom, rawTo, lines);
+  addEmptyListItemSocket(children, node, source, rawFrom, rawTo, lines);
   if (clauseChainTypes.has(typeOf(node))) children.push(...projectClauses(node, source, lines, statementRange));
   return {
     id: `${kind}:${typeOf(node)}:${from}:${to}`,
@@ -326,15 +326,23 @@ function addNameSocket(children, node, source, from) {
 
 // A zero-argument call (print() included - it's a Call like any other) still
 // needs one directly-editable slot to type a first argument into; without
-// it there would be nothing to click. "Zero arguments" is read straight off
-// the AST's own args list, not off the projected socket children - a
-// zero-arg call already carries its own call-target (function name) socket,
-// and depending on other sockets already existing would be fragile (see the
-// parallel parameter case below, which hit exactly that bug).
-function addEmptyCallArgumentSocket(children, node, source, from, to) {
-  if (typeOf(node) !== 'Call' || locatedCount(node.args) > 0 || from === null || to === null) return;
+// it there would be nothing to click. Read straight off the AST's own args
+// list, not off the projected socket children - a zero-arg call already
+// carries its own call-target (function name) socket, and depending on
+// other sockets already existing would be fragile (see the parallel
+// parameter case below, which hit exactly that bug).
+function addEmptyCallArgumentSocket(children, node, source, from, to, lines) {
+  if (typeOf(node) !== 'Call' || from === null || to === null) return;
   const closingParenthesis = source.lastIndexOf(')', to - 1);
   if (closingParenthesis < from) return;
+  // "+" (insert-sequence-item) splices a "," before the closing parenthesis
+  // when real arguments already exist - Brython still reports the same real
+  // argument count for the result (the trailing "," is not itself an
+  // argument), so without this check the gap it leaves behind would have
+  // nothing typed into it, and clicking "+" again would splice a second,
+  // invalid leading comma in front of the last real argument.
+  const lastArgumentEnd = lastLocatedEnd(node.args, source, lines);
+  if (lastArgumentEnd !== null && !/^\s*,\s*$/.test(source.slice(lastArgumentEnd, closingParenthesis))) return;
   children.push({
     id: `socket:call-argument:${closingParenthesis}:${closingParenthesis}`,
     kind: 'socket', from: closingParenthesis, to: closingParenthesis, editable: true, children: [],
@@ -343,21 +351,28 @@ function addEmptyCallArgumentSocket(children, node, source, from, to) {
 }
 
 // A def with zero parameters needs the same directly-editable empty slot,
-// placed before the closing parenthesis. Checked against the arguments
-// node's own fields directly, not against relabelParameterSockets' output -
-// that step depends on a name socket existing (needed to bound its own
-// search), which a hand-built fixture can omit; this must not.
-function addEmptyParameterSocket(children, node, source, from, to) {
+// placed before the closing parenthesis - and, like a call's own arguments
+// above, the same trailing-"," gap "+" leaves behind after a real parameter
+// also needs one. Checked against the arguments node's own fields directly,
+// not against relabelParameterSockets' output - that step depends on a name
+// socket existing (needed to bound its own search), which a hand-built
+// fixture can omit; this must not.
+function addEmptyParameterSocket(children, node, source, from, to, lines) {
   const type = typeOf(node);
   if (type !== 'FunctionDef' && type !== 'AsyncFunctionDef') return;
-  const args = node.args ?? {};
-  const hasParameters = locatedCount(args.posonlyargs) > 0 || locatedCount(args.args) > 0 ||
-    locatedCount(args.kwonlyargs) > 0 || (args.vararg && typeof args.vararg === 'object') ||
-    (args.kwarg && typeof args.kwarg === 'object');
-  if (hasParameters || from === null || to === null) return;
+  if (from === null || to === null) return;
   const headerEnd = lineTextEnd(source, from);
   const closingParenthesis = source.lastIndexOf(')', headerEnd);
   if (closingParenthesis < from) return;
+  const args = node.args ?? {};
+  const allParameters = [
+    ...(Array.isArray(args.posonlyargs) ? args.posonlyargs : []),
+    ...(Array.isArray(args.args) ? args.args : []),
+    ...(Array.isArray(args.kwonlyargs) ? args.kwonlyargs : []),
+    args.vararg, args.kwarg
+  ];
+  const lastParameterEnd = lastLocatedEnd(allParameters, source, lines);
+  if (lastParameterEnd !== null && !/^\s*,\s*$/.test(source.slice(lastParameterEnd, closingParenthesis))) return;
   children.push({
     id: `socket:parameter:${closingParenthesis}:${closingParenthesis}`,
     kind: 'socket', from: closingParenthesis, to: closingParenthesis, editable: true, children: [],
@@ -366,21 +381,43 @@ function addEmptyParameterSocket(children, node, source, from, to) {
 }
 
 // An empty list literal (`[]`) needs the same treatment, placed just after
-// the opening bracket.
-function addEmptyListItemSocket(children, node, source, from, to) {
-  if (typeOf(node) !== 'List' || locatedCount(node.elts) > 0 || from === null || to === null) return;
+// the opening bracket - and, like a call's own arguments, so does the
+// trailing-"," gap "+" leaves behind after a real item.
+function addEmptyListItemSocket(children, node, source, from, to, lines) {
+  if (typeOf(node) !== 'List' || from === null || to === null) return;
   const openingBracket = source.indexOf('[', from);
   if (openingBracket < 0 || openingBracket >= to) return;
-  const position = openingBracket + 1;
+  const lastItemEnd = lastLocatedEnd(node.elts, source, lines);
+  if (lastItemEnd === null) {
+    const position = openingBracket + 1;
+    children.push({
+      id: `socket:list-item:${position}:${position}`,
+      kind: 'socket', from: position, to: position, editable: true, children: [],
+      metadata: {type: 'Name', socketRole: 'list-item', empty: true}
+    });
+    return;
+  }
+  const closingBracket = source.lastIndexOf(']', to - 1);
+  if (closingBracket < openingBracket || !/^\s*,\s*$/.test(source.slice(lastItemEnd, closingBracket))) return;
   children.push({
-    id: `socket:list-item:${position}:${position}`,
-    kind: 'socket', from: position, to: position, editable: true, children: [],
+    id: `socket:list-item:${closingBracket}:${closingBracket}`,
+    kind: 'socket', from: closingBracket, to: closingBracket, editable: true, children: [],
     metadata: {type: 'Name', socketRole: 'list-item', empty: true}
   });
 }
 
-function locatedCount(value) {
-  return (Array.isArray(value) ? value : value ? [value] : []).filter((item) => item && typeof item === 'object').length;
+// The furthest end position among a set of Brython AST nodes that are
+// actually located (have their own lineno/col_offset) - used to find where a
+// sequence's last real item ends, regardless of source/field order. Returns
+// null when none are located, matching "there is nothing real here yet".
+function lastLocatedEnd(nodes, source, lines) {
+  let maxEnd = null;
+  for (const node of Array.isArray(nodes) ? nodes : [nodes]) {
+    if (!node || typeof node !== 'object' || !isLocatedNode(node)) continue;
+    const end = offset(node.end_lineno, node.end_col_offset, lines, source, null);
+    if (end !== null && (maxEnd === null || end > maxEnd)) maxEnd = end;
+  }
+  return maxEnd;
 }
 
 // Brython's parameter arg nodes are individually located, so they already

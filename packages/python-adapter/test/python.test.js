@@ -1009,6 +1009,56 @@ test('appends a new empty parameter to a function definition', () => {
   assert.equal(applySourceChanges(source, changes), 'def f(a, b, ):\n  pass\n');
 });
 
+test('projects an editable trailing socket after "+" leaves a dangling "," behind a real call argument, parameter, or list item', () => {
+  // addEmptyCallArgumentSocket/addEmptyParameterSocket/addEmptyListItemSocket
+  // used to add their synthetic empty socket only when the sequence had zero
+  // real items. Brython still reports the same real item count after "+"
+  // splices a "," before the closing delimiter (the trailing "," is not
+  // itself an item), so the gap it leaves behind had nothing typed into it -
+  // and clicking "+" again would splice a second, invalid leading comma in
+  // front of the last real item.
+  const position = (source) => (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (source) => (type, from, to, extra = {}) => {
+    const pos = position(source);
+    return {type, ...pos(from), end_lineno: pos(to).lineno, end_col_offset: pos(to).col_offset, ...extra};
+  };
+
+  const callSource = 'first(a, )\n';
+  const at = located(callSource);
+  const argA = at('Name', callSource.indexOf('a'), callSource.indexOf('a') + 1, {id: 'a'});
+  const call = at('Call', 0, callSource.indexOf(')') + 1, {func: at('Name', 0, 5, {id: 'first'}), args: [argA]});
+  const callExpr = at('Expr', 0, callSource.indexOf(')') + 1, {value: call});
+  const callParsed = parsePython(callSource, () => ({type: 'Module', body: [callExpr]}));
+  const trailingArgument = collectProjectedNodes(callParsed.root).find((node) => node.metadata?.socketRole === 'call-argument' && node.metadata?.empty);
+  assert.ok(trailingArgument, 'a new editable call-argument socket must appear before the closing parenthesis');
+  assert.equal(trailingArgument.from, callSource.indexOf(')'));
+
+  const defSource = 'def f(a, ):\n  pass\n';
+  const atDef = located(defSource);
+  const paramA = atDef('arg', defSource.indexOf('a'), defSource.indexOf('a') + 1, {arg: 'a'});
+  const passStatement = atDef('Pass', defSource.indexOf('pass'), defSource.indexOf('pass') + 4);
+  const fn = atDef('FunctionDef', 0, defSource.indexOf('\n'), {
+    name: 'f', args: {lineno: 1, posonlyargs: [], args: [paramA], kwonlyargs: []}, body: [passStatement], decorator_list: []
+  });
+  const defParsed = parsePython(defSource, () => ({type: 'Module', body: [fn]}));
+  const trailingParameter = collectProjectedNodes(defParsed.root).find((node) => node.metadata?.socketRole === 'parameter' && node.metadata?.empty);
+  assert.ok(trailingParameter, 'a new editable parameter socket must appear before the closing parenthesis');
+  assert.equal(trailingParameter.from, defSource.indexOf(')'));
+
+  const listSource = 'x = [a, ]\n';
+  const atList = located(listSource);
+  const elt = atList('Name', listSource.indexOf('a'), listSource.indexOf('a') + 1, {id: 'a'});
+  const list = atList('List', listSource.indexOf('['), listSource.indexOf(']') + 1, {elts: [elt]});
+  const assign = atList('Assign', 0, listSource.length - 1, {targets: [atList('Name', 0, 1, {id: 'x'})], value: list});
+  const listParsed = parsePython(listSource, () => ({type: 'Module', body: [assign]}));
+  const trailingItem = collectProjectedNodes(listParsed.root).find((node) => node.metadata?.socketRole === 'list-item' && node.metadata?.empty);
+  assert.ok(trailingItem, 'a new editable list-item socket must appear before the closing bracket');
+  assert.equal(trailingItem.from, listSource.indexOf(']'));
+});
+
 test('removes a middle call argument, splicing its own separating comma', () => {
   const source = 'first(a, b, c)\n';
   const args = ['a', 'b', 'c'].map((letter) => ({
