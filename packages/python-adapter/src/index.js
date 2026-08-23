@@ -139,8 +139,14 @@ export function transformPython(operation, parsed, pythonToAST) {
       // lines keep their absolute indentation - slicing from node.from alone
       // would drop the first line's indentation while leaving the rest at
       // their old absolute depth, so a nested multi-line suite copied to a
-      // different depth kept/added its old depth on top of the new one.
-      const copiedSource = parsed.source.slice(lineStartAt(parsed.source, node.from), node.to);
+      // different depth kept/added its old depth on top of the new one. This
+      // only applies to a statement: a comment's own from already starts
+      // exactly at its "#" (see collectPythonTrivia) - an inline comment's
+      // own line also contains the code it trails, so normalizing to the
+      // line start there would copy that code too, not just the comment.
+      const copiedSource = node.kind === 'statement'
+        ? parsed.source.slice(lineStartAt(parsed.source, node.from), node.to)
+        : parsed.source.slice(node.from, node.to);
       // Only a statement's own emptySuitePass destination replaces the
       // placeholder "pass" outright - a comment can't stand alone as a
       // suite's only content, so copying one onto an empty suite must leave

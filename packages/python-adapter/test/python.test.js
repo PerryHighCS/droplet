@@ -781,6 +781,30 @@ test('copying a comment onto an empty suite leaves the synthetic pass in place i
   assert.equal(applySourceChanges(source, changes), 'if ready:\n    # note\n    pass\n# note\n');
 });
 
+test('copying an inline comment copies only its own text, not the code it trails', () => {
+  // A comment's own from starts exactly at its "#" - normalizing that to the
+  // physical line's start (as a statement copy does, to preserve a
+  // multi-line statement's own first-line indentation) would instead sweep
+  // in the code an inline comment trails ("x = 1  " before "# note"),
+  // duplicating that code alongside the comment instead of copying just the
+  // comment's own text.
+  const source = 'x = 1  # note\n';
+  const commentFrom = source.indexOf('#');
+  const comment = {
+    id: 'comment:note', kind: 'comment', from: commentFrom, to: commentFrom + 6, children: [],
+    metadata: {inline: true}
+  };
+  const statement = {id: 'statement:x', kind: 'statement', from: 0, to: 5, children: []};
+  const parsed = projection(source, [statement, comment]);
+
+  const changes = transformPython({
+    type: 'copy-node', source: {from: comment.from, to: comment.to}, kind: 'comment',
+    destination: {from: source.length, to: source.length, indentation: ''}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'x = 1  # note\n# note');
+});
+
 test('moves only Python statement lines and preserves comments, blanks, and local indentation', () => {
   const source = 'if ready:\n  first = 1  # retain\n  second = 2\n\n';
   const first = {id: 'statement:first', kind: 'statement', from: 12, to: 31, children: []};
