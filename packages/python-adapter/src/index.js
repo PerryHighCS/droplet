@@ -1,4 +1,18 @@
-import {applySourceChanges, normalizeSourceChanges, parseWithOpaqueRecovery} from '@droplet/core';
+import {
+  applySourceChanges,
+  assertInsertionPoint,
+  assertOperationSource,
+  assertParsedSource,
+  compareProjectedNodes,
+  findAny,
+  findNode,
+  findParent,
+  findSocket,
+  lineTextEnd,
+  normalizeSourceChanges,
+  parseWithOpaqueRecovery,
+  physicalLines
+} from '@droplet/core';
 
 /** Creates a source-range Python parser from Brython's browser AST API. */
 export function createBrythonPythonParser(pythonToAST, tokenize) {
@@ -39,7 +53,7 @@ export function createBrythonPythonTransformer(pythonToAST) {
  * byte-for-byte intact.
  */
 export function transformPython(operation, parsed, pythonToAST) {
-  assertParsedSource(parsed);
+  assertParsedSource(parsed, 'Python');
   let changes;
   switch (operation?.type) {
     case 'replace-socket': {
@@ -514,10 +528,6 @@ function expandDecoratorRange(node, source, lines, range) {
   return decoratorFrom === range.from ? range : {from: decoratorFrom, to: range.to};
 }
 
-function compareProjectedNodes(left, right) {
-  return left.from - right.from || left.to - right.to || left.id.localeCompare(right.id);
-}
-
 function insertStatementChange(source, destination, statementSource) {
   const indentation = indentationAt(source, destination);
   const lineEnding = lineEndingAt(source, destination);
@@ -615,12 +625,6 @@ function attachCommentToStatement(source, comment, statement) {
     {from: removal.from, to: removal.to, insert: ''},
     {from: destination, to: destination, insert: `  ${text}`}
   ];
-}
-
-function lineTextEnd(source, position) {
-  let end = position;
-  while (end < source.length && source[end] !== '\r' && source[end] !== '\n') end += 1;
-  return end;
 }
 
 function lineEndAfter(source, position) {
@@ -778,24 +782,6 @@ function lineStarts(source) {
   }
   return starts;
 }
-function physicalLines(source) {
-  const lines = [];
-  let from = 0;
-  // A sticky/global regex with lastIndex, not source.slice(index) re-run on
-  // every line: slicing the whole remaining source on each iteration makes
-  // this O(source length x line count), and addWhitespaceNodes calls it on
-  // every parse - every keystroke, in the live editor.
-  const ending = /\r\n|\r|\n/g;
-  let match;
-  while ((match = ending.exec(source)) !== null) {
-    const to = match.index + match[0].length;
-    lines.push({from, to, text: source.slice(from, match.index), ending: match[0]});
-    from = to;
-    ending.lastIndex = to;
-  }
-  if (from < source.length) lines.push({from, to: source.length, text: source.slice(from), ending: ''});
-  return lines;
-}
 function leadingWhitespace(source, from) { return /^[\t \f]*/.exec(source.slice(from))?.[0] ?? ''; }
 function hasCodeBeforeComment(source, from) {
   const lineStart = Math.max(source.lastIndexOf('\n', from - 1), source.lastIndexOf('\r', from - 1)) + 1;
@@ -818,69 +804,6 @@ function sourceLineEnd(starts, line, source) {
   let end = starts[line] ?? source.length;
   while (end > starts[line - 1] && (source[end - 1] === '\r' || source[end - 1] === '\n')) end -= 1;
   return end;
-}
-
-function findNode(node, range, kind) {
-  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
-  if (node.kind === kind && node.from === range.from && node.to === range.to) return node;
-  for (const child of node.children ?? []) {
-    const found = findNode(child, range, kind);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-function findSocket(node, range) {
-  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
-  if ((node.kind === 'socket' || node.kind === 'recovery-socket') && node.from === range.from && node.to === range.to) {
-    return node;
-  }
-  for (const child of node.children ?? []) {
-    const found = findSocket(child, range);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-// Finds a node by exact range regardless of kind. Used for sequence
-// operations, whose enclosing node is a 'socket' for a Call/List used as an
-// expression but a 'statement' for a FunctionDef's own parameter list -
-// range is unambiguous either way, so kind-agnostic lookup avoids the
-// caller needing to know which shape it is.
-function findAny(node, range) {
-  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
-  if (node.from === range.from && node.to === range.to) return node;
-  for (const child of node.children ?? []) {
-    const found = findAny(child, range);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-function findParent(node, target) {
-  for (const child of node.children ?? []) {
-    if (child === target) return node;
-    const parent = findParent(child, target);
-    if (parent) return parent;
-  }
-  return undefined;
-}
-
-function assertParsedSource(parsed) {
-  if (typeof parsed?.source !== 'string' || !parsed?.root) {
-    throw new TypeError('A current Python projection is required');
-  }
-}
-
-function assertOperationSource(source, label) {
-  if (typeof source !== 'string') throw new TypeError(`${label} source must be a string`);
-}
-
-function assertInsertionPoint(source, destination) {
-  if (!Number.isInteger(destination?.from) || destination.from !== destination.to ||
-      destination.from < 0 || destination.from > source.length) {
-    throw new RangeError('Statement destination must be a zero-width source position');
-  }
 }
 
 function assertValidPython(source, pythonToAST) {

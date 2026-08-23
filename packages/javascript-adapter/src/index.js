@@ -1,5 +1,18 @@
 import {parse} from 'acorn';
-import {applySourceChanges, normalizeSourceChanges} from '@droplet/core';
+import {
+  applySourceChanges,
+  assertInsertionPoint,
+  assertOperationSource,
+  assertParsedSource,
+  compareProjectedNodes,
+  findAny,
+  findNode,
+  findParent,
+  findSocket,
+  lineTextEnd,
+  normalizeSourceChanges,
+  physicalLines
+} from '@droplet/core';
 
 /**
  * Produces a source-range JavaScript projection without regenerating source.
@@ -37,7 +50,7 @@ export function parseJavaScript(source, options = {}) {
 
 /** Returns minimal source changes for supported JavaScript block intents. */
 export function transformJavaScript(operation, parsed) {
-  assertParsedSource(parsed);
+  assertParsedSource(parsed, 'JavaScript');
   let changes;
   switch (operation?.type) {
     case 'replace-socket': {
@@ -442,12 +455,6 @@ function isAstNode(value) {
     Number.isInteger(value.start) && Number.isInteger(value.end);
 }
 
-function lineTextEnd(source, position) {
-  let end = position;
-  while (end < source.length && source[end] !== '\r' && source[end] !== '\n') end += 1;
-  return end;
-}
-
 function addWhitespaceNodes(root, source) {
   for (const line of physicalLines(source)) {
     if (!/^[\t \f]*$/.test(line.text)) continue;
@@ -472,95 +479,11 @@ function triviaParent(node, range) {
   return child ? triviaParent(child, range) : node;
 }
 
-function physicalLines(source) {
-  const lines = [];
-  let from = 0;
-  // A sticky/global regex with lastIndex, not source.slice(index) re-run on
-  // every line: slicing the whole remaining source on each iteration makes
-  // this O(source length x line count), and addWhitespaceNodes calls it on
-  // every parse - every keystroke, in the live editor.
-  const ending = /\r\n|\r|\n/g;
-  let match;
-  while ((match = ending.exec(source)) !== null) {
-    const to = match.index + match[0].length;
-    lines.push({from, to, text: source.slice(from, match.index), ending: match[0]});
-    from = to;
-    ending.lastIndex = to;
-  }
-  if (from < source.length) lines.push({from, to: source.length, text: source.slice(from), ending: ''});
-  return lines;
-}
-
-function compareProjectedNodes(left, right) {
-  return left.from - right.from || left.to - right.to || left.id.localeCompare(right.id);
-}
-
 const containerStatementTypes = new Set([
   'BlockStatement', 'ClassDeclaration', 'DoWhileStatement', 'ForInStatement',
   'ForOfStatement', 'ForStatement', 'FunctionDeclaration', 'IfStatement',
   'SwitchStatement', 'TryStatement', 'WhileStatement', 'WithStatement'
 ]);
-
-function findNode(node, range, kind) {
-  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
-  if (node.kind === kind && node.from === range.from && node.to === range.to) return node;
-  for (const child of node.children) {
-    const found = findNode(child, range, kind);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-function findSocket(node, range) {
-  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
-  if ((node.kind === 'socket' || node.kind === 'recovery-socket') && node.from === range.from && node.to === range.to) {
-    return node;
-  }
-  for (const child of node.children) {
-    const found = findSocket(child, range);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-// Unlike findNode/findSocket, matches by range alone regardless of kind - an
-// insert-sequence-item target may be a def/call's own 'statement' range or a
-// call nested as a value's 'socket' range.
-function findAny(node, range) {
-  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
-  if (node.from === range.from && node.to === range.to) return node;
-  for (const child of node.children ?? []) {
-    const found = findAny(child, range);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-function findParent(node, target) {
-  for (const child of node.children ?? []) {
-    if (child === target) return node;
-    const parent = findParent(child, target);
-    if (parent) return parent;
-  }
-  return undefined;
-}
-
-function assertParsedSource(parsed) {
-  if (typeof parsed?.source !== 'string' || !parsed?.root) {
-    throw new TypeError('A current JavaScript projection is required');
-  }
-}
-
-function assertOperationSource(source, label) {
-  if (typeof source !== 'string') throw new TypeError(`${label} source must be a string`);
-}
-
-function assertInsertionPoint(source, destination) {
-  if (!Number.isInteger(destination?.from) || destination.from !== destination.to ||
-      destination.from < 0 || destination.from > source.length) {
-    throw new RangeError('Statement destination must be a zero-width source position');
-  }
-}
 
 function assertSource(source) {
   if (typeof source !== 'string') throw new TypeError('Source must be a string');
