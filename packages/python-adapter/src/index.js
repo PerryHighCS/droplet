@@ -227,14 +227,16 @@ export function transformPython(operation, parsed, pythonToAST) {
       // from the line's end could match a nested call's own closing paren
       // there instead of this sequence's own. Depth-tracking through the
       // def's own opening "(" finds its actual matching close regardless of
-      // what the body (on the same line or not) contains; a bare call-as-
-      // statement has no body of its own to be confused with, so its whole
-      // line is still safe to search the ordinary way.
+      // what the body (on the same line or not) contains. A bare call-as-
+      // statement has no body to be confused with, but its own physical line
+      // can still carry a trailing comment - searching to the line's end
+      // (rather than the call's own target.to) could match a ")" inside that
+      // comment instead of the call's real one (`f(a)  # )`).
       const isDef = target.kind === 'statement' &&
         (target.metadata?.type === 'FunctionDef' || target.metadata?.type === 'AsyncFunctionDef');
       const closingPosition = isDef
         ? matchingDelimiterEnd(parsed.source, parsed.source.indexOf('(', target.from), '(', ')')
-        : parsed.source.lastIndexOf(closeChar, (target.kind === 'statement' ? lineTextEnd(parsed.source, target.from) : target.to) - 1);
+        : parsed.source.lastIndexOf(closeChar, target.to - 1);
       if (closingPosition < target.from) throw new RangeError('Sequence target has no closing delimiter');
       changes = [{from: closingPosition, to: closingPosition, insert: ', '}];
       break;
@@ -758,11 +760,47 @@ function moveInlineCommentChanges(source, comment, commentRange, destination, ex
 }
 
 function reindentPythonLines(source, fromIndentation, toIndentation) {
+  const protectedRanges = tripleQuotedStringRanges(source);
+  let offset = 0;
   return source.split(/(\r\n|\r|\n)/).map((part, index) => {
+    const partOffset = offset;
+    offset += part.length;
     if (index % 2 === 1 || part === '') return part;
+    // A continuation line whose start falls inside a triple-quoted string
+    // (e.g. moving `s = """first\nraw"""` into a nested suite) is that
+    // string's own raw content, not structural indentation - reindenting it
+    // like any other line would change the runtime string value.
+    if (index > 0 && protectedRanges.some((range) => partOffset >= range.from && partOffset < range.to)) return part;
     const content = part.startsWith(fromIndentation) ? part.slice(fromIndentation.length) : part;
     return index === 0 ? content : toIndentation + content;
   }).join('');
+}
+
+// This file has no tokenizer to identify string ranges precisely the way
+// the JavaScript adapter's Acorn-based one does (an accepted limitation
+// matching its other plain-text scans) - a paired-delimiter scan still
+// protects the common case. A mismatched delimiter found while already
+// inside a string of the other kind (a bare '"""' appearing literally
+// inside a '''...''' string, or vice versa) is that string's own content,
+// not a real delimiter, so it's only ever treated as one when no string is
+// currently open.
+function tripleQuotedStringRanges(text) {
+  const ranges = [];
+  const pattern = /'''|"""/g;
+  let openStart = null;
+  let openDelimiter = null;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    if (openStart === null) {
+      openStart = match.index;
+      openDelimiter = match[0];
+    } else if (match[0] === openDelimiter) {
+      ranges.push({from: openStart, to: match.index + match[0].length});
+      openStart = null;
+      openDelimiter = null;
+    }
+  }
+  return ranges;
 }
 
 function ensureLineEnding(source, lineEnding) {

@@ -821,6 +821,35 @@ test('moves only Python statement lines and preserves comments, blanks, and loca
   assert.equal(applySourceChanges(source, changes), 'if ready:\n  second = 2\n  first = 1  # retain\n\n');
 });
 
+test('moving a statement with a multi-line triple-quoted string reindents code but leaves the raw string untouched', () => {
+  // reindentPythonLines blindly reindented every continuation line -
+  // moving `s = """first\nraw"""` into a nested (differently indented)
+  // suite prefixed "raw" with the destination indentation, changing the
+  // runtime string value instead of leaving that line's own raw content
+  // byte-for-byte intact.
+  const source = 'if outer:\n  s = """first\nraw"""\n  if inner:\n    pass\n';
+  const statement = {id: 'statement:s', kind: 'statement', from: source.indexOf('s ='), to: source.indexOf('raw"""') + 6, children: []};
+  const inner = {
+    id: 'statement:inner', kind: 'statement', from: source.indexOf('if inner:'), to: source.length - 1, children: [],
+    metadata: {blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: source.length - 1, bodyIndentation: '    '}
+  };
+  const outer = {
+    id: 'statement:outer', kind: 'statement', from: 0, to: source.length, children: [statement, inner],
+    metadata: {blockRole: 'container', bodyFrom: statement.from, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [outer]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: statement.from, to: statement.to},
+    destination: {from: source.indexOf('pass'), to: source.indexOf('pass')}
+  }, parsed, () => ({}));
+
+  assert.equal(
+    applySourceChanges(source, changes),
+    'if outer:\n  if inner:\n    s = """first\nraw"""\n    pass\n'
+  );
+});
+
 test('deletes a Python statement line and leaves pass in an emptied suite', () => {
   const source = 'if ready:\n  first = 1\nnext = 2\n';
   const first = {id: 'statement:first', kind: 'statement', from: 12, to: 21, children: []};
@@ -1020,6 +1049,30 @@ test('appends a new empty argument after existing call arguments', () => {
   );
 
   assert.equal(applySourceChanges(source, changes), 'first(a, )\n');
+});
+
+test('adds an argument to a bare call statement with a trailing comment containing ")"', () => {
+  // A bare call-as-statement target searched to its own physical line's
+  // end, not its own range - a trailing comment sharing that line could
+  // contain its own ")" unrelated to the call, found before the call's real
+  // one, splicing the new argument into the comment instead of the call.
+  const source = 'f(a)  # )\n';
+  const argSocket = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argSocket],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.indexOf(')') + 1, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: statement.from, to: statement.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'f(a, )  # )\n');
 });
 
 test('appends a new empty element to a list literal', () => {
