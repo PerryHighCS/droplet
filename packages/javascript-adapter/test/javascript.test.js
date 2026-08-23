@@ -117,6 +117,23 @@ test('inserts and removes sequence items for a def, a call statement, and a nest
   assert.equal(applySourceChanges(source, changes), 'myFunction(a, c);\n');
 });
 
+test('a def or call with real parameters/arguments and no trailing "," gets no phantom empty socket', () => {
+  // emptySequenceSocket matches "nothing between the last real item and the
+  // closing )" - without requiring an actual "," there, `myFunction(n)`
+  // would match too (nothing but the literal characters between "n" and ")"
+  // is whitespace), producing a second, empty 'parameter' socket alongside
+  // "n" before "+" is ever clicked.
+  const source = 'function myFunction(n) {\n}\nmyFunction(n);\n';
+  const sockets = collectNodes(parseJavaScript(source).root).filter((node) => node.kind === 'socket');
+
+  const parameterSockets = sockets.filter((node) => node.metadata?.socketRole === 'parameter');
+  const argumentSockets = sockets.filter((node) => node.metadata?.socketRole === 'call-argument');
+  assert.equal(parameterSockets.length, 1);
+  assert.equal(parameterSockets[0].metadata.empty, undefined);
+  assert.equal(argumentSockets.length, 1);
+  assert.equal(argumentSockets[0].metadata.empty, undefined);
+});
+
 test('the "," insert-sequence-item leaves behind still has an editable, removable slot', () => {
   // The "," itself is not a param/argument, so without this there would be
   // nothing new to click after "+", and removing the item that was there

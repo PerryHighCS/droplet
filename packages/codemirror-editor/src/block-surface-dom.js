@@ -831,7 +831,6 @@ const PARAMETER_ADD_ELIGIBLE_TYPES = new Set(['FunctionDef', 'AsyncFunctionDef',
 
 function renderParameterAddButton(group, node, document) {
   if (!PARAMETER_ADD_ELIGIBLE_TYPES.has(node.metadata?.type)) return;
-  if (!hasRealSequenceItem(node.children, 'parameter')) return;
   appendActionButton(group, document, {
     action: 'insert-sequence-item', label: '+', x: node.regions.header.right - 12, y: node.regions.header.top - 4,
     dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
@@ -844,18 +843,16 @@ function renderParameterAddButton(group, node, document) {
 // arguments still reach here as this statement's own direct sockets, though
 // (see sourceSockets/structuralChildren in block-surface.js: a JavaScript
 // expression wrapper contributes no visible block of its own, only its own
-// sockets), so a real 'call-argument' among them is exactly the signal that
-// this statement's own expression is a call and needs the button.
+// sockets), so a 'call-argument' among them (real or the always-present
+// synthetic empty slot a zero-argument call still gets) is exactly the
+// signal that this statement's own expression is a call and needs the
+// button.
 function renderCallArgumentAddButton(group, node, document) {
-  if (!hasRealSequenceItem(node.children, 'call-argument')) return;
+  if (!node.children.some((child) => child.metadata?.socketRole === 'call-argument')) return;
   appendActionButton(group, document, {
     action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
     dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}
   });
-}
-
-function hasRealSequenceItem(children, role) {
-  return children.some((child) => child.metadata?.socketRole === role && !child.metadata?.empty);
 }
 
 const ACTION_BUTTON_HEIGHT = 15;
@@ -1036,7 +1033,7 @@ function renderCompoundSocket(group, node, document, options) {
   const role = node.metadata?.type === 'List' ? 'list-item'
     : (node.metadata?.type === 'Call' || node.metadata?.type === 'CallExpression' || node.metadata?.type === 'NewExpression') ? 'call-argument'
     : undefined;
-  if (role && hasRealSequenceItem(node.children, role)) {
+  if (role) {
     appendActionButton(group, document, {
       action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
       dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}

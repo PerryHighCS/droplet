@@ -379,14 +379,27 @@ test('clicking a call\'s "+" button emits an insert-sequence-item operation', ()
   assert.deepEqual(operations, [{type: 'insert-sequence-item', target: {from: call.source.from, to: call.source.to}}]);
 });
 
-test('hides the "+" button on a call with only the synthetic empty argument socket', () => {
+test('shows the "+" but not the "-" button on a call with only the synthetic empty argument socket', () => {
+  // A zero-argument call still needs a way to add its first argument, so "+"
+  // must show even though there is nothing real there yet - but "-" stays
+  // hidden, since the synthetic placeholder itself is not a real argument to
+  // remove.
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
   surface.update(emptyCall());
   const svg = surface.element.querySelector('svg');
 
-  assert.equal(svg.querySelector('[data-droplet-action="insert-sequence-item"]'), null);
+  assert.ok(svg.querySelector('[data-droplet-action="insert-sequence-item"]'));
   assert.equal(svg.querySelector('[data-droplet-action="remove-sequence-item"]'), null);
+});
+
+test('shows the "+" button on a function declaration with zero parameters', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
+  surface.update(functionDeclarationWithoutParameters());
+  const svg = surface.element.querySelector('svg');
+
+  assert.ok(svg.querySelector('[data-droplet-action="insert-sequence-item"]'));
 });
 
 test('clicking a call argument\'s remove badge emits a remove-sequence-item operation for that argument', () => {
@@ -830,6 +843,22 @@ function emptyCall() {
           {id: 'empty', kind: 'socket', from: source.indexOf(')'), to: source.indexOf(')'), editable: true, metadata: {socketRole: 'call-argument', empty: true}, children: []}
         ]
       }]
+    }]
+  }};
+}
+
+function functionDeclarationWithoutParameters() {
+  const source = 'function myFunction() {\n}\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'def', kind: 'statement', from: 0, to: source.length, editable: true,
+      metadata: {
+        type: 'FunctionDeclaration', blockRole: 'container',
+        headerTo: source.indexOf('\n'), bodyEnd: source.indexOf('}')
+      },
+      children: [
+        {id: 'empty-param', kind: 'socket', from: source.indexOf(')'), to: source.indexOf(')'), editable: true, metadata: {socketRole: 'parameter', empty: true}, children: []}
+      ]
     }]
   }};
 }

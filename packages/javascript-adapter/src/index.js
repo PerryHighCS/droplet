@@ -301,13 +301,17 @@ function emptyCallArgumentSocket(node, source) {
 // Shared by both: an empty, directly-editable slot belongs right before the
 // closing ")" whenever there is nothing real there yet to click on instead -
 // either no items at all, or only a dangling "," (with optional whitespace)
-// that "+" left between the last real item and the ")".
+// that "+" left between the last real item and the ")". A "," is required
+// here when items already exist - without it, `myFunction(n)` would match
+// too (nothing but whitespace between "n" and ")"), producing a phantom
+// empty socket alongside "n" before "+" is ever clicked.
 function emptySequenceSocket(source, openParen, items, socketRole) {
   const closeParen = source.indexOf(')', openParen);
   if (closeParen === -1) return [];
   const lastItemEnd = items.length ? items.at(-1).end : openParen + 1;
   const between = source.slice(lastItemEnd, closeParen);
-  if (!/^\s*,?\s*$/.test(between)) return [];
+  const pattern = items.length ? /^\s*,\s*$/ : /^\s*$/;
+  if (!pattern.test(between)) return [];
   return [{
     id: `socket:${socketRole}:${closeParen}:${closeParen}`,
     kind: 'socket', from: closeParen, to: closeParen, editable: true, children: [],
