@@ -429,7 +429,23 @@ function descendantStructuralNodes(node) {
 }
 
 function leadingIndentation(source, from) {
-  const start = Math.max(0, source.lastIndexOf('\n', from - 1) + 1);
+  // A raw lastIndexOf('\n', ...) ignores a bare "\r" line ending (Python
+  // adapters and the shared physicalLines API support all three - "\r\n",
+  // "\r", and "\n"): in a CR-only document, no "\n" exists anywhere, so this
+  // always resolved to the document's own start - every nested statement's
+  // indentation then measured from position 0 instead of its own line,
+  // reading as empty and filtering it out of its container (see
+  // structuralChildren's bodyIndentation check above).
+  let start = from;
+  while (start > 0) {
+    const before = source[start - 1];
+    if (before === '\n') break;
+    // A "\r" immediately followed by "\n" is one CRLF line ending, not a
+    // standalone one - stopping right after it would split the pair and land
+    // mid-terminator, not at a real line start.
+    if (before === '\r' && source[start] !== '\n') break;
+    start -= 1;
+  }
   return /^[\t \f]*/.exec(source.slice(start, from))?.[0] ?? '';
 }
 

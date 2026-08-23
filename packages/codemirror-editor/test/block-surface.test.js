@@ -395,6 +395,29 @@ test('prefers an inner container insertion zone and retains its source indentati
   assert.deepEqual(zone.destination, {from: source.length, to: source.length, indentation: '    '});
 });
 
+test('keeps a nested statement in its container on a bare-CR-only document', () => {
+  // A raw lastIndexOf('\n', ...) line-start search (leadingIndentation's own
+  // old bug) misses a bare "\r" line ending entirely - in a CR-only document
+  // there is no "\n" anywhere, so it always resolved to the document's own
+  // start, reading every nested statement's indentation as empty and
+  // filtering it out of its container (see structuralChildren's
+  // bodyIndentation check). Same source/offsets as the CRLF-free "\n" case
+  // above, with every "\n" swapped for a bare "\r".
+  const source = 'if outer:\r  if ready:\r    pass\r';
+  const layout = createBlockLayout({
+    source,
+    root: documentNode(source, [{
+      ...statement('outer', 0, source.length, {blockRole: 'container', headerTo: 9, bodyEnd: source.length, bodyIndentation: '  '}),
+      children: [{
+        ...statement('inner', 12, source.length, {blockRole: 'container', headerTo: 21, bodyEnd: source.length, bodyIndentation: '    '}),
+        children: [statement('pass', 26, 30)]
+      }]
+    }])
+  });
+
+  assert.ok(layout.nodes.find((node) => node.id === 'pass'), 'the nested "pass" statement must still render inside its container');
+});
+
 test('an empty document\'s insertion zone covers its whole visible empty row, not a thin band at its top', () => {
   const layout = createBlockLayout({source: '', root: documentNode('', [])});
 
