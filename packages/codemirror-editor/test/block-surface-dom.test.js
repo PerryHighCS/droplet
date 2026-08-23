@@ -27,6 +27,30 @@ test('renders a projection as independent SVG block geometry and sends source-ba
   assert.equal(host.children.length, 0);
 });
 
+test('renders every line of a multi-line opaque node, not just its first', () => {
+  // createLabel used to truncate a label's text at its own first line break
+  // before rendering it as a single SVG <text> - parse recovery keeping a
+  // whole malformed multi-line document as one opaque node is the common
+  // case where that silently dropped everything past the first line while
+  // CodeMirror's own text view stayed hidden underneath the block surface.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const host = dom.window.document.querySelector('#host');
+  const surface = new BlockSurface({parent: host});
+  surface.update(opaqueMultiLineProjection());
+  surface.setVisible(true);
+
+  const label = host.querySelector('[data-droplet-kind="opaque-statement"] text');
+  const tspans = label.querySelectorAll('tspan');
+  assert.equal(tspans.length, 3, 'every line must get its own tspan, not just the first');
+  assert.deepEqual([...tspans].map((tspan) => tspan.textContent), ['if score >', 'broken second line', 'x']);
+  assert.equal(label.textContent, 'if score >broken second linex', 'the full text must still be present, line breaks aside');
+
+  const frame = host.querySelector('[data-droplet-kind="opaque-statement"] rect');
+  assert.equal(Number(frame.getAttribute('height')), 28 * 3, 'the frame must be tall enough to hold all three lines');
+
+  surface.destroy();
+});
+
 test('uses a layout insertion zone for one statement move intent and matching previews', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const host = dom.window.document.querySelector('#host');
@@ -989,6 +1013,15 @@ test('dragging a statement palette block over a gap guides to the resolved inser
   assert.ok(guide);
   assert.equal(Number(guide.getAttribute('width')), bodyEnd.bounds.right - bodyEnd.bounds.left);
 });
+
+function opaqueMultiLineProjection() {
+  const source = 'if score >\nbroken second line\nx\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [
+      {id: 'broken', kind: 'opaque-statement', from: 0, to: source.length, editable: false, metadata: {}, children: []}
+    ]
+  }};
+}
 
 function projection() {
   const source = 'if ready:\n  first()\n\n';

@@ -17,6 +17,30 @@ test('lays out a nested container with a header, independently addressable child
   assert.deepEqual(container.insertionZones.at(-1).destination, {from: 20, to: 20});
 });
 
+test('sizes and grows an opaque node\'s box to fit every line of its text, not just the first', () => {
+  // layoutAtomic used to always give a node a fixed single-line box, no
+  // matter how much text it actually held - an opaque node (parse recovery
+  // keeping a whole malformed document as one snapshot, most commonly) can
+  // legitimately span many lines, and a box sized for one silently clipped
+  // everything else the DOM renderer would otherwise have room to show.
+  const source = 'if score >\nbroken second line\nx\n';
+  const layout = createBlockLayout({
+    source,
+    root: documentNode(source, [
+      {id: 'broken', kind: 'opaque-statement', from: 0, to: source.length, editable: false, children: [], metadata: {}}
+    ])
+  }, {measureText: (text) => text.length * 10});
+  const node = layout.nodes.find((child) => child.id === 'broken');
+  const lines = source.trimEnd().split('\n');
+
+  assert.equal(node.text, source.trimEnd());
+  assert.equal(node.bounds.bottom - node.bounds.top, 28 * lines.length,
+    'the box must grow to fit every line, not stay a single line tall');
+  const widestLine = Math.max(...lines.map((line) => line.length * 10));
+  assert.equal(node.bounds.right - node.bounds.left, widestLine + 16,
+    'width must come from the single widest line, not the whole multi-line blob\'s total character count');
+});
+
 test('keeps whitespace as a measured sibling and exposes insertion zones around it', () => {
   const source = 'first()\n \t\nsecond()\n';
   const layout = createBlockLayout({

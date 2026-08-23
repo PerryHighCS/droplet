@@ -1258,16 +1258,37 @@ function createLabel(text, x, y, document, className) {
   // opt out, but browsers now key whitespace handling off the CSS
   // white-space property instead, so set that directly.
   label.style.whiteSpace = 'pre';
-  // [\s\S]*, not .*: without the s/m flags "." does not match a newline and
-  // "$" means end of string, so text with two or more line breaks (an
-  // opaque-recovered node's full snapshot, a multi-line footerText) would
-  // only have its first newline reached, leaving the rest to render as
-  // collapsed-looking whitespace under the "pre" rule set above.
-  label.textContent = text.replace(/[\r\n][\s\S]*$/, '');
+  const lines = text.split(/\r\n|\r|\n/);
+  if (lines.length === 1) {
+    label.textContent = text;
+    return label;
+  }
+  // A genuinely multi-line label (most commonly an opaque-recovered node's
+  // whole document snapshot, kept as one block while parsing is broken) used
+  // to be truncated to its own first line here - SVG <text> does not wrap or
+  // even display a "\n" as a line break, it renders as ordinary collapsed
+  // whitespace, so every later line silently vanished from the block surface
+  // while CodeMirror's own text view stayed hidden underneath it. One <tspan>
+  // per line, each repeating the label's own x and stepped down by
+  // LABEL_LINE_HEIGHT (matching block-surface.js's own default lineHeight,
+  // which is what layoutAtomic already grows the node's box by per line), is
+  // the standard SVG idiom for that.
+  for (const [index, line] of lines.entries()) {
+    const tspan = document.createElementNS(SVG_NAMESPACE, 'tspan');
+    tspan.setAttribute('x', String(x));
+    if (index > 0) tspan.setAttribute('dy', String(LABEL_LINE_HEIGHT));
+    tspan.textContent = line;
+    label.append(tspan);
+  }
   return label;
 }
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+// Matches block-surface.js's own default lineHeight (settings.lineHeight,
+// 28 unless overridden) - a multi-line label's box already grows by exactly
+// that much per line, and stepping each of its own tspans down by the same
+// amount is what keeps every line inside the box it was measured for.
+const LABEL_LINE_HEIGHT = 28;
 const SNAKE_STROKE = '#5f8a41';
 const SNAKE_FILL = 'rgba(122, 163, 88, .12)';
 const SNAKE_TONGUE = '#c23b3b';

@@ -96,9 +96,17 @@ function layoutAtomic(node, source, settings, left, top) {
   const textEnd = inlineComment ? inlineComment.from : node.kind === 'statement' ? lineEnd(source, node.to) : node.to;
   const text = source.slice(node.from, textEnd).trimEnd();
   const sockets = node.kind === 'statement' ? layoutSockets(sourceSockets(node), node, source, settings, left, top) : [];
+  // A statement/comment's own text is always one physical line (textEnd
+  // above caps a statement at its own line, and a comment never spans more
+  // than one) - but an opaque node (parse recovery keeping a whole malformed
+  // document as one snapshot, most commonly) can legitimately span many.
+  // Measuring/sizing by the single widest line, and growing the box to fit
+  // every line, is what lets renderSourceLabels show all of it instead of
+  // silently dropping every line after the first.
+  const lines = text.split(/\r\n|\r|\n/);
   const width = Math.max(
     settings.minimumWidth,
-    settings.measureText(text) + settings.horizontalPadding * 2,
+    Math.max(...lines.map((line) => settings.measureText(line))) + settings.horizontalPadding * 2,
     socketContentWidth(sockets, node, textEnd, source, settings, left)
   );
   const children = [
@@ -114,7 +122,7 @@ function layoutAtomic(node, source, settings, left, top) {
     source: rangeOf(node),
     metadata: node.metadata,
     text,
-    bounds: box(left, top, width, settings.lineHeight),
+    bounds: box(left, top, width, settings.lineHeight * lines.length),
     children,
     insertionZones: []
   };
