@@ -470,9 +470,13 @@ function matchingDelimiterEnd(source, openPosition, openChar, closeChar) {
   let cursor = openPosition;
   while (cursor < source.length) {
     const char = source[cursor];
+    // lineTextEnd stops at whichever line ending actually terminates this
+    // line (CR, LF, or CRLF) - landing on that character, not past it, is
+    // enough: it isn't "#"/a quote/a delimiter, so the next iteration's own
+    // fallthrough advances past it (and CRLF's second character the same
+    // way) without this needing to special-case ending length itself.
     if (char === '#') {
-      const lineEnd = source.indexOf('\n', cursor);
-      cursor = lineEnd === -1 ? source.length : lineEnd + 1;
+      cursor = lineTextEnd(source, cursor);
       continue;
     }
     if (char === '"' || char === '\'') {
@@ -922,9 +926,11 @@ function commaAfter(source, from) {
   while (cursor < source.length) {
     const char = source[cursor];
     if (char === ',') return cursor;
+    // See matchingDelimiterEnd's own comment: landing on the line-ending
+    // character itself (whichever one actually terminates this line) is
+    // enough, since the loop's own fallthrough advances past it next.
     if (char === '#') {
-      const lineEnd = source.indexOf('\n', cursor);
-      cursor = lineEnd === -1 ? source.length : lineEnd + 1;
+      cursor = lineTextEnd(source, cursor);
       continue;
     }
     cursor += 1;

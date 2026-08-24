@@ -1391,6 +1391,65 @@ test('adds a parameter to a def whose own default value string contains an unmat
   assert.equal(applySourceChanges(source, changes), 'def f(a=")", ):\n  pass\n');
 });
 
+test('adds a parameter to a def whose header comment sits on a bare-CR line', () => {
+  // matchingDelimiterEnd's own comment-skip searched only for "\n" - with a
+  // bare-CR source (old Mac-style line endings, still valid input this
+  // adapter otherwise handles - see physicalLines), indexOf('\n', ...) never
+  // finds one, so the comment-skip jumped straight to the end of the whole
+  // source instead of just past the comment's own line, treating everything
+  // after the comment (including the def's own real closing parenthesis) as
+  // part of it and never finding a real delimiter to depth-track.
+  const source = 'def f(a,  # note\r      b):\r  pass\r';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const paramB = {
+    id: 'socket:b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length - 1, children: [paramA, paramB],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length - 1}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a,  # note\r      b, ):\r  pass\r');
+});
+
+test('removes the last call argument when its own separating comma follows a comment on a bare-CR line', () => {
+  // commaAfter's own comment-skip has the same "\n"-only bug as
+  // matchingDelimiterEnd above - with the kept argument's comment on a
+  // bare-CR continuation line, the scan jumped to the end of the source
+  // and never found the real separating comma, leaving it dangling behind
+  // after the removed item instead of being removed along with it.
+  const source = 'first(a  # keep a\r      , b)\r';
+  const argA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const argB = {
+    id: 'socket:b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argA, argB],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: argB.from, to: argB.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first(a)\r');
+});
+
 test('removes a middle call argument, splicing its own separating comma', () => {
   const source = 'first(a, b, c)\n';
   const args = ['a', 'b', 'c'].map((letter) => ({
