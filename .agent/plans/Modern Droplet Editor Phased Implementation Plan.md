@@ -1360,10 +1360,12 @@ area, which was widened to hold them.
   preview and insertion affordances used by production block mode.
   `example/modern-javascript.mjs` exists and supports palette insertion,
   moving, and socket editing, but uses its own bespoke sample programs rather
-  than `test/data/javascript-compatibility.js`, and - unlike the Python
-  playground - has **zero** Playwright coverage (every `manual modern ...
-  playground` test in `brython-ast.spec.mjs` targets Python only). Tracked as
-  [#5](https://github.com/PerryHighCS/droplet/issues/5).
+  than `test/data/javascript-compatibility.js`. It now has Playwright smoke
+  and interaction coverage (`playwright/tests/javascript-playground.spec.mjs`,
+  closing [#5](https://github.com/PerryHighCS/droplet/issues/5)) for page
+  load, palette-click insertion, mode switching, a palette drag, and the
+  category-color pass - but still no case moving an existing nested statement
+  independently of, then together with, its enclosing container.
 
 Also still open, found while auditing this phase but not previously listed
 here:
@@ -1375,10 +1377,10 @@ here:
   "Conditional verification" above).
 - [ ] No undo/redo round-trip test exists for `add-clause`/`remove-clause`
   specifically (same gap already noted under "Conditional verification").
-- [ ] Opaque multi-line source snapshots (e.g. a whole malformed multi-line
-  document recovered as one `opaque-statement`) truncate to their first line
-  in `block-surface-dom.js`'s `createLabel` - real multi-line layout and
-  `<tspan>`-based rendering are needed. Tracked as
+- [x] Opaque multi-line source snapshots (e.g. a whole malformed multi-line
+  document recovered as one `opaque-statement`) used to truncate to their
+  first line in `block-surface-dom.js`'s `createLabel`. Fixed with real
+  multi-line layout and `<tspan>`-based rendering, closing
   [#8](https://github.com/PerryHighCS/droplet/issues/8).
 
 ### Phase 8.5 status — 2026-08-23
@@ -1389,12 +1391,13 @@ preview sharing, insertion zones, body-end targeting, empty-suite handling,
 comment/whitespace nodes, and innermost hit testing are all implemented and
 tested, closing out essentially all of "Required rendering model" and
 "Required rendering and interaction work" above. What remains before Phase 9
-packaging is almost entirely test-coverage and one rendering gap, not new
-architecture: JavaScript playground Playwright coverage (#5, the largest
-remaining item), broader expression-drag-to-socket browser coverage, a
-container-drag-ownership acceptance test, screenshot/geometry drag-preview
-parity tests, two narrow undo/redo and elif-condition test gaps, and the
-opaque multi-line label truncation (#8).
+packaging is almost entirely test-coverage, not new architecture: JavaScript
+playground Playwright coverage landed (#5, closed) but still lacks a
+container-drag-ownership acceptance test moving a nested statement
+independently of, then together with, its enclosing container; broader
+expression-drag-to-socket browser coverage; screenshot/geometry drag-preview
+parity tests; and two narrow undo/redo and elif-condition test gaps. The
+opaque multi-line label truncation (#8) is fixed and closed.
 
 Only after these criteria are complete should Phase 9 package the editor's
 public browser API.
