@@ -718,36 +718,45 @@ test('clicking a call\'s "+" button emits an insert-sequence-item operation', ()
   assert.deepEqual(operations, [{type: 'insert-sequence-item', target: {from: call.source.from, to: call.source.to}}]);
 });
 
-test('shows the "+" but not the "-" button on a call with only the synthetic empty argument socket', () => {
-  // A zero-argument call still needs a way to add its first argument, so "+"
-  // must show even though there is nothing real there yet - but "-" stays
-  // hidden, since the synthetic placeholder itself is not a real argument to
-  // remove.
+test('hides both "+" and "-" on a call with only the synthetic empty argument socket', () => {
+  // Both adapters reject insert-sequence-item as a no-op until a real
+  // argument exists (see hasRealSequenceItem) - a "+" button here used to
+  // render anyway, sitting there focusable and doing nothing when pressed.
+  // The empty socket itself is already the affordance for typing the first
+  // argument; "-" stays hidden too, since the synthetic placeholder is not
+  // a real argument to remove.
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
   surface.update(emptyCall());
   const svg = surface.element.querySelector('svg');
 
-  assert.ok(svg.querySelector('[data-droplet-action="insert-sequence-item"]'));
+  assert.equal(svg.querySelector('[data-droplet-action="insert-sequence-item"]'), null);
   assert.equal(svg.querySelector('[data-droplet-action="remove-sequence-item"]'), null);
 });
 
-test('shows the "+" button on a function declaration with zero parameters', () => {
+test('hides the "+" button on a function declaration with zero parameters', () => {
+  // Same reasoning as the empty-call case above: insert-sequence-item is a
+  // no-op until a real parameter exists, so the button must not render for
+  // a def whose only parameter socket is the synthetic empty one.
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host')});
   surface.update(functionDeclarationWithoutParameters());
   const svg = surface.element.querySelector('svg');
 
-  assert.ok(svg.querySelector('[data-droplet-action="insert-sequence-item"]'));
+  assert.equal(svg.querySelector('[data-droplet-action="insert-sequence-item"]'), null);
 });
 
 test('marks add/remove action buttons non-focusable and aria-disabled while read-only, live and on rerender', () => {
   // #dispatchAction already silently no-ops these while readOnly, but
   // nothing signaled that to a keyboard or screen-reader user - the button
-  // stayed tabbable and announced as an enabled control regardless.
+  // stayed tabbable and announced as an enabled control regardless. Needs a
+  // def with a real parameter (not functionDeclarationWithoutParameters) -
+  // insert-sequence-item's own button is now hidden entirely once every
+  // parameter socket is synthetic, and this test is about the button's own
+  // read-only behavior, not that visibility rule.
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), readOnly: false});
-  surface.update(functionDeclarationWithoutParameters());
+  surface.update(functionDeclarationWithParameter());
   const svg = surface.element.querySelector('svg');
   const button = () => svg.querySelector('[data-droplet-action="insert-sequence-item"]');
 
@@ -760,7 +769,7 @@ test('marks add/remove action buttons non-focusable and aria-disabled while read
 
   // A rerender while still read-only (e.g. an external text edit) must not
   // let a freshly rendered button slip back to enabled.
-  surface.update(functionDeclarationWithoutParameters());
+  surface.update(functionDeclarationWithParameter());
   assert.equal(button().getAttribute('tabindex'), '-1');
   assert.equal(button().getAttribute('aria-disabled'), 'true');
 
@@ -1315,6 +1324,22 @@ function functionDeclarationWithoutParameters() {
       },
       children: [
         {id: 'empty-param', kind: 'socket', from: source.indexOf(')'), to: source.indexOf(')'), editable: true, metadata: {socketRole: 'parameter', empty: true}, children: []}
+      ]
+    }]
+  }};
+}
+
+function functionDeclarationWithParameter() {
+  const source = 'function myFunction(a) {\n}\n';
+  return {source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'def', kind: 'statement', from: 0, to: source.length, editable: true,
+      metadata: {
+        type: 'FunctionDeclaration', blockRole: 'container',
+        headerTo: source.indexOf('\n'), bodyEnd: source.indexOf('}')
+      },
+      children: [
+        {id: 'a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, editable: true, metadata: {socketRole: 'parameter'}, children: []}
       ]
     }]
   }};

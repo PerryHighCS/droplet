@@ -977,6 +977,12 @@ const PARAMETER_ADD_ELIGIBLE_TYPES = new Set(['FunctionDef', 'AsyncFunctionDef',
 
 function renderParameterAddButton(group, node, document) {
   if (!PARAMETER_ADD_ELIGIBLE_TYPES.has(node.metadata?.type)) return;
+  // Both adapters reject insert-sequence-item as a no-op until a real
+  // parameter/argument/item exists (see hasRealSequenceItem) - a zero-
+  // parameter def has only its synthetic empty parameter socket, so the
+  // button would sit there, focusable, doing nothing when pressed. The
+  // empty socket itself is already the affordance for typing the first one.
+  if (!hasRealSequenceChild(node.children, 'parameter')) return;
   appendActionButton(group, document, {
     action: 'insert-sequence-item', label: '+', x: node.regions.header.right - 12, y: node.regions.header.top - 4,
     dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Add parameter'
@@ -989,12 +995,12 @@ function renderParameterAddButton(group, node, document) {
 // arguments still reach here as this statement's own direct sockets, though
 // (see sourceSockets/structuralChildren in block-surface.js: a JavaScript
 // expression wrapper contributes no visible block of its own, only its own
-// sockets), so a 'call-argument' among them (real or the always-present
-// synthetic empty slot a zero-argument call still gets) is exactly the
-// signal that this statement's own expression is a call and needs the
-// button.
+// sockets), so a real 'call-argument' among them is exactly the signal that
+// this statement's own expression is a call with something to add another
+// item after. The always-present synthetic empty slot a zero-argument call
+// still gets does not count - see hasRealSequenceChild.
 function renderCallArgumentAddButton(group, node, document) {
-  if (!node.children.some((child) => child.metadata?.socketRole === 'call-argument')) return;
+  if (!hasRealSequenceChild(node.children, 'call-argument')) return;
   appendActionButton(group, document, {
     action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
     dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Add argument'
@@ -1176,6 +1182,14 @@ function isSequenceItemRole(role) {
   return role === 'call-argument' || role === 'list-item' || role === 'parameter';
 }
 
+// Both adapters' insert-sequence-item transform rejects as a no-op until a
+// real (non-synthetic) item of the given role exists - mirrors each
+// adapter's own hasRealSequenceItem check, read straight off the already-
+// projected children an add button's own node carries.
+function hasRealSequenceChild(children, role) {
+  return children.some((child) => child.metadata?.socketRole === role && !child.metadata?.empty);
+}
+
 function renderCompoundSocket(group, node, document, options) {
   // A compound socket has no click-to-edit text of its own (see
   // isInlineEditable) - only its leaf sockets do - but it is still one
@@ -1205,7 +1219,10 @@ function renderCompoundSocket(group, node, document, options) {
   const role = node.metadata?.type === 'List' ? 'list-item'
     : (node.metadata?.type === 'Call' || node.metadata?.type === 'CallExpression' || node.metadata?.type === 'NewExpression') ? 'call-argument'
     : undefined;
-  if (role) {
+  // Both adapters reject insert-sequence-item as a no-op until a real item
+  // exists (see hasRealSequenceChild) - an empty call/list has only its
+  // synthetic empty socket, so the button would sit there doing nothing.
+  if (role && hasRealSequenceChild(node.children, role)) {
     appendActionButton(group, document, {
       action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
       dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to},
