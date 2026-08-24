@@ -175,6 +175,33 @@ test('clicking again inside an already-open socket editor repositions the cursor
   editor.destroy();
 });
 
+test('clicking a different socket while one is still open commits it before opening the next', () => {
+  // #selectNode's own dom.focus() call blurs a still-open socket editor as
+  // a side effect - if its own draft changed length, that synchronously
+  // commits it, which reparses and rebuilds the layout. The click handler
+  // used to resolve the newly-clicked node from the layout *before* that
+  // side effect ran, so the editor it then opened sliced the (already
+  // shifted) new source using the old, now-incorrect offsets - not the
+  // socket the user actually clicked.
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'a = value\nb = other\n', blockMode: true, parse: parseTwoAssignmentSockets
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="av:value"]'));
+  const inputA = parent.querySelector('.droplet-socket-editor');
+  inputA.value = 'verylongvalue';
+
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="bv:other"]'));
+
+  assert.equal(editor.getValue(), 'a = verylongvalue\nb = other\n');
+  const inputB = parent.querySelector('.droplet-socket-editor');
+  assert.equal(inputB.value, 'other');
+  editor.destroy();
+});
+
 test('an incomplete socket commit remains an editable recovery socket until it parses', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
@@ -780,6 +807,32 @@ function parseSocketExample(source) {
             editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
         ]
       }]
+    }, issues: []
+  };
+}
+
+// Two independent "x = value" statement lines, each with its own directly
+// editable value socket, so a commit to one (which can shift everything
+// after it) can be checked against the other's own, unrelated socket.
+function parseTwoAssignmentSockets(source) {
+  const [firstLine, secondLine] = source.split('\n');
+  const firstEq = firstLine.indexOf(' = ') + 3;
+  const secondLineStart = firstLine.length + 1;
+  const secondEq = secondLineStart + secondLine.indexOf(' = ') + 3;
+  return {
+    source,
+    root: {
+      id: 'document', kind: 'document', from: 0, to: source.length, editable: false,
+      children: [
+        {id: 'a', kind: 'statement', from: 0, to: firstLine.length, editable: true, metadata: {}, children: [
+          {id: `av:${source.slice(firstEq, firstLine.length)}`, kind: 'socket', from: firstEq, to: firstLine.length,
+            editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
+        ]},
+        {id: 'b', kind: 'statement', from: secondLineStart, to: secondLineStart + secondLine.length, editable: true, metadata: {}, children: [
+          {id: `bv:${source.slice(secondEq, secondLineStart + secondLine.length)}`, kind: 'socket', from: secondEq,
+            to: secondLineStart + secondLine.length, editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
+        ]}
+      ]
     }, issues: []
   };
 }

@@ -140,6 +140,18 @@ export class BlockSurface {
     // socket/comment again and reopen the editor, destroying and recreating
     // the input - clearing whatever selection the click just made.
     if (event.target?.tagName === 'INPUT') return;
+    // #selectNode's own focus() call below would otherwise blur a different,
+    // still-open socket editor as a side effect, synchronously committing it
+    // mid-handler - if that commit's own text changed length, the reparse
+    // and layout rebuild it triggers happen *after* this handler already
+    // resolved directNode/target below from the stale (pre-edit) layout, so
+    // a click from one edited socket straight to another opened an editor
+    // with a value sliced using now-incorrect offsets. Committing first
+    // (event.target's own detached DOM subtree still resolves correctly
+    // against the refreshed layout below - layoutNodeForElement looks its
+    // node up by id, not by live position) avoids resolving anything from a
+    // layout this click's own side effects are about to invalidate.
+    if (this.#socketEditor) this.#commitSocketEditor(this.#socketEditor);
     // The elif/else and sequence add/remove affordances are their own
     // clickable elements, not part of the ordinary hit-test/select flow -
     // check for one before any of that runs.
