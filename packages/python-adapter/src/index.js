@@ -543,7 +543,8 @@ function relabelParameterSockets(children, node, source, from) {
   if ((type !== 'FunctionDef' && type !== 'AsyncFunctionDef') || from === null) return;
   const nameSocket = children.find((child) => child.metadata?.socketRole === 'name');
   if (!nameSocket) return;
-  const closingParenthesis = source.lastIndexOf(')', lineTextEnd(source, from));
+  const closingParenthesis = matchingDelimiterEnd(source, source.indexOf('(', nameSocket.to), '(', ')');
+  if (closingParenthesis < 0) return;
   const args = node.args ?? {};
   const positional = [
     ...(Array.isArray(args.posonlyargs) ? args.posonlyargs : []),

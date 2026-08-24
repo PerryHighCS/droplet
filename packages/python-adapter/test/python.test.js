@@ -75,6 +75,23 @@ test('projects a defaulted parameter as one removable sequence item', () => {
   assert.equal(applySourceChanges(source, changes), 'def greet():\n  pass\n');
 });
 
+test('projects a defaulted parameter in a multi-line function header', () => {
+  const source = 'def greet(\n  name="world"\n):\n  pass\n';
+  const ast = {type: 'Module', body: [
+    {type: 'FunctionDef', lineno: 1, col_offset: 0, end_lineno: 4, end_col_offset: 6, name: 'greet',
+      args: {posonlyargs: [], args: [
+        {type: 'arg', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6, arg: 'name'}
+      ], defaults: [
+        {type: 'Constant', lineno: 2, col_offset: 7, end_lineno: 2, end_col_offset: 14, value: 'world'}
+      ], kwonlyargs: [], kw_defaults: [], vararg: null, kwarg: null},
+      body: [{type: 'Pass', lineno: 4, col_offset: 2, end_lineno: 4, end_col_offset: 6}], decorator_list: []}
+  ]};
+  const parameter = collectProjectedNodes(parsePython(source, () => ast).root)
+    .find((node) => node.metadata?.socketRole === 'parameter');
+
+  assert.equal(source.slice(parameter.from, parameter.to), 'name="world"');
+});
+
 test('sockets a function name even when it contains regex metacharacters', () => {
   // pythonToAST is caller-supplied (see parsePython's own doc comment), so
   // node.name is not guaranteed to be a plain identifier - interpolating it

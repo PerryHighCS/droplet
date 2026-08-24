@@ -889,7 +889,7 @@ test('clicking an action after changing a socket commits both the edit and the a
       edits.push(edit);
       // The editor reparses synchronously, replacing the action control just
       // as a real changed socket commit does.
-      surface.update(callWithArguments());
+      surface.update(callWithArguments(edit.source));
     },
     onOperation: (operation) => operations.push(operation)
   });
@@ -906,9 +906,12 @@ test('clicking an action after changing a socket commits both the edit and the a
   // Browser focus transfer blurs the input after mousedown but before click.
   // The action must therefore be preserved before that blur can replace SVG.
   addButton.dispatchEvent(new dom.window.MouseEvent('mousedown', {bubbles: true, button: 0}));
+  const rebuiltAddButton = surface.element.querySelector('[data-droplet-action="insert-sequence-item"]');
+  rebuiltAddButton.dispatchEvent(new dom.window.MouseEvent('mouseup', {bubbles: true, button: 0}));
+  rebuiltAddButton.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0}));
 
   assert.deepEqual(edits, [{target: {from: 6, to: 7}, source: 'changed'}]);
-  assert.deepEqual(operations, [{type: 'insert-sequence-item', target: {from: 0, to: 11}}]);
+  assert.deepEqual(operations, [{type: 'insert-sequence-item', target: {from: 0, to: 17}}]);
 });
 
 test('hides both "+" and "-" on a call with only the synthetic empty argument socket', () => {
@@ -1501,14 +1504,14 @@ function ifWithElseClause() {
   }};
 }
 
-function callWithArguments() {
-  const source = 'first(a, b)\n';
+function callWithArguments(firstArgument = 'a') {
+  const source = `first(${firstArgument}, b)\n`;
   return {source, root: {
     id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
       id: 'call-statement', kind: 'statement', from: 0, to: source.length - 1, editable: true, metadata: {}, children: [{
         id: 'call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, editable: true,
         metadata: {type: 'Call', socketRole: 'expression'}, children: [
-          {id: 'a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, editable: true, metadata: {socketRole: 'call-argument'}, children: []},
+          {id: 'a', kind: 'socket', from: source.indexOf(firstArgument), to: source.indexOf(firstArgument) + firstArgument.length, editable: true, metadata: {socketRole: 'call-argument'}, children: []},
           {id: 'b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, editable: true, metadata: {socketRole: 'call-argument'}, children: []}
         ]
       }]

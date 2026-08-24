@@ -186,8 +186,16 @@ export class BlockSurface {
     // targeting a newly-rendered control a second time.
     if (!actionButton || !this.#socketEditor) return;
     event.preventDefault();
+    const matchingButtons = actionButtonsMatching(this.#svg, actionButton);
+    const index = matchingButtons.indexOf(actionButton);
+    // A synchronous reparse replaces the clicked SVG control. Suppress the
+    // synthetic follow-up click before it can land on the rebuilt control;
+    // use the corresponding rebuilt button below so its source range reflects
+    // the edit that just committed.
+    this.#suppressClick = true;
+    setTimeout(() => { this.#suppressClick = false; }, 0);
     this.#commitSocketEditor(this.#socketEditor);
-    this.#dispatchAction(actionButton);
+    this.#dispatchAction(actionButtonsMatching(this.#svg, actionButton)[index] ?? actionButton);
   }
 
   #handleKeydown(event) {
@@ -1093,6 +1101,13 @@ function markActionButtonsReadOnly(svg, readOnly) {
     if (readOnly) button.setAttribute('aria-disabled', 'true');
     else button.removeAttribute('aria-disabled');
   }
+}
+
+function actionButtonsMatching(svg, button) {
+  return [...svg.querySelectorAll('[data-droplet-action]')].filter((candidate) =>
+    candidate.dataset.dropletAction === button.dataset.dropletAction &&
+    candidate.dataset.dropletRole === button.dataset.dropletRole
+  );
 }
 
 // These SVG groups are the only affordance for their action (add/remove a

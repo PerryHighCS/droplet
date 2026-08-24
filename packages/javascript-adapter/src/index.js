@@ -255,7 +255,7 @@ function relocatedStatementText(source, originalFrom, text, point) {
 // starting at `position`, falling back to "\n" only when none follows.
 function lineEndingAt(source, position) {
   const match = /\r\n|\r|\n/.exec(source.slice(position));
-  return match?.[0] ?? '\n';
+  return match?.[0] ?? [...source.matchAll(/\r\n|\r|\n/g)].at(-1)?.[0] ?? '\n';
 }
 
 // Unlike insert-statement's caller-supplied text, a relocated statement's
