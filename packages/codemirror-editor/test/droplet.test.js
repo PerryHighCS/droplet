@@ -201,6 +201,33 @@ test('an incomplete socket commit remains an editable recovery socket until it p
   editor.destroy();
 });
 
+test('clearing a socket that is the document\'s own last characters still recovers, not just goes fully opaque', () => {
+  // targetFailedToReproject's intersects check is half-open, so a collapsed
+  // edit range (the socket cleared to empty) exactly at an opaque node's own
+  // end never counted as touching it - correct when real content follows at
+  // that position, but wrong when nothing does because it is also the very
+  // end of the document (no trailing newline here). The whole document went
+  // fully opaque instead of leaving a targeted, still-editable recovery
+  // socket in an otherwise-normal projection.
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value', blockMode: true, parse: parseNoTrailingNewlineRecoveringSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:value"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.value = '';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+
+  assert.equal(editor.getValue(), 'target = ');
+  assert.ok(parent.querySelector('[data-droplet-kind="recovery-socket"]'),
+    'the cleared socket must stay an editable recovery-socket, not collapse the whole document to opaque');
+  assert.equal(parent.querySelectorAll('[data-droplet-kind="opaque-statement"]').length, 0);
+  editor.destroy();
+});
+
 test('an unrelated change after a still-broken socket commit does not reuse its stale recovery target', () => {
   // #socketRecovery is armed by #replaceSocketText immediately before its own
   // dispatch. If left set once that edit's own reparse still finds an opaque
@@ -808,6 +835,35 @@ function parseRecoveringSocketExample(source) {
     throw error;
   }
   return parseSocketExample(source);
+}
+
+// Same shape as parseSocketExample, but with no trailing newline - so the
+// value socket is the document's own last characters, and clearing it moves
+// the edited range's own end to exactly source.length, not merely up against
+// a following "\n".
+function parseNoTrailingNewlineRecoveringSocketExample(source) {
+  if (source === 'target = ') {
+    const error = new Error('Expected an expression');
+    error.from = 0;
+    error.to = source.length;
+    error.opaqueKind = 'opaque-statement';
+    throw error;
+  }
+  const targetEnd = source.indexOf(' = ');
+  const valueFrom = targetEnd + 3;
+  return {
+    source,
+    root: {
+      id: `document:0:${source.length}`, kind: 'document', from: 0, to: source.length, editable: false,
+      children: [{
+        id: 'assign', kind: 'statement', from: 0, to: source.length, editable: true, metadata: {}, children: [
+          {id: 'target', kind: 'socket', from: 0, to: targetEnd, editable: true, children: [], metadata: {socketRole: 'assignment-target'}},
+          {id: `value:${source.slice(valueFrom)}`, kind: 'socket', from: valueFrom, to: source.length,
+            editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
+        ]
+      }]
+    }, issues: []
+  };
 }
 
 function appendParent() {

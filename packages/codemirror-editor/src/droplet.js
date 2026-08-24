@@ -290,8 +290,21 @@ function changesTouchOpaqueNode(transaction, projection) {
 // whenever an unrelated opaque region happens to coexist alongside it.
 function targetFailedToReproject(root, recovery, source) {
   const delta = source.length - recovery.projection.source.length;
-  const to = recovery.target.from + (recovery.target.to - recovery.target.from) + delta;
-  return collectOpaqueNodes(root).some((node) => intersects(node, recovery.target.from, to));
+  const from = recovery.target.from;
+  const to = from + (recovery.target.to - recovery.target.from) + delta;
+  // intersects treats every node range as half-open, so a collapsed point
+  // exactly at an opaque node's own end (from === to === node.to) never
+  // counts as inside it - correct when real content follows at that position
+  // (the point is that content's start, not the node's), but wrong at the
+  // very end of the document, where there is no following content for it to
+  // belong to instead. Clearing a socket that was the document's last
+  // characters (no trailing newline) collapses the target to exactly that
+  // point, so without this it reads as a clean reprojection and recovery is
+  // skipped, leaving the whole document opaque instead of an editable
+  // recovery-socket.
+  return collectOpaqueNodes(root).some((node) =>
+    intersects(node, from, to) ||
+    (from === to && to === source.length && node.to === source.length && from >= node.from));
 }
 
 function collectOpaqueNodes(node) {
