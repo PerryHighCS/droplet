@@ -196,9 +196,16 @@ export function transformPython(operation, parsed, pythonToAST) {
       const bodyIndentation = statement.metadata?.bodyIndentation ?? `${indentation}  `;
       const lineEnding = lineEndingAt(parsed.source, statement.to);
       const header = operation.role === 'elif' ? 'elif True:' : 'else:';
+      // bodyEnd is normally right after the previous line's own terminator -
+      // a genuine line start - but when that line is the whole source's own
+      // last, with no trailing newline, insertAt lands immediately after the
+      // last statement's own text instead. Splicing the new clause straight
+      // there with no separator merged it onto that text ("passelif True:"),
+      // producing invalid syntax the surface itself just offered.
+      const separator = isLineStart(parsed.source, insertAt) ? '' : lineEnding;
       changes = [{
         from: insertAt, to: insertAt,
-        insert: `${indentation}${header}${lineEnding}${bodyIndentation}pass${lineEnding}`
+        insert: `${separator}${indentation}${header}${lineEnding}${bodyIndentation}pass${lineEnding}`
       }];
       break;
     }

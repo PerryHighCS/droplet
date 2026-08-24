@@ -1010,6 +1010,25 @@ test('adds an elif branch with a default condition and empty suite', () => {
   assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif True:\n  pass\n');
 });
 
+test('adds an elif branch when the suite\'s own last line has no trailing newline', () => {
+  // insertAt (bodyEnd) is normally right after the previous line's own
+  // terminator - a genuine line start - but when that line is the whole
+  // source's own last, with no trailing newline, insertAt instead lands
+  // immediately after "pass" itself. Splicing the new clause straight there
+  // with no separator merged it onto that text ("passelif True:"), invalid
+  // syntax the surface itself had just offered as an available action.
+  const source = 'if ready:\n  pass';
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({type: 'add-clause', target: {from: 0, to: source.length}, role: 'elif'}, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif True:\n  pass\n');
+});
+
 test('adds an else branch after the last existing elif', () => {
   const source = 'if ready:\n  pass\nelif retry:\n  pass\n';
   const elifClause = {
