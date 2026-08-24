@@ -1347,10 +1347,15 @@ function passSuite() {
 }
 
 function drag(svg, window, source, x, y, modifiers = {}) {
-  svg.dispatchEvent(new window.MouseEvent('pointerdown', {bubbles: true, button: 0,
+  // A plain MouseEvent leaves event.pointerId/pointerType undefined, so
+  // #continueDrag/#endDrag's own `event.pointerId !== this.#drag.pointerId`
+  // checks (see the dedicated pointer-identity tests below) would pass
+  // trivially - undefined !== undefined is always false - without actually
+  // exercising real pointer-identity matching. PointerEvent populates both.
+  svg.dispatchEvent(new window.PointerEvent('pointerdown', {bubbles: true, button: 0, pointerId: 1, pointerType: 'mouse',
     clientX: source.bounds.left + 2, clientY: source.bounds.top + 2, ...modifiers}));
-  svg.dispatchEvent(new window.MouseEvent('pointermove', {bubbles: true, button: 0, clientX: x, clientY: y}));
-  svg.dispatchEvent(new window.MouseEvent('pointerup', {bubbles: true, button: 0, clientX: x, clientY: y}));
+  svg.dispatchEvent(new window.PointerEvent('pointermove', {bubbles: true, button: 0, pointerId: 1, pointerType: 'mouse', clientX: x, clientY: y}));
+  svg.dispatchEvent(new window.PointerEvent('pointerup', {bubbles: true, button: 0, pointerId: 1, pointerType: 'mouse', clientX: x, clientY: y}));
 }
 
 // JSDOM doesn't implement DataTransfer/DragEvent, so mimic the parts the
