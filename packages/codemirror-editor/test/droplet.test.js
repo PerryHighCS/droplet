@@ -201,6 +201,31 @@ test('an incomplete socket commit remains an editable recovery socket until it p
   editor.destroy();
 });
 
+test('recovering a socket also shifts the numeric offsets in its ancestors\' own metadata', () => {
+  // recoverSocketProjection remapped every reused node's own from/to, but
+  // left metadata (a container's headerTo/bodyEnd, in particular) at its
+  // pre-edit offsets. Growing the edited socket's own text (delta > 0) left
+  // the container's bodyEnd pointing partway into the freshly typed text
+  // instead of the document's new end - block-surface.js reads it directly
+  // to lay out the container's body/footer, so this silently corrupted its
+  // rendered and hit-tested boundaries.
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'if ready:\n  value = X\n', blockMode: true, parse: parseRecoveringContainerSocketExample
+  });
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(parent.querySelector('[data-droplet-layout-id="value:X"]'));
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.value = '(some_long_prefix';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+
+  assert.ok(parent.querySelector('[data-droplet-kind="recovery-socket"]'));
+  assert.equal(editor.getProjection().root.children[0].metadata.bodyEnd, editor.getValue().length);
+  editor.destroy();
+});
+
 test('clearing a socket that is the document\'s own last characters still recovers, not just goes fully opaque', () => {
   // targetFailedToReproject's intersects check is half-open, so a collapsed
   // edit range (the socket cleared to empty) exactly at an opaque node's own
@@ -835,6 +860,37 @@ function parseRecoveringSocketExample(source) {
     throw error;
   }
   return parseSocketExample(source);
+}
+
+// A container ('if ready:') wrapping a recoverable socket ('value = X'), so
+// a recovery can be checked for whether the container's own metadata
+// (headerTo/bodyEnd) shifted along with its from/to.
+function parseRecoveringContainerSocketExample(source) {
+  if (source.includes('(')) {
+    const error = new Error('Expected an expression');
+    error.from = 0;
+    error.to = source.length;
+    error.opaqueKind = 'opaque-statement';
+    throw error;
+  }
+  const valueFrom = source.indexOf('= ') + 2;
+  const valueTo = source.indexOf('\n', valueFrom);
+  return {
+    source,
+    root: {
+      id: 'document', kind: 'document', from: 0, to: source.length, editable: false,
+      children: [{
+        id: 'if', kind: 'statement', from: 0, to: source.length, editable: true,
+        metadata: {type: 'If', blockRole: 'container', headerTo: 9, bodyEnd: source.length, bodyIndentation: '  '},
+        children: [{
+          id: 'assign', kind: 'statement', from: 12, to: valueTo, editable: true, metadata: {}, children: [
+            {id: `value:${source.slice(valueFrom, valueTo)}`, kind: 'socket', from: valueFrom, to: valueTo,
+              editable: true, children: [], metadata: {socketRole: 'assignment-value'}}
+          ]
+        }]
+      }]
+    }, issues: []
+  };
 }
 
 // Same shape as parseSocketExample, but with no trailing newline - so the

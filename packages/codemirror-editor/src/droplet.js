@@ -338,10 +338,34 @@ function recoverSocketProjection(previous, source, target, issues) {
       ...node,
       from: mapOffset(node.from),
       to: mapOffset(node.to),
+      metadata: mapMetadataOffsets(node.metadata, mapOffset),
       children: (node.children ?? []).map(mapNode)
     };
   };
   return {source, root: mapNode(previous.root), issues};
+}
+
+// A reused node's own from/to are remapped above, but an adapter's own
+// metadata (a container's headerTo/bodyFrom/bodyEnd/blockEnd, a range like
+// emptySuitePass) carries further absolute source offsets of its own -
+// left untouched, they kept pointing at their pre-edit positions once the
+// edit's own delta shifted everything after it, so a container's rendered
+// header/body/footer boundaries and later block operations on it read
+// stale positions. This module has no adapter-specific knowledge of which
+// metadata keys are offsets, so - the same way mapNode already treats
+// every node's shape structurally, not semantically - any integer-valued
+// metadata property is treated as one and shifted identically to from/to;
+// every other value (a role/type string, a boolean, an indentation string)
+// is left alone.
+function mapMetadataOffsets(metadata, mapOffset) {
+  if (!metadata || typeof metadata !== 'object') return metadata;
+  const mapped = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (Number.isInteger(value)) mapped[key] = mapOffset(value);
+    else if (value && typeof value === 'object' && !Array.isArray(value)) mapped[key] = mapMetadataOffsets(value, mapOffset);
+    else mapped[key] = value;
+  }
+  return mapped;
 }
 
 function isPermittedChange(transaction) {
