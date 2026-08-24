@@ -216,6 +216,43 @@ test('an else clause is found by its real keyword token, not the first "else" te
   assert.equal(applySourceChanges(source, changes), 'if (x) {} /* else */\n');
 });
 
+test('projects an unbraced else branch as its own editable clause instead of dropping it', () => {
+  // elseClause used to require a BlockStatement and return undefined
+  // otherwise - a valid unbraced else ("else bar();") produced no clause at
+  // all, and childNodes() unconditionally excludes `alternate` from the
+  // ordinary recursive walk regardless of whether a clause was actually
+  // built, so the branch was neither rendered nor independently editable
+  // anywhere in the projection.
+  const source = 'if (x) foo(); else bar();\n';
+  const parsed = parseJavaScript(source);
+  const clause = findFirst(parsed.root, (node) => node.kind === 'clause');
+
+  assert.ok(clause, 'the unbraced else must still project as a clause');
+  assert.equal(clause.metadata.clauseRole, 'else');
+  assert.equal(source.slice(clause.from, clause.to), 'else bar();');
+  assert.equal(clause.metadata.headerTo, source.indexOf('bar()'));
+  assert.equal(clause.metadata.bodyEnd, source.indexOf('bar();') + 'bar();'.length);
+  const body = findFirst({children: clause.children}, (node) => node.kind === 'statement');
+  assert.ok(body, 'the unbraced branch\'s own statement must be an independent, editable child');
+  assert.equal(source.slice(body.from, body.to), 'bar();');
+});
+
+test('projects an unbraced elif branch, and does not truncate the rest of the chain after it', () => {
+  // ifClause had the same BlockStatement requirement for an "else if" body -
+  // an unbraced elif not only vanished itself, ifClauses' own recursive call
+  // only continues past a clause that successfully built, so it also
+  // silently dropped every later branch in the chain (a subsequent elif or
+  // else) from the projection too.
+  const source = 'if (x) foo(); else if (y) bar(); else baz();\n';
+  const parsed = parseJavaScript(source);
+  const ifStatement = findFirst(parsed.root, (node) => node.kind === 'statement' && node.metadata?.type === 'IfStatement');
+  const clauses = ifStatement.children.filter((node) => node.kind === 'clause');
+
+  assert.deepEqual(clauses.map((clause) => clause.metadata.clauseRole), ['elif', 'else']);
+  assert.equal(source.slice(clauses[0].from, clauses[0].to), 'else if (y) bar();');
+  assert.equal(source.slice(clauses[1].from, clauses[1].to), 'else baz();');
+});
+
 test('a blank line inside an else branch attaches to that clause, not the enclosing if', () => {
   const source = 'if (x) {\n  a();\n} else {\n  b();\n\n  c();\n}\n';
   const elseClause = findFirst(parseJavaScript(source).root, (node) => node.kind === 'clause');

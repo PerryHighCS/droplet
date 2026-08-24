@@ -414,39 +414,56 @@ function elseKeywordStart(source, from) {
 // An "else if" clause's body is its own inner IfStatement's consequent - kept
 // flattened directly into the clause's own children, the same way a plain
 // container's single-BlockStatement body is (see structuralChildren in
-// block-surface.js), rather than nested as its own separate box.
+// block-surface.js), rather than nested as its own separate box. A valid
+// unbraced consequent ("else if (y) work();") is projected as one direct
+// statement child instead - childNodes() excludes `alternate` from the
+// ordinary recursive walk entirely (see its own comment), so this is the
+// only path that ever visits it; leaving it unhandled here dropped it from
+// the projection outright, neither rendered nor independently editable.
 function ifClause(role, from, inner, source) {
   const body = inner.consequent;
-  if (body?.type !== 'BlockStatement') return undefined;
+  if (!body) return undefined;
   const to = body.end;
   return {
     id: `clause:${role}:${from}:${to}`,
     kind: 'clause', from, to, editable: true,
-    children: [projectNode(inner.test, 'socket', source, 'if-condition'),
-      ...(body.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source))],
+    children: [projectNode(inner.test, 'socket', source, 'if-condition'), ...clauseBodyChildren(body, source)],
     metadata: {type: 'IfStatement', clauseRole: role, ...clauseHeaderMetadata(from, body, source)}
   };
 }
 
+// Same unbraced handling as ifClause above, for a terminal "else" branch.
 function elseClause(from, block, source) {
-  if (block.type !== 'BlockStatement') return undefined;
   const to = block.end;
   return {
     id: `clause:else:${from}:${to}`,
     kind: 'clause', from, to, editable: true,
-    children: (block.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source)),
+    children: clauseBodyChildren(block, source),
     metadata: {type: 'BlockStatement', clauseRole: 'else', ...clauseHeaderMetadata(from, block, source)}
   };
 }
 
-// Shared by both clause shapes: for the ordinary multi-line case, the
+function clauseBodyChildren(body, source) {
+  return body.type === 'BlockStatement'
+    ? (body.body ?? []).map((statement) => projectNode(statement, nodeKind(statement), source))
+    : [projectNode(body, nodeKind(body), source)];
+}
+
+// Shared by both clause shapes: for the ordinary multi-line braced case, the
 // physical line end is the header boundary (it sits right after the opening
 // "{") - but for a compact single-line clause ("else if (y) { work(); }"),
 // that same line runs past the closing "}" too, and lineStart(body.end - 1)
 // would land back at the header's own line. Capping headerTo at the body's
 // own opening brace, and bodyEnd at its closing brace directly for a
-// single-line body, mirrors the primary container's own metadataFor.
+// single-line body, mirrors the primary container's own metadataFor. An
+// unbraced body ("else work();") has no brace to cap at or land inside of -
+// headerTo instead caps right before the body itself (mirroring
+// metadataFor's own unbracedBodyNode handling for a primary body), and
+// bodyEnd is simply the body's own end.
 function clauseHeaderMetadata(from, body, source) {
+  if (body.type !== 'BlockStatement') {
+    return {headerTo: Math.min(lineTextEnd(source, from), body.start), bodyEnd: body.end};
+  }
   const headerTo = Math.min(lineTextEnd(source, from), body.start + 1);
   const singleLine = !source.slice(body.start, body.end).includes('\n');
   const bodyEnd = singleLine ? body.end - 1 : lineStart(source, body.end - 1);
