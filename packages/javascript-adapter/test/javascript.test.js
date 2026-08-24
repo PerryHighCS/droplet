@@ -667,6 +667,20 @@ test('resolves a container\'s closing-brace line start in a bare-CR-only documen
   assert.notEqual(statement.metadata.bodyEnd, source.lastIndexOf('}'), 'must be the line start, not the brace\'s own position');
 });
 
+test('indents a statement inserted before a container\'s first line in a bare-CR-only document', () => {
+  // insertionIndentation used a raw lastIndexOf('\n', ...) too - in a
+  // CR-only document this always resolved destination's own line to the
+  // very start of the source, treating every insertion as if there were no
+  // previous line to indent from (or bump past an opening brace on) at all.
+  const source = 'if (x) {\r  first();\r}\r';
+  const first = findFirst(parseJavaScript(source).root, (node) =>
+    node.kind === 'statement' && node.metadata?.type === 'ExpressionStatement');
+  const destination = {from: first.from, to: first.from};
+
+  const inserted = transformJavaScript({type: 'insert-statement', destination, source: 'inserted();\r'}, parseJavaScript(source));
+  assert.equal(applySourceChanges(source, inserted), 'if (x) {\r  inserted();\r  first();\r}\r');
+});
+
 function findFirst(node, predicate) {
   if (predicate(node)) return node;
   for (const child of node.children) {

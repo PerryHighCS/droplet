@@ -209,11 +209,19 @@ export function transformJavaScript(operation, parsed) {
 // only infers what a human would type: one level deeper right after an
 // opening brace/paren/bracket, level with the previous line otherwise.
 function insertionIndentation(source, destination) {
-  const lineStart = source.lastIndexOf('\n', destination - 1) + 1;
-  if (lineStart === 0) return '';
-  const previousLineEnd = lineStart - 1;
-  const previousLineStart = source.lastIndexOf('\n', previousLineEnd - 1) + 1;
-  const previousLine = source.slice(previousLineStart, previousLineEnd);
+  // A raw lastIndexOf('\n', ...) ignores a bare "\r" line ending, the same
+  // gap already fixed in this file's own lineStart - in a CR-only document
+  // this always resolved destination's own line to the very start of the
+  // whole source, treating every insertion as if it had no previous line
+  // to indent from at all. physicalLines already supports all three line
+  // endings ("\r\n", "\r", and "\n").
+  const lines = physicalLines(source);
+  let currentLineIndex = 0;
+  for (const [index, line] of lines.entries()) {
+    if (line.from <= destination) currentLineIndex = index;
+  }
+  if (currentLineIndex === 0) return '';
+  const previousLine = lines[currentLineIndex - 1].text;
   const indentation = /^[ \t]*/.exec(previousLine)[0];
   return /[{([]\s*$/.test(previousLine) ? `${indentation}  ` : indentation;
 }
