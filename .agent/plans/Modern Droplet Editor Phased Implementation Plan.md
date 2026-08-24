@@ -1394,12 +1394,12 @@ comment/whitespace nodes, and innermost hit testing are all implemented and
 tested, closing out essentially all of "Required rendering model" and
 "Required rendering and interaction work" above. What remains before Phase 9
 packaging is almost entirely test-coverage, not new architecture: JavaScript
-playground Playwright coverage landed (#5, closed) but still lacks a
+playground Playwright coverage landed (#5, closed), including a
 container-drag-ownership acceptance test moving a nested statement
-independently of, then together with, its enclosing container; broader
-expression-drag-to-socket browser coverage; screenshot/geometry drag-preview
-parity tests; and two narrow undo/redo and elif-condition test gaps. The
-opaque multi-line label truncation (#8) is fixed and closed.
+independently of, then together with, its enclosing container; what remains
+is broader expression-drag-to-socket browser coverage, screenshot/geometry
+drag-preview parity tests, and two narrow undo/redo and elif-condition test
+gaps. The opaque multi-line label truncation (#8) is fixed and closed.
 
 Only after these criteria are complete should Phase 9 package the editor's
 public browser API.
