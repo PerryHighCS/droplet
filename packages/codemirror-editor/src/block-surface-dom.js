@@ -154,8 +154,7 @@ export class BlockSurface {
       if (!this.#readOnly) this.#openInlineEditor(directNode);
       return;
     }
-    const bounds = this.#svg.getBoundingClientRect();
-    const target = hitTestBlockLayout(this.#layout, {x: event.clientX - bounds.left, y: event.clientY - bounds.top});
+    const target = hitTestBlockLayout(this.#layout, pointFor(this.#svg, event));
     if (isInlineEditable(target?.node)) {
       this.#selectNode(target.node);
       if (!this.#readOnly) this.#openInlineEditor(target.node);
@@ -676,9 +675,18 @@ function isPaletteDrag(event) {
   return paletteDragKind(event) !== undefined;
 }
 
+// Layout/hit-testing coordinates are in the SVG's own declared (viewBox)
+// coordinate space, not CSS pixels - the two only coincide when a host page
+// renders the SVG at its own declared width. A host that scales it (CSS
+// width/height, a transform) would otherwise shift every hit test and drag
+// target by the mismatch, growing with distance from the SVG's own origin.
+// #svgOffset already accounts for this the same way when positioning the
+// inline socket editor; this is its inverse (screen space to layout space).
 function pointFor(svg, event) {
   const bounds = svg.getBoundingClientRect();
-  return {x: event.clientX - bounds.left, y: event.clientY - bounds.top};
+  const declaredWidth = Number(svg.getAttribute('width'));
+  const scale = declaredWidth && bounds.width ? bounds.width / declaredWidth : 1;
+  return {x: (event.clientX - bounds.left) / scale, y: (event.clientY - bounds.top) / scale};
 }
 
 function isOutsideCanvas(layout, point) {

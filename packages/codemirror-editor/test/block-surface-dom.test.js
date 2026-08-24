@@ -27,6 +27,32 @@ test('renders a projection as independent SVG block geometry and sends source-ba
   assert.equal(host.children.length, 0);
 });
 
+test('accounts for a scaled SVG when hit-testing a click, matching the socket editor\'s own scale handling', () => {
+  // pointFor read event.clientX/Y as if they were already in the SVG's own
+  // (unscaled) declared coordinate space - a host page rendering the SVG at
+  // a different size than its own declared width (a CSS width override, a
+  // transform: scale(), a responsive container) shifts every click's real
+  // target away from where it hit-tested, growing with distance from the
+  // SVG's own origin. #svgOffset already accounts for exactly this when
+  // positioning the inline socket editor; hit-testing now does the same.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const host = dom.window.document.querySelector('#host');
+  const selected = [];
+  const surface = new BlockSurface({parent: host, onSelect: (range) => selected.push(range)});
+  surface.update(projection());
+  surface.setVisible(true);
+
+  const svg = host.querySelector('svg');
+  const declaredWidth = Number(svg.getAttribute('width'));
+  svg.getBoundingClientRect = () => ({left: 0, top: 0, width: declaredWidth / 2});
+  // Half the coordinates that select the same target unscaled (see the test
+  // above) - correct only once divided back out by the same 0.5 scale.
+  svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, clientX: 13, clientY: 17}));
+
+  assert.deepEqual(selected, [{from: 12, to: 19}]);
+  surface.destroy();
+});
+
 test('renders every line of a multi-line opaque node, not just its first', () => {
   // createLabel used to truncate a label's text at its own first line break
   // before rendering it as a single SVG <text> - parse recovery keeping a
