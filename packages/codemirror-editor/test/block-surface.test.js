@@ -75,6 +75,28 @@ test('renders an inline comment beside, rather than inside, its statement block'
   assert.ok(commentNode.bounds.left > statementNode.bounds.right);
 });
 
+test('finds a trailing comment on a multi-line statement\'s own last line, not its first', () => {
+  // inlineCommentFor's own search bound came from statement.from's physical
+  // line - for a statement spanning multiple lines, that is a different,
+  // earlier line than statement.to's, so the bound landed before
+  // statement.to itself and no comment past it could ever match. The
+  // comment then fell through to layoutAtomic's own fallback (which already
+  // correctly bounds by statement.to), swallowing it into the statement's
+  // own label text instead of rendering it as its own separate, draggable
+  // comment node.
+  const source = 'x = (\n  1\n)  # note\n';
+  const commentFrom = source.indexOf('#');
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('assign', 0, source.indexOf(')') + 1),
+    children: [{id: 'note', kind: 'comment', from: commentFrom, to: source.length - 1, editable: true, children: [], metadata: {inline: true}}]
+  }])});
+  const statementNode = layout.nodes.find((node) => node.id === 'assign');
+  const commentNode = layout.nodes.find((node) => node.id === 'note');
+
+  assert.equal(statementNode.text, 'x = (\n  1\n)');
+  assert.equal(commentNode.kind, 'comment');
+});
+
 test('caps a bare statement\'s own label at the next sibling sharing its physical line, not the whole line', () => {
   // layoutAtomic's textEnd assumed at most one statement per physical line
   // (lineEnd(source, node.to) has no upper bound at a following sibling's

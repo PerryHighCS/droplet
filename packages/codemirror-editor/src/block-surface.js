@@ -539,7 +539,13 @@ function collectInlineComments(node) {
 }
 
 function inlineCommentFor(statement, source, comments, nextFrom = Infinity) {
-  const lineEndOffset = Math.min(lineEnd(source, statement.from), nextFrom);
+  // The search bound must come from statement.to's own physical line, not
+  // statement.from's - for a multi-line statement those are different lines,
+  // and bounding by the first line put lineEndOffset before statement.to
+  // itself, so comment.from <= lineEndOffset could never hold and a real
+  // trailing comment on the statement's last line was never found (see
+  // layoutAtomic's own textEnd, which already uses statement.to here).
+  const lineEndOffset = Math.min(lineEnd(source, statement.to), nextFrom);
   return comments.find((comment) => comment.from >= statement.to && comment.from <= lineEndOffset);
 }
 
