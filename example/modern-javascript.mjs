@@ -63,7 +63,12 @@ const palette = [
       {id: 'and', label: 'value && value', source: 'value && value', kind: 'expression'},
       {id: 'or', label: 'value || value', source: 'value || value', kind: 'expression'},
       {id: 'not', label: '!value', source: '!value', kind: 'expression'},
-      {id: 'random-number', label: 'randomNumber(1, 10)', source: 'randomNumber(1, 10)', kind: 'expression'},
+      // App Lab's own Math category has a "randomNumber(min, max)" block -
+      // App Lab's own convenience wrapper, not a real JavaScript global, so
+      // it would throw ReferenceError outside App Lab and directly
+      // contradicts the "plain (non-App-Lab-API)" scope above. Reproduced
+      // here as the equivalent standard-JS expression instead.
+      {id: 'random-number', label: 'Math.floor(Math.random() * 10) + 1', source: 'Math.floor(Math.random() * 10) + 1', kind: 'expression'},
       {id: 'round', label: 'Math.round()', source: 'Math.round()', kind: 'expression'},
       {id: 'abs', label: 'Math.abs()', source: 'Math.abs()', kind: 'expression'},
       {id: 'max', label: 'Math.max()', source: 'Math.max()', kind: 'expression'},
