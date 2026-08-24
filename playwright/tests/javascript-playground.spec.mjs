@@ -77,6 +77,49 @@ test('manual modern JavaScript playground accepts a palette block drag at an ins
   await expect(page.locator('#modern-javascript-source')).toContainText('var value = 1;\nscore = score + 1;');
 });
 
+test('manual modern JavaScript playground moves a container together with its nested statement, then the statement alone', async ({page}) => {
+  // Dragging an existing rendered block (not a palette block - no
+  // DataTransfer involved, just the surface's own pointerdown/pointermove/
+  // pointerup drag) is this project's central ownership guarantee: a
+  // container drag must carry its whole subtree, while a drag of one of its
+  // children must move only that child. Only palette-to-target drags were
+  // covered here before; this exercises both directions through the real
+  // browser/adapter path.
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+
+  const container = await locateByExactSource(page, 'container', 'if (score > 0) {\n  console.log(score);\n}');
+  const tail = await locateByExactSource(page, 'statement', 'score = score + 1;');
+  const [containerBox, tailBox] = await Promise.all([container.boundingBox(), tail.boundingBox()]);
+  // The lower half of an existing statement is an "insert after" target (see
+  // block-surface.js's own upper/lower-half insertion zones). The press point
+  // must clear both the block's own top/left edge (subpixel rounding can put
+  // a +4,+4 offset a fraction of a pixel outside the box, silently landing
+  // on nothing) and any socket text inside it (clicking a socket opens its
+  // editor instead of starting a block drag) - +8,+8 on the header keyword
+  // clears both.
+  await page.mouse.move(containerBox.x + 8, containerBox.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(containerBox.x + 20, containerBox.y + 8, {steps: 8});
+  await page.mouse.move(tailBox.x + 8, tailBox.y + tailBox.height - 2, {steps: 8});
+  await page.mouse.up();
+
+  await expect(page.locator('#modern-javascript-source')).toContainText(
+    'score = score + 1;\nif (score > 0) {\n  console.log(score);\n}');
+
+  const relocatedNested = await locateByExactSource(page, 'statement', 'console.log(score);');
+  const relocatedTail = await locateByExactSource(page, 'statement', 'score = score + 1;');
+  const [nestedBox, relocatedTailBox] = await Promise.all([relocatedNested.boundingBox(), relocatedTail.boundingBox()]);
+  await page.mouse.move(nestedBox.x + 8, nestedBox.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(nestedBox.x + 20, nestedBox.y + 10, {steps: 8});
+  await page.mouse.move(relocatedTailBox.x + 8, relocatedTailBox.y + relocatedTailBox.height - 2, {steps: 8});
+  await page.mouse.up();
+
+  await expect(page.locator('#modern-javascript-source')).toContainText('if (score > 0) {\n  \n}');
+  await expect(page.locator('#modern-javascript-source')).toContainText('score = score + 1;\nconsole.log(score);');
+});
+
 test('manual modern JavaScript playground colors rendered blocks using App Lab categories', async ({page}) => {
   await page.goto('/example/modern-javascript.html');
   await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
