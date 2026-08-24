@@ -433,15 +433,26 @@ function sourceSockets(node) {
   });
 }
 
-function descendantStructuralNodes(node) {
+function descendantStructuralNodes(node, depth = 0) {
   return (node.children ?? []).flatMap((child) => [
-    ...(child.kind === 'statement' || (child.kind === 'comment' && !child.metadata?.inline) || child.kind === 'whitespace' ? [child] : []),
+    // A statement can legitimately need to be found below a direct child
+    // (Brython can retain an outer-scope statement beneath an earlier
+    // suite in its object tree - see structuralChildren's bodyIndentation
+    // check, which is what actually filters a wrongly-deep one back out).
+    // A standalone comment or blank line has no such quirk, and no
+    // indentation-based filter catches it afterward: the adapter's own
+    // triviaParent walk already attached it to the one specific
+    // statement/clause that owns it, so collecting it again from an
+    // ancestor here would render the same trivia twice - once (wrongly)
+    // as this ancestor's own child, and once (correctly) inside the
+    // nested container triviaParent actually chose.
+    ...(child.kind === 'statement' || (depth === 0 && (child.kind === 'comment' && !child.metadata?.inline || child.kind === 'whitespace')) ? [child] : []),
     // A clause (an elif/else or for/while else branch) owns its own body -
     // structuralChildren, called directly on the clause itself, is how its
     // statements are reached. Descending into it here too would duplicate
     // them into the primary body's own list, since branches typically share
     // the primary body's indentation.
-    ...(child.kind === 'clause' ? [] : descendantStructuralNodes(child))
+    ...(child.kind === 'clause' ? [] : descendantStructuralNodes(child, depth + 1))
   ]);
 }
 

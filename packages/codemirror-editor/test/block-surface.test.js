@@ -502,6 +502,36 @@ test('prefers an inner container insertion zone and retains its source indentati
   assert.deepEqual(zone.destination, {from: source.length, to: source.length, indentation: '    '});
 });
 
+test('renders a standalone comment inside a nested suite only once, not also bubbled into the outer suite', () => {
+  // descendantStructuralNodes used to recurse past a nested container's own
+  // children with no depth limit, so a comment/blank line triviaParent had
+  // already attached to the *inner* suite was also picked up while laying
+  // out the *outer* suite (whose own indentation filter only screens
+  // statements, not trivia) - rendering the same comment twice.
+  const source = 'if outer:\n  if inner:\n    pass\n    # deep\n  x()\n';
+  const commentFrom = source.indexOf('# deep');
+  const commentTo = commentFrom + '# deep'.length;
+  const innerTo = source.indexOf('  x()');
+  const layout = createBlockLayout({
+    source,
+    root: documentNode(source, [{
+      ...statement('outer', 0, source.length, {blockRole: 'container', headerTo: 9, bodyEnd: source.length, bodyIndentation: '  '}),
+      children: [
+        {
+          ...statement('inner', 12, innerTo, {blockRole: 'container', headerTo: 22, bodyEnd: innerTo, bodyIndentation: '    '}),
+          children: [
+            statement('pass', source.indexOf('pass'), source.indexOf('pass') + 4),
+            {id: 'deep', kind: 'comment', from: commentFrom, to: commentTo, editable: true, children: [], metadata: {inline: false}}
+          ]
+        },
+        statement('x', source.indexOf('x()'), source.indexOf('x()') + 3)
+      ]
+    }])
+  });
+
+  assert.equal(layout.nodes.filter((node) => node.id === 'deep').length, 1);
+});
+
 test('keeps a nested statement in its container on a bare-CR-only document', () => {
   // A raw lastIndexOf('\n', ...) line-start search (leadingIndentation's own
   // old bug) misses a bare "\r" line ending entirely - in a CR-only document
