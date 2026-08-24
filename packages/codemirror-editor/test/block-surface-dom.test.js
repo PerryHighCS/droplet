@@ -77,6 +77,28 @@ test('renders every line of a multi-line opaque node, not just its first', () =>
   surface.destroy();
 });
 
+test('steps a multi-line label\'s own tspans by an overridden lineHeight, not a fixed 28', () => {
+  // layoutAtomic sizes an opaque node's box using layoutOptions.lineHeight
+  // (settings.lineHeight), so a caller overriding it already gets a
+  // correctly-tall box - but createLabel used to step each tspan down by a
+  // fixed constant regardless, drifting every line after the first out of
+  // that box once lineHeight was overridden away from the 28 default.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const host = dom.window.document.querySelector('#host');
+  const surface = new BlockSurface({parent: host, layoutOptions: {lineHeight: 40}});
+  surface.update(opaqueMultiLineProjection());
+  surface.setVisible(true);
+
+  const label = host.querySelector('[data-droplet-kind="opaque-statement"] text');
+  const tspans = label.querySelectorAll('tspan');
+  assert.deepEqual([...tspans].map((tspan) => tspan.getAttribute('dy')), [null, '40', '40']);
+
+  const frame = host.querySelector('[data-droplet-kind="opaque-statement"] rect');
+  assert.equal(Number(frame.getAttribute('height')), 40 * 3, 'the frame must still match the overridden line height');
+
+  surface.destroy();
+});
+
 test('uses a layout insertion zone for one statement move intent and matching previews', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const host = dom.window.document.querySelector('#host');

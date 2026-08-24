@@ -797,7 +797,7 @@ function renderNode(node, document, options = {}) {
   if (node.kind === 'container') {
     renderContainerFrame(group, node, document, options);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
-    renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document);
+    renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document, options);
     if (node.footerText) {
       group.append(createLabel(node.footerText, node.regions.footer.left + 8, node.regions.footer.top + 20,
         document, 'droplet-label-keyword'));
@@ -807,7 +807,7 @@ function renderNode(node, document, options = {}) {
   } else if (node.kind === 'clause') {
     renderClauseHeaderFrame(group, node, document);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
-    renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document);
+    renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document, options);
     if (node.metadata?.clauseRole === 'elif' || node.metadata?.clauseRole === 'else') {
       appendRemoveButton(group, document, {
         action: 'remove-clause', x: node.regions.header.right - 2, y: node.regions.header.top + 2,
@@ -821,7 +821,7 @@ function renderNode(node, document, options = {}) {
   } else {
     renderAtomicFrame(group, node, document, options);
     for (const child of socketChildren) group.append(renderNode(child, document, options));
-    renderSourceLabels(group, node, node.bounds.left + 8, node.bounds.top + 20, document);
+    renderSourceLabels(group, node, node.bounds.left + 8, node.bounds.top + 20, document, options);
     renderCallArgumentAddButton(group, node, document);
   }
   for (const child of otherChildren) group.append(renderNode(child, document, options));
@@ -1214,11 +1214,11 @@ function renderCompoundSocket(group, node, document, options) {
   }
 }
 
-function renderSourceLabels(group, node, left, top, document) {
+function renderSourceLabels(group, node, left, top, document, options = {}) {
   const sockets = node.children.filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
     .sort((first, second) => first.source.from - second.source.from);
   if (!sockets.length) {
-    group.append(createLabel(node.text, left, top, document, 'droplet-label-keyword'));
+    group.append(createLabel(node.text, left, top, document, 'droplet-label-keyword', options.lineHeight));
     return;
   }
   let sourceCursor = node.source.from;
@@ -1227,16 +1227,18 @@ function renderSourceLabels(group, node, left, top, document) {
     const from = sourceCursor - node.source.from;
     const to = socket.source.from - node.source.from;
     const prefix = node.text.slice(from, to);
-    if (prefix) group.append(createLabel(prefix, visualCursor, top, document, 'droplet-label-keyword'));
+    if (prefix) group.append(createLabel(prefix, visualCursor, top, document, 'droplet-label-keyword', options.lineHeight));
     // A compound socket already rendered its own nested sockets and text (the
     // earlier renderNode call for it, in the loop above this one); drawing
     // its flat text here too would duplicate and overlap that.
-    if (!socket.children.length) group.append(createLabel(socket.text, socket.textLeft, top, document, 'droplet-label-socket'));
+    if (!socket.children.length) {
+      group.append(createLabel(socket.text, socket.textLeft, top, document, 'droplet-label-socket', options.lineHeight));
+    }
     sourceCursor = socket.source.to;
     visualCursor = socket.bounds.right + 4;
   }
   const suffix = node.text.slice(sourceCursor - node.source.from);
-  if (suffix) group.append(createLabel(suffix, visualCursor, top, document, 'droplet-label-keyword'));
+  if (suffix) group.append(createLabel(suffix, visualCursor, top, document, 'droplet-label-keyword', options.lineHeight));
 }
 
 function renderWhitespace(group, node, document) {
@@ -1252,7 +1254,7 @@ function renderWhitespace(group, node, document) {
   group.append(rect);
 }
 
-function createLabel(text, x, y, document, className) {
+function createLabel(text, x, y, document, className, lineHeight = LABEL_LINE_HEIGHT) {
   const label = document.createElementNS(SVG_NAMESPACE, 'text');
   if (className) label.setAttribute('class', className);
   label.setAttribute('x', String(x));
@@ -1279,13 +1281,14 @@ function createLabel(text, x, y, document, className) {
   // whitespace, so every later line silently vanished from the block surface
   // while CodeMirror's own text view stayed hidden underneath it. One <tspan>
   // per line, each repeating the label's own x and stepped down by
-  // LABEL_LINE_HEIGHT (matching block-surface.js's own default lineHeight,
-  // which is what layoutAtomic already grows the node's box by per line), is
-  // the standard SVG idiom for that.
+  // lineHeight (matching layoutOptions.lineHeight, which is what
+  // layoutAtomic already grows the node's box by per line - a caller that
+  // overrides it must thread the same value here, or these tspans drift out
+  // of the box they were measured for), is the standard SVG idiom for that.
   for (const [index, line] of lines.entries()) {
     const tspan = document.createElementNS(SVG_NAMESPACE, 'tspan');
     tspan.setAttribute('x', String(x));
-    if (index > 0) tspan.setAttribute('dy', String(LABEL_LINE_HEIGHT));
+    if (index > 0) tspan.setAttribute('dy', String(lineHeight));
     tspan.textContent = line;
     label.append(tspan);
   }
@@ -1293,10 +1296,8 @@ function createLabel(text, x, y, document, className) {
 }
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
-// Matches block-surface.js's own default lineHeight (settings.lineHeight,
-// 28 unless overridden) - a multi-line label's box already grows by exactly
-// that much per line, and stepping each of its own tspans down by the same
-// amount is what keeps every line inside the box it was measured for.
+// createLabel's own fallback when a caller has no layoutOptions.lineHeight to
+// thread through (matches block-surface.js's own default lineHeight).
 const LABEL_LINE_HEIGHT = 28;
 const SNAKE_STROKE = '#5f8a41';
 const SNAKE_FILL = 'rgba(122, 163, 88, .12)';
