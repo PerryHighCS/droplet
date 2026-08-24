@@ -695,7 +695,7 @@ test('reindents every line of a relocated multi-line statement in a bare-CR-only
     {type: 'move-statement', source: {from: inner.from, to: inner.to}, destination}, parseJavaScript(source));
   assert.equal(
     applySourceChanges(source, changes),
-    'if (a) {\r  if (b) {\r    \r  }\r  if (c) {\r    d();\r  }\n  y();\r}\r'
+    'if (a) {\r  if (b) {\r    \r  }\r  if (c) {\r    d();\r  }\r  y();\r}\r'
   );
 });
 

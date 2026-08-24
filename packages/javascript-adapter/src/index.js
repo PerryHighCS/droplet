@@ -243,7 +243,18 @@ function indentLines(text, indentation) {
 // at that line.
 function relocatedStatementText(source, originalFrom, text, point) {
   const indentation = insertionIndentation(source, point);
-  return reindentRelocatedText(source, originalFrom, text, indentation) + (point < source.length ? '\n' : '');
+  // A hardcoded "\n" separator silently introduced a foreign LF into an
+  // otherwise CR-only (or CRLF) document - lineEndingAt reads the actual
+  // terminator the destination line itself already uses instead.
+  const separator = point < source.length ? lineEndingAt(source, point) : '';
+  return reindentRelocatedText(source, originalFrom, text, indentation) + separator;
+}
+
+// Mirrors the Python adapter's own lineEndingAt: the terminator of the line
+// starting at `position`, falling back to "\n" only when none follows.
+function lineEndingAt(source, position) {
+  const match = /\r\n|\r|\n/.exec(source.slice(position));
+  return match?.[0] ?? '\n';
 }
 
 // Unlike insert-statement's caller-supplied text, a relocated statement's
