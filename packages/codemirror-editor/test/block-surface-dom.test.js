@@ -174,6 +174,40 @@ test('rejects copying a container onto an insertion zone inside its own body', (
   assert.deepEqual(operations, []);
 });
 
+test('rejects copying a container onto its own body-end zone even when that zone sits past the container\'s own source range', () => {
+  // targetWithinDraggedRange used to compare the insertion zone's own
+  // destination.from against the dragged node's [from, to) range - but a
+  // Python container's own bodyEnd (used for its body-end zone) includes the
+  // suite's trailing line ending, so it is routinely greater than the
+  // container AST node's own `to`. That put the container's own footer zone
+  // outside its own checked range, letting a Ctrl-drag copy nest a copy of
+  // the container inside its own body.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  const source = 'if x:\n  a()\n';
+  const aFrom = source.indexOf('a()');
+  surface.update({source, root: {
+    id: 'document', kind: 'document', from: 0, to: source.length, editable: false, metadata: {}, children: [{
+      id: 'if', kind: 'statement', from: 0, to: aFrom + 3, editable: true,
+      metadata: {type: 'If', blockRole: 'container', headerTo: 5, bodyEnd: source.length},
+      children: [{id: 'a', kind: 'statement', from: aFrom, to: aFrom + 3, editable: true, metadata: {}, children: []}]
+    }]
+  }});
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const ifNode = surface.layout.nodes.find((node) => node.id === 'if');
+  const bodyEndZone = ifNode.insertionZones.find((zone) => zone.role === 'body-end');
+  assert.ok(bodyEndZone.destination.from > ifNode.source.to,
+    'the fixture must actually exercise a body-end zone past the container\'s own source range');
+
+  drag(svg, dom.window, ifNode, bodyEndZone.bounds.left + 2, bodyEndZone.bounds.top + 2, {ctrlKey: true});
+
+  assert.deepEqual(operations, []);
+});
+
 test('reuses the drag preview elements across pointermoves within the same zone, not on every move', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: () => {}});

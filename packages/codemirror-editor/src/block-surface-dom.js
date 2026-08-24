@@ -490,13 +490,28 @@ export class BlockSurface {
 // with), so this always passes for one.
 function targetWithinDraggedRange(target, dragNode) {
   if (!dragNode?.source) return false;
-  const {from, to} = dragNode.source;
   if (target?.kind === 'insertion') {
-    const destinationFrom = target.zone.destination.from;
-    return destinationFrom > from && destinationFrom < to;
+    // A source-range check here (comparing target.zone.destination.from
+    // against dragNode's own [from, to)) misses a container whose own
+    // body-end zone sits past its source node's own `to` - Python's bodyEnd
+    // includes the suite's trailing line ending, so it can be greater than
+    // the container AST node's own end. Layout-node ancestry instead: every
+    // insertion zone a node exposes (collectInsertionZones's flattened list
+    // included) shares the exact same `destination` object reference as the
+    // owning node's own insertionZones entry, so membership here is exact
+    // regardless of how source ranges compare.
+    return collectOwnInsertionDestinations(dragNode).includes(target.zone.destination);
   }
+  const {from, to} = dragNode.source;
   const node = target?.node;
   return Boolean(node?.source) && node.source.from >= from && node.source.to <= to;
+}
+
+function collectOwnInsertionDestinations(node) {
+  return [
+    ...(node.insertionZones ?? []).map((zone) => zone.destination),
+    ...(node.children ?? []).flatMap(collectOwnInsertionDestinations)
+  ];
 }
 
 function destinationForTarget(layout, target, point, dragNode, copy = false) {
