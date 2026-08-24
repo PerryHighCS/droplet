@@ -171,7 +171,7 @@ function dropletCategory(node, source) {
     // but a call to a plain named function (myFunction()) as Functions.
     case 'CallExpression':
     case 'NewExpression':
-      return calleeCategory(node);
+      return calleeCategory(node, source);
     case 'BinaryExpression':
     case 'LogicalExpression':
     case 'UnaryExpression':
@@ -187,9 +187,14 @@ function dropletCategory(node, source) {
   }
 }
 
-function calleeCategory(node) {
+function calleeCategory(node, source) {
   const callee = (node.children ?? []).find((child) => child.metadata?.socketRole === 'call-target');
-  return callee?.metadata?.type === 'MemberExpression' ? 'variables' : 'functions';
+  if (callee?.metadata?.type !== 'MemberExpression') return 'functions';
+  // The palette's own Math.* blocks (Math.round(), Math.random(), ...) are
+  // math (orange), per this module's own documented category scheme above -
+  // every other member call (console.log, str.substring, ...) is grouped
+  // with the value it operates on instead.
+  return /^Math\./.test(source.slice(callee.from, callee.to)) ? 'math' : 'variables';
 }
 
 // The block surface's own tab/notch connector shape (packages/codemirror-editor's

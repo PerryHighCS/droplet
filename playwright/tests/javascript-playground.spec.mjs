@@ -141,3 +141,20 @@ test('manual modern JavaScript playground colors rendered blocks using App Lab c
   const assignment = await locateByExactSource(page, 'statement', 'score = score + 1;');
   await expect(assignment).toHaveAttribute('data-droplet-category', 'variables');
 });
+
+test('manual modern JavaScript playground colors a Math.* call as math, not variables', async ({page}) => {
+  // calleeCategory categorized every member call the same way (console.log,
+  // str.substring, Math.round, ...) as "variables" - but this playground's
+  // own palette (and its documented category scheme) puts Math.* under
+  // "math", contradicting how a Math.* call actually rendered once inserted.
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+  // "Math" is the second category in the default-open "Control" palette's
+  // sibling list - open it before its blocks are clickable.
+  await page.locator('.palette-category', {hasText: 'Math'}).locator('summary').click();
+
+  await page.locator('[data-palette-block="round"]').click();
+
+  const call = await locateByExactSource(page, 'statement', 'Math.round()');
+  await expect(call).toHaveAttribute('data-droplet-category', 'math');
+});
