@@ -549,6 +549,41 @@ test('opens the inline editor for a compound socket\'s own leaf socket', () => {
   assert.equal(input.value, 'value');
 });
 
+test('positions the inline editor using local, scroll-invariant coordinates', () => {
+  // #svgOffset's own left/top become the socket-editor input's CSS
+  // position - an absolutely positioned sibling within #dom, the
+  // scrollable element (overflow: auto), so they must be in #dom's own
+  // local content coordinates, not raw viewport ones. #dom's own rect does
+  // not move as its content scrolls, but the SVG's does, so their raw
+  // difference alone drifts by exactly however far the surface has been
+  // scrolled - doubling that drift once the browser also scrolls the
+  // (already-local) input along with the rest of #dom's content.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onSocketEdit: () => {}});
+  surface.update(compoundAssignmentSockets());
+  const svg = surface.element.querySelector('svg');
+  const left = surface.layout.nodes.find((node) => node.id === 'left');
+  const openEditor = (clientY) => {
+    svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0,
+      clientX: left.bounds.left + 2, clientY}));
+    return surface.element.querySelector('.droplet-socket-editor').style.top;
+  };
+
+  svg.getBoundingClientRect = () => ({left: 0, top: 0, width: Number(svg.getAttribute('width'))});
+  const unscrolled = openEditor(left.bounds.top + 2);
+
+  // A 30px scroll shifts the SVG's own viewport position up by 30, the same
+  // way it would in a real browser once #dom actually scrolls - clicking the
+  // same socket now takes a proportionally smaller clientY, exactly as a
+  // real click would once its on-screen position has moved up with it.
+  const scrollDelta = 30;
+  surface.element.scrollTop = scrollDelta;
+  svg.getBoundingClientRect = () => ({left: 0, top: -scrollDelta, width: Number(svg.getAttribute('width'))});
+  const scrolled = openEditor(left.bounds.top + 2 - scrollDelta);
+
+  assert.equal(scrolled, unscrolled);
+});
+
 test('selects but does not open a free-text editor for a compound socket as a whole', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onSocketEdit: () => {}});

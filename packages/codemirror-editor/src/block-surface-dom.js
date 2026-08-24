@@ -289,7 +289,18 @@ export class BlockSurface {
     const hostRect = this.#dom.getBoundingClientRect();
     const declaredWidth = Number(this.#svg.getAttribute('width'));
     const scale = declaredWidth && svgRect.width ? svgRect.width / declaredWidth : 1;
-    return {left: (svgRect.left || 0) - (hostRect.left || 0), top: (svgRect.top || 0) - (hostRect.top || 0), scale};
+    // #dom is the scrollable element (overflow: auto) the socket-editor
+    // input is absolutely positioned within, so its own CSS left/top are
+    // interpreted in #dom's local content coordinates - scroll-invariant.
+    // svgRect/hostRect are live viewport rects, though: #dom's own rect
+    // does not move when its content scrolls, but the SVG's does, so their
+    // raw difference is already short by exactly the current scroll offset
+    // and needs it added back to land in that same local coordinate space.
+    return {
+      left: (svgRect.left || 0) - (hostRect.left || 0) + this.#dom.scrollLeft,
+      top: (svgRect.top || 0) - (hostRect.top || 0) + this.#dom.scrollTop,
+      scale
+    };
   }
 
   #commitSocketEditor(editing) {
