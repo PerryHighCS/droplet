@@ -603,6 +603,35 @@ test('drops an expression palette block into a gap as a standalone statement lin
   assert.deepEqual(operations, [{type: 'insert-statement', destination: bodyEnd.destination, source: 'value + value\n'}]);
 });
 
+test('steps a compound socket\'s own multi-line label by an overridden lineHeight too', () => {
+  // renderCompoundSocket's own renderSourceLabels call omitted the options
+  // argument entirely (every other call site passes it through), so a
+  // compound socket's own gap text (here the multi-line "+..." between its
+  // two operand sockets) always stepped its tspans by the fixed 28 default,
+  // ignoring layoutOptions.lineHeight, unlike every other label on the surface.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const host = dom.window.document.querySelector('#host');
+  const surface = new BlockSurface({parent: host, layoutOptions: {lineHeight: 40}});
+  const source = 'target = value +\n  value\n';
+  surface.update({source, root: {
+    id: 'document', kind: 'document', from: 0, to: 24, editable: false, metadata: {}, children: [{
+      id: 'assign', kind: 'statement', from: 0, to: 24, editable: true, metadata: {}, children: [
+        {id: 'target', kind: 'socket', from: 0, to: 6, editable: true, metadata: {socketRole: 'assignment-target'}, children: []},
+        {id: 'binop', kind: 'socket', from: 9, to: 24, editable: true, metadata: {socketRole: 'assignment-value'}, children: [
+          {id: 'left', kind: 'socket', from: 9, to: 14, editable: true, metadata: {socketRole: 'expression'}, children: []},
+          {id: 'right', kind: 'socket', from: 19, to: 24, editable: true, metadata: {socketRole: 'expression'}, children: []}
+        ]}
+      ]
+    }]
+  }});
+  surface.setVisible(true);
+
+  const gapLabel = [...host.querySelectorAll('text')].find((text) => text.textContent.includes('+'));
+  const tspans = gapLabel.querySelectorAll('tspan');
+  assert.deepEqual([...tspans].map((tspan) => tspan.getAttribute('dy')), [null, '40']);
+  surface.destroy();
+});
+
 test('opens the inline editor for a compound socket\'s own leaf socket', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onSocketEdit: () => {}});

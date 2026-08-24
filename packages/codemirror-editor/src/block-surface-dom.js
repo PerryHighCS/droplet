@@ -1239,7 +1239,7 @@ function renderCompoundSocket(group, node, document, options) {
   frame.setAttribute('stroke-dasharray', '3 2');
   group.append(frame);
   for (const child of node.children) group.append(renderNode(child, document, options));
-  renderSourceLabels(group, node, node.textLeft, node.bounds.top + 20, document);
+  renderSourceLabels(group, node, node.textLeft, node.bounds.top + 20, document, options);
   // A Call/List's own sequence items render as this compound socket's direct
   // children (unlike a def's parameters, which sit on the container - see
   // renderParameterAddButton); its add button lives here to match. 'List'/
