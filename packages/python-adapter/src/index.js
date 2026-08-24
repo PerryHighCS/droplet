@@ -778,7 +778,15 @@ function attachCommentToStatement(source, comment, statement) {
   // lookup that renders a trailing comment beside its statement) explicitly
   // requires comment.from >= statement.to, so a comment placed there could
   // never be found again - it rendered as if the attach had silently failed.
-  const destination = lineTextEnd(source, statement.to);
+  //
+  // A container statement is the one exception: block-surface-dom.js's own
+  // header-drop gesture targets the whole container (there is no separate
+  // projected node for just its header line), meaning statement here can be
+  // a container whose .to is its *last body line*, not its header. Anchor
+  // off metadata.headerTo instead when present, so a comment dropped on a
+  // container's header ("if x:", "for y in z:", ...) attaches there, not to
+  // whatever its body happens to end on.
+  const destination = lineTextEnd(source, statement.metadata?.headerTo ?? statement.to);
   const text = source.slice(comment.from, comment.to);
   return [
     {from: removal.from, to: removal.to, insert: ''},

@@ -659,6 +659,33 @@ test('attaches a standalone comment to the end of a multi-line statement\'s last
   assert.equal(applySourceChanges(source, changes), 'x = (\n  1\n)  # note\n');
 });
 
+test('attaches a standalone comment to a container\'s own header line, not its last body line', () => {
+  // block-surface-dom.js's header-drop gesture targets the whole container
+  // node (there is no separate projected node for just its header) - a
+  // container's own .to is its last body line, not its header, so anchoring
+  // off .to the way a bare multi-line statement does attached the comment
+  // to wherever the body happened to end instead of the header the user
+  // actually dropped it on.
+  const source = '# note\nif ready:\n  pass\n';
+  const commentFrom = 0;
+  const commentTo = 6;
+  const containerFrom = 7;
+  const containerTo = source.length;
+  const headerTo = containerFrom + 'if ready:'.length;
+  const parsed = projection(source, [
+    {id: 'note', kind: 'comment', from: commentFrom, to: commentTo, children: [], metadata: {inline: false}},
+    {id: 'if', kind: 'statement', from: containerFrom, to: containerTo, children: [],
+      metadata: {blockRole: 'container', headerTo, bodyEnd: containerTo}}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: commentFrom, to: commentTo},
+    destination: {from: containerFrom, to: containerTo}, placement: 'line-end'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:  # note\n  pass\n');
+});
+
 test('moves an inline comment without moving its statement text', () => {
   const source = 'first = 1  # note\nnext = 2\n';
   const parsed = projection(source, [
