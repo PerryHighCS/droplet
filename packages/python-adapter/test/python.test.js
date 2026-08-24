@@ -54,6 +54,27 @@ test('sockets a function\'s name and individual parameters instead of its whole 
   ]);
 });
 
+test('projects a defaulted parameter as one removable sequence item', () => {
+  const source = 'def greet(name="world"):\n  pass\n';
+  const ast = {type: 'Module', body: [
+    {type: 'FunctionDef', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6, name: 'greet',
+      args: {posonlyargs: [], args: [
+        {type: 'arg', lineno: 1, col_offset: 10, end_lineno: 1, end_col_offset: 14, arg: 'name'}
+      ], defaults: [
+        {type: 'Constant', lineno: 1, col_offset: 15, end_lineno: 1, end_col_offset: 22, value: 'world'}
+      ], kwonlyargs: [], kw_defaults: [], vararg: null, kwarg: null},
+      body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}], decorator_list: []}
+  ]};
+  const parsed = parsePython(source, () => ast);
+  const parameter = collectProjectedNodes(parsed.root).find((node) => node.metadata?.socketRole === 'parameter');
+
+  assert.equal(source.slice(parameter.from, parameter.to), 'name="world"');
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: parameter.from, to: parameter.to}}, parsed, () => ({})
+  );
+  assert.equal(applySourceChanges(source, changes), 'def greet():\n  pass\n');
+});
+
 test('sockets a function name even when it contains regex metacharacters', () => {
   // pythonToAST is caller-supplied (see parsePython's own doc comment), so
   // node.name is not guaranteed to be a plain identifier - interpolating it

@@ -878,6 +878,39 @@ test('clicking a call\'s "+" button emits an insert-sequence-item operation', ()
   assert.deepEqual(operations, [{type: 'insert-sequence-item', target: {from: call.source.from, to: call.source.to}}]);
 });
 
+test('clicking an action after changing a socket commits both the edit and the action', () => {
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const host = dom.window.document.querySelector('#host');
+  const edits = [];
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: host,
+    onSocketEdit: (edit) => {
+      edits.push(edit);
+      // The editor reparses synchronously, replacing the action control just
+      // as a real changed socket commit does.
+      surface.update(callWithArguments());
+    },
+    onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(callWithArguments());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const argument = surface.layout.nodes.find((node) => node.id === 'a');
+  svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0,
+    clientX: argument.bounds.left + 1, clientY: argument.bounds.top + 1}));
+  const input = host.querySelector('.droplet-socket-editor');
+  input.value = 'changed';
+  const addButton = svg.querySelector('[data-droplet-action="insert-sequence-item"]');
+
+  // Browser focus transfer blurs the input after mousedown but before click.
+  // The action must therefore be preserved before that blur can replace SVG.
+  addButton.dispatchEvent(new dom.window.MouseEvent('mousedown', {bubbles: true, button: 0}));
+
+  assert.deepEqual(edits, [{target: {from: 6, to: 7}, source: 'changed'}]);
+  assert.deepEqual(operations, [{type: 'insert-sequence-item', target: {from: 0, to: 11}}]);
+});
+
 test('hides both "+" and "-" on a call with only the synthetic empty argument socket', () => {
   // Both adapters reject insert-sequence-item as a no-op until a real
   // argument exists (see hasRealSequenceItem) - a "+" button here used to

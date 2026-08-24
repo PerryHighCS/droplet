@@ -78,6 +78,11 @@ export class DropletCodeMirrorEditor {
     // Ctrl/Cmd-Z from there. Forward it directly to CodeMirror's own
     // undo/redo commands instead of relying on focus reaching CodeMirror.
     this.#surface.element.addEventListener('keydown', (event) => {
+      // An inline socket editor is a native input with its own draft and
+      // browser-managed undo stack. Forwarding its shortcut to CodeMirror
+      // would instead undo a prior document transaction, reparse the surface,
+      // and discard that uncommitted draft.
+      if (event.target?.closest?.('.droplet-socket-editor')) return;
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
       if (key === 'z' && !event.shiftKey) {

@@ -50,6 +50,7 @@ export class BlockSurface {
     this.#svg.style.overflow = 'visible';
     this.#dom.append(this.#svg);
     this.#dom.addEventListener('click', (event) => this.#handleClick(event));
+    this.#dom.addEventListener('mousedown', (event) => this.#commitBeforeAction(event));
     this.#dom.addEventListener('keydown', (event) => this.#handleKeydown(event));
     this.#svg.addEventListener('pointerdown', (event) => this.#beginDrag(event));
     this.#svg.addEventListener('pointermove', (event) => this.#continueDrag(event));
@@ -173,6 +174,20 @@ export class BlockSurface {
       return;
     }
     if (target?.node?.source) this.#selectNode(target.node);
+  }
+
+  #commitBeforeAction(event) {
+    const actionButton = event.target?.closest?.('[data-droplet-action]');
+    // Moving from a changed input to an SVG action normally blurs the input
+    // during the mousedown default action. That commit reparses and replaces
+    // the SVG before its click can reach the old control, losing the intended
+    // add/remove operation. Commit and dispatch while the control is still
+    // live instead; preventing the default keeps the later click from
+    // targeting a newly-rendered control a second time.
+    if (!actionButton || !this.#socketEditor) return;
+    event.preventDefault();
+    this.#commitSocketEditor(this.#socketEditor);
+    this.#dispatchAction(actionButton);
   }
 
   #handleKeydown(event) {

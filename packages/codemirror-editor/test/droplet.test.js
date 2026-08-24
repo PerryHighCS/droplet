@@ -176,6 +176,28 @@ test('Ctrl/Cmd-Z undoes a block edit while keyboard focus is on the block surfac
   editor.destroy();
 });
 
+test('Ctrl/Cmd-Z in an inline socket editor stays with the input draft', () => {
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseSocketExample
+  });
+  const socket = parent.querySelector('.droplet-block-surface [data-droplet-layout-id="value:value"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  clickRenderedSocket(socket);
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.value = 'draft';
+  const shortcut = new window.KeyboardEvent('keydown', {
+    bubbles: true, cancelable: true, key: 'z', ctrlKey: true
+  });
+
+  assert.equal(input.dispatchEvent(shortcut), true, 'the input must retain its native undo shortcut');
+  assert.equal(editor.getValue(), 'target = value\n', 'the uncommitted draft must not trigger CodeMirror history');
+  assert.equal(parent.querySelector('.droplet-socket-editor'), input);
+  assert.equal(input.value, 'draft');
+  editor.destroy();
+});
+
 test('clicking again inside an already-open socket editor repositions the cursor instead of reopening it', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({

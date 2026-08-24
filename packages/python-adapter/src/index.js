@@ -544,11 +544,31 @@ function relabelParameterSockets(children, node, source, from) {
   const nameSocket = children.find((child) => child.metadata?.socketRole === 'name');
   if (!nameSocket) return;
   const closingParenthesis = source.lastIndexOf(')', lineTextEnd(source, from));
-  for (const child of children) {
-    if (child.kind === 'socket' && child.metadata?.socketRole === 'expression' &&
-        child.from >= nameSocket.to && child.to <= closingParenthesis) {
-      child.metadata = {...child.metadata, socketRole: 'parameter'};
-    }
+  const args = node.args ?? {};
+  const positional = [
+    ...(Array.isArray(args.posonlyargs) ? args.posonlyargs : []),
+    ...(Array.isArray(args.args) ? args.args : [])
+  ];
+  const defaults = Array.isArray(args.defaults) ? args.defaults : [];
+  const defaultFor = new Map();
+  for (const [index, parameter] of positional.entries()) {
+    const defaultIndex = index - (positional.length - defaults.length);
+    if (defaultIndex >= 0) defaultFor.set(parameter, defaults[defaultIndex]);
+  }
+  for (const [index, parameter] of (args.kwonlyargs ?? []).entries()) {
+    defaultFor.set(parameter, args.kw_defaults?.[index]);
+  }
+  for (const parameter of [...positional, ...(args.kwonlyargs ?? []), args.vararg, args.kwarg]) {
+    if (!parameter || typeof parameter !== 'object') continue;
+    const child = children.find((candidate) => candidate.kind === 'socket' &&
+      candidate.metadata?.type === 'arg' && candidate.from === offset(parameter.lineno, parameter.col_offset,
+        lineStarts(source), source, null));
+    if (!child || child.to > closingParenthesis) continue;
+    const defaultNode = defaultFor.get(parameter);
+    const defaultEnd = defaultNode && offset(defaultNode.end_lineno, defaultNode.end_col_offset,
+      lineStarts(source), source, null);
+    if (defaultEnd !== null && defaultEnd !== undefined && defaultEnd <= closingParenthesis) child.to = defaultEnd;
+    child.metadata = {...child.metadata, socketRole: 'parameter'};
   }
 }
 
