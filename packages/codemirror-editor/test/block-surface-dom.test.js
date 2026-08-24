@@ -213,6 +213,42 @@ test('reuses the drag preview elements across pointermoves within the same zone,
     clientX: second.bounds.left + 2, clientY: second.bounds.bottom - 2}));
 });
 
+test('draws a drag preview with the surface\'s own tabConnector notch, not a plain rect', () => {
+  // updateDragPreviews used to pass only {showSocketText: true} to
+  // renderNode, dropping the surface's own layoutOptions entirely - so a
+  // consumer using layoutOptions.tabConnector (the notched, interlocking
+  // block silhouette) got that shape on the stationary surface but a plain
+  // rectangle on both drag-preview copies the moment a drag started.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'),
+    onOperation: () => {},
+    layoutOptions: {tabConnector: true}
+  });
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const second = surface.layout.nodes.find((node) => node.id === 'second');
+  assert.ok(svg.querySelector('[data-droplet-kind="statement"] > path'),
+    'the stationary surface itself must already use the connector shape for this to be a meaningful comparison');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerdown', {bubbles: true, button: 0,
+    clientX: first.bounds.left + 2, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointermove', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.top + 2}));
+
+  const floating = svg.querySelector('.droplet-drag-preview');
+  const placement = svg.querySelector('.droplet-drop-preview');
+  assert.ok(floating.querySelector('[data-droplet-kind="statement"] > path'),
+    'the floating drag preview must use the connector shape too');
+  assert.ok(placement.querySelector('[data-droplet-kind="statement"] > path'),
+    'the drop-zone placement preview must use the connector shape too');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerup', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.top + 2}));
+});
+
 test('uses the upper and lower halves of a statement as before and after drop targets', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];

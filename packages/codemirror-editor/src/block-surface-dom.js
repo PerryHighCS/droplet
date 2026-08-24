@@ -382,7 +382,7 @@ export class BlockSurface {
     this.#drag.preview ??= createSubtreePreview(this.#layout, this.#drag.node.id);
     const zoneChanged = !sameDropZone(resolved?.zone, this.#drag.lastZone);
     this.#drag.lastZone = resolved?.zone;
-    updateDragPreviews(this.#svg, this.#drag.preview, point, resolved?.zone, zoneChanged);
+    updateDragPreviews(this.#svg, this.#drag.preview, point, resolved?.zone, zoneChanged, this.#layoutOptions);
     event.preventDefault();
   }
 
@@ -712,14 +712,15 @@ function isOutsideCanvas(layout, point) {
 // resolved drop zone, which usually stays the same across many consecutive
 // moves within it, so they only need rebuilding when it actually changes -
 // see sameDropZone, and #continueDrag's own preview/zoneChanged caching.
-function updateDragPreviews(svg, preview, point, zone, zoneChanged) {
+function updateDragPreviews(svg, preview, point, zone, zoneChanged, layoutOptions = {}) {
   const document = svg.ownerDocument;
+  const previewOptions = {...layoutOptions, showSocketText: true};
   let floating = svg.querySelector('.droplet-drag-preview');
   if (!floating) {
     floating = document.createElementNS(SVG_NAMESPACE, 'g');
     floating.classList.add('droplet-drag-preview');
     floating.setAttribute('opacity', '.85');
-    floating.append(renderNode(preview, document, {showSocketText: true}));
+    floating.append(renderNode(preview, document, previewOptions));
     svg.append(floating);
   }
   floating.setAttribute('transform', `translate(${point.x + 12} ${point.y + 12})`);
@@ -730,7 +731,7 @@ function updateDragPreviews(svg, preview, point, zone, zoneChanged) {
   placement.classList.add('droplet-drop-preview');
   placement.setAttribute('transform', `translate(${zone.bounds.left} ${zone.bounds.top})`);
   placement.setAttribute('opacity', '.55');
-  placement.append(renderNode(preview, document, {showSocketText: true}));
+  placement.append(renderNode(preview, document, previewOptions));
   const guide = document.createElementNS(SVG_NAMESPACE, 'rect');
   guide.classList.add('droplet-drop-guide');
   guide.setAttribute('x', String(zone.bounds.left));
