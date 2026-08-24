@@ -375,6 +375,26 @@ test('falls back to a valid clause header end when metadata.headerTo is missing 
   assert.ok(third.bounds.top >= second.bounds.bottom);
 });
 
+test('falls back to a valid container header end in a bare-CR-only document', () => {
+  // validHeaderTo's own fallback used a raw indexOf('\n', ...) - in a
+  // CR-only document with headerTo omitted or malformed, no "\n" exists
+  // anywhere, so this always fell all the way through to node.to, folding
+  // the entire body into the header text instead of stopping at the header
+  // line's own end.
+  const source = 'if ready:\r  first()\r';
+  const layout = createBlockLayout({source, root: documentNode(source, [{
+    ...statement('if', 0, source.length - 1, {blockRole: 'container', bodyEnd: source.length - 1, bodyIndentation: '  '}),
+    // headerTo deliberately omitted.
+    children: [statement('first', source.indexOf('first()'), source.indexOf('first()') + 'first()'.length)]
+  }])}, {measureText: (text) => text.length * 10});
+
+  const container = layout.nodes.find((node) => node.id === 'if');
+  const first = layout.nodes.find((node) => node.id === 'first');
+
+  assert.equal(container.text, 'if ready:');
+  assert.ok(first.bounds.top >= container.regions.header.bottom);
+});
+
 test('widens the last clause\'s own body-end zone to the shared footer, not the primary body\'s', () => {
   // The shared footer visually sits right after the *last branch*, not the
   // primary body - widening the primary body's own body-end zone to the

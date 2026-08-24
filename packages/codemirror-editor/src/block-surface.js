@@ -481,9 +481,14 @@ function isContainer(node) {
 
 function validHeaderTo(node, source) {
   const headerTo = node.metadata?.headerTo;
-  return Number.isInteger(headerTo) && headerTo >= node.from && headerTo <= node.to
-    ? headerTo
-    : source.indexOf('\n', node.from) === -1 ? node.to : source.indexOf('\n', node.from);
+  if (Number.isInteger(headerTo) && headerTo >= node.from && headerTo <= node.to) return headerTo;
+  // A raw indexOf('\n', ...) ignores a bare "\r" or a lone "\r\n" pair - in a
+  // CR-only (or malformed-headerTo) document this fallback could run past
+  // the node's own end looking for a "\n" that never comes, or find an
+  // unrelated later one past node.to entirely. lineEnd already recognizes
+  // all three line endings; bounding it by node.to keeps this fallback
+  // inside the node's own range the same way the old "not found" branch did.
+  return Math.min(lineEnd(source, node.from), node.to);
 }
 
 function insertionZone(destination, left, top, width, settings, role, details) {
