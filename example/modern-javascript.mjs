@@ -251,7 +251,11 @@ renderPalette();
 
 sampleSelect.addEventListener('change', () => {
   editor.setValue(samples[sampleSelect.value]);
-  setStatus(`Loaded “${sampleSelect.value}”.`);
+  // setValue() synchronously runs refresh() first, which already reports an
+  // opaque-recovery issue (see the "Broken syntax" sample) - overwriting
+  // that unconditionally here immediately hid it behind this generic
+  // "Loaded..." message.
+  if (!editor.getProjection().issues.length) setStatus(`Loaded “${sampleSelect.value}”.`);
 });
 
 modeButton.addEventListener('click', () => {

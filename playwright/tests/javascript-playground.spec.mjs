@@ -42,6 +42,18 @@ test('manual modern JavaScript playground inserts a palette block through the so
   await expect(page.locator('#modern-javascript-status')).toHaveText('Inserted while (true) { }.');
 });
 
+test('manual modern JavaScript playground keeps the opaque-recovery status visible after selecting a broken sample', async ({page}) => {
+  // setValue() synchronously runs refresh() first, which already reports an
+  // opaque-recovery issue for this sample - the sample-select handler's own
+  // unconditional "Loaded..." status update immediately overwrote it.
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+
+  await page.locator('#modern-javascript-sample').selectOption('Broken syntax');
+
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/^Opaque recovery:/);
+});
+
 test('manual modern JavaScript playground switches between text and block mode', async ({page}) => {
   await page.goto('/example/modern-javascript.html');
   await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);

@@ -349,6 +349,22 @@ test('manual modern Python playground inserts a Python palette block through the
   await expect(page.locator('#modern-python-status')).toHaveText('Inserted value = 1.');
 });
 
+test('manual modern Python playground keeps the opaque-recovery status visible after selecting a broken sample', async ({page}) => {
+  // setValue() synchronously runs refresh() first, which already reports an
+  // opaque-recovery issue for this sample - the sample-select handler's own
+  // unconditional "Loaded..." status update immediately overwrote it. Match
+  // refresh()'s own "Opaque recovery: <message>" prefix, not a bare
+  // /Opaque recovery/: the sample is itself named "Opaque recovery", so
+  // even the buggy generic "Loaded "Opaque recovery"." message contains
+  // that substring and would pass a looser check either way.
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  await page.locator('#modern-python-sample').selectOption('Opaque recovery');
+
+  await expect(page.locator('#modern-python-status')).toHaveText(/^Opaque recovery:/);
+});
+
 test('manual modern Python playground exposes an expandable print argument socket', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
