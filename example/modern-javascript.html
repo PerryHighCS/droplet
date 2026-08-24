@@ -23,7 +23,8 @@
        to size and position sockets) stays accurate. */
     #modern-javascript-editor text { font-family: Courier, monospace; }
     pre { margin: 0; padding: .65rem; overflow: auto; background: #f4f7fb; border-radius: 4px; white-space: pre-wrap; }
-    .droplet-block-statement { cursor: grab; }
+    #modern-javascript-editor [data-droplet-kind="statement"],
+    #modern-javascript-editor [data-droplet-kind="container"] { cursor: grab; }
     @media (max-width: 800px) { .workspace, .panels { grid-template-columns: 1fr; } }
 
     /*

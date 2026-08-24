@@ -26,7 +26,8 @@
     .palette-block { border: 1px solid #7a9ec4; border-left: 5px solid #246ca8; border-radius: 4px; background: #fff; color: #24344d; cursor: grab; font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; }
     .palette-block:hover, .palette-block:focus-visible { background: #eaf4ff; outline: 2px solid #9ec4eb; outline-offset: 1px; }
     pre { margin: 0; padding: .65rem; overflow: auto; background: #f4f7fb; border-radius: 4px; white-space: pre-wrap; }
-    .droplet-block-statement { cursor: grab; }
+    #modern-python-editor [data-droplet-kind="statement"],
+    #modern-python-editor [data-droplet-kind="container"] { cursor: grab; }
     @media (max-width: 800px) { .workspace, .panels { grid-template-columns: 1fr; } }
   </style>
   <script type="importmap">
