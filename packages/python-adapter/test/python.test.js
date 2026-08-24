@@ -1383,6 +1383,36 @@ test('removes the last remaining call argument, leaving an empty call', () => {
   assert.equal(applySourceChanges(source, changes), 'first()\n');
 });
 
+test('removing the last call argument does not delete a trailing comment that belongs to the one before it', () => {
+  // remove-sequence-item's last-item branch used to delete everything from
+  // the *previous*, kept argument's own end through the removed item's own
+  // end - a trailing "#" comment between them (visually attached to the
+  // previous, surviving argument) was swept away along with the separating
+  // comma and the removed item, even though it describes "a" completely
+  // untouched by this edit.
+  const source = 'first(a,  # keep a\n  b)\n';
+  const argA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const argB = {
+    id: 'socket:b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argA, argB],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: argB.from, to: argB.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first(a  # keep a\n  )\n');
+});
+
 test('rejects Python block changes that Brython cannot parse', () => {
   const source = 'value = 1\n';
   const socket = {id: 'socket:value', kind: 'socket', from: 8, to: 9, children: []};
