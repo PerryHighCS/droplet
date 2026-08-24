@@ -53,7 +53,7 @@ jobs:
             playwright/playwright-report
           if-no-files-found: ignore
 
-  modern-python-playground:
+  modern-playground:
     name: Modern playground (browser)
     runs-on: ubuntu-latest
     env:
@@ -161,7 +161,7 @@ jobs:
       - codemirror-editor
       - javascript-adapter
       - python-adapter
-      - modern-python-playground
+      - modern-playground
     runs-on: ubuntu-latest
     steps:
       - name: Require every modern check to pass
@@ -170,10 +170,10 @@ jobs:
           CODEMIRROR_EDITOR: ${{ needs.codemirror-editor.result }}
           JAVASCRIPT_ADAPTER: ${{ needs.javascript-adapter.result }}
           PYTHON_ADAPTER: ${{ needs.python-adapter.result }}
-          MODERN_PYTHON_PLAYGROUND: ${{ needs.modern-python-playground.result }}
+          MODERN_PLAYGROUND: ${{ needs.modern-playground.result }}
         run: |
           test "$MODERN_CORE" = success
           test "$CODEMIRROR_EDITOR" = success
           test "$JAVASCRIPT_ADAPTER" = success
           test "$PYTHON_ADAPTER" = success
-          test "$MODERN_PYTHON_PLAYGROUND" = success
+          test "$MODERN_PLAYGROUND" = success
