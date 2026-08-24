@@ -1344,12 +1344,14 @@ area, which was widened to hold them.
   individually visible in block mode. Covered by `keeps whitespace as a
   measured sibling and exposes insertion zones around it` and
   `renders suite containers and blank-line placeholders` (Playwright).
-- [ ] Browser tests verify inner-statement versus container drag ownership,
+- [x] Browser tests verify inner-statement versus container drag ownership,
   comment-only movement, and insertion placement. Comment-only movement and
   insertion placement are covered at the browser level (the Python
-  playground's drag/drop Playwright tests); inner-statement-versus-container
-  drag *ownership* specifically has no browser-level test of its own - only
-  the unit-level hit-testing precedence test above.
+  playground's drag/drop Playwright tests). Inner-statement-versus-container
+  drag *ownership* is now covered too, by `javascript-playground.spec.mjs`'s
+  "moves a container together with its nested statement, then the statement
+  alone" - dragging the whole container (with its child still inside) onto a
+  new location, then dragging that same nested statement out on its own.
 - [ ] Browser screenshot or geometry tests verify that a dragged container
   preview has the same nested structure as its on-canvas block. No screenshot
   or geometry-diff tests exist anywhere in `playwright/tests/` yet.
@@ -1363,9 +1365,9 @@ area, which was widened to hold them.
   than `test/data/javascript-compatibility.js`. It now has Playwright smoke
   and interaction coverage (`playwright/tests/javascript-playground.spec.mjs`,
   closing [#5](https://github.com/PerryHighCS/droplet/issues/5)) for page
-  load, palette-click insertion, mode switching, a palette drag, and the
-  category-color pass - but still no case moving an existing nested statement
-  independently of, then together with, its enclosing container.
+  load, palette-click insertion, mode switching, a palette drag, the
+  category-color pass, and moving an existing nested statement independently
+  of, then together with, its enclosing container.
 
 Also still open, found while auditing this phase but not previously listed
 here:

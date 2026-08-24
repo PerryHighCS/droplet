@@ -19,8 +19,13 @@ runtime. Future Code.org changes are reviewed and selectively reimplemented as
 compatibility work. See [the modernization decision](docs/decisions/0001-full-modernization.md)
 and [the upstream review log](docs/upstream-codeorg.md).
 
-For manual modern-editor checks, start `npm run dev` and open
-[`example/modern-python.html`](example/modern-python.html) or
+For manual modern-editor checks, first install the two workspaces these
+unbundled pages import directly - a plain root `npm ci` does not populate
+either one: `npm --prefix playwright ci` (both playgrounds' import maps pull
+CodeMirror from there) and `npm --prefix packages/javascript-adapter ci` (the
+JavaScript playground also imports Acorn from there). Skipping either leaves
+that playground stuck at "Loading modern editor…". Then start `npm run dev`
+and open [`example/modern-python.html`](example/modern-python.html) or
 [`example/modern-javascript.html`](example/modern-javascript.html) on port
 8001. Each playground exposes the live source snapshot and parsed projection
 alongside CodeMirror text/block mode, a starter-block palette, and
@@ -152,8 +157,8 @@ or `http://localhost:8001/example/test.html` for the view debugger.
 
 Run `npx grunt mochaTest` for the parser/model unit suite. Switch to Node 24
 before running `npm run test:browser` for the full Playwright browser suite,
-which covers both the legacy QUnit pages and the modern Python playground's
-own browser tests. `npm run test:browser:legacy` and
+which covers the legacy QUnit pages and both modern playgrounds' (Python and
+JavaScript) own browser tests. `npm run test:browser:legacy` and
 `npm run test:browser:modern` run just one or the other; CI runs them as
 separate jobs under the `Legacy verification` and `Modern verification`
 checks, respectively.

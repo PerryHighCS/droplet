@@ -33,10 +33,11 @@ extensions through CodeMirror compartments without recreating the view.
 The `@droplet/codemirror-editor/droplet` subpath adds
 `createDropletCodeMirrorEditor`. Supply a structured language parser and,
 optionally, a block-operation transformer. It reparses after every CodeMirror
-document transaction, decorates structured statements, expressions, sockets,
-and opaque parser failures in block mode, and keeps opaque internal text
-read-only. External source updates remain permitted, so a repaired program
-automatically returns to a structured projection.
+document transaction and, in block mode, renders structured statements,
+expressions, sockets, and opaque parser failures through a `BlockSurface`
+(see below) instead of the CodeMirror view, keeping opaque content read-only
+from within that surface. External source updates remain permitted, so a
+repaired program automatically returns to a structured projection.
 
 Clicking a rendered range selects its exact source range in CodeMirror.
 Dragging one rendered statement onto another produces a `move-statement`
@@ -83,4 +84,28 @@ const editor = createDropletCodeMirrorEditor({
 
 `applyBlockOperation(operation)` validates the adapter's minimal source changes
 and dispatches them as one CodeMirror transaction, preserving ordinary undo and
-redo behavior.
+redo behavior. A call site invoking it directly can catch a rejection (an
+invalid destination, a transform the adapter refuses) the ordinary synchronous
+way.
+
+An operation the `BlockSurface` itself originates - drag/drop, Delete, and the
+add/remove-clause and add/remove-sequence-item buttons - has no such call site
+of its own to catch a rejection from; left unhandled, it would throw straight
+out of a DOM event handler as an uncaught exception. Pass `onOperationError`
+to `createDropletCodeMirrorEditor`'s options to receive `(error, operation)`
+for exactly those surface-originated failures instead - it does not run for a
+direct `applyBlockOperation` call, which still throws synchronously to its own
+caller:
+
+```js
+const editor = createDropletCodeMirrorEditor({
+  parent: document.querySelector('#editor'),
+  value: 'if score >',
+  blockMode: true,
+  parse: parseStructuredLanguage,
+  transform: transformBlockOperation,
+  onOperationError(error, operation) {
+    console.warn(`Couldn't apply ${operation.type}: ${error.message}`);
+  }
+});
+```
