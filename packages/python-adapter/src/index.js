@@ -454,23 +454,56 @@ function addEmptyListItemSocket(children, node, source, from, to, lines) {
   });
 }
 
-// Depth-tracks matching delimiters (this file has no tokenizer to skip
-// comments/strings with the way the JavaScript adapter's Acorn-based one
-// does, so a delimiter character inside either would still be miscounted -
-// an accepted limitation matching this file's existing plain-text scans
-// elsewhere) to find where openPosition's own pair actually closes, not just
-// the next occurrence of closeChar.
+// Depth-tracks matching delimiters to find where openPosition's own pair
+// actually closes, not just the next occurrence of closeChar - a def's
+// parameter list is the caller in practice, so a default value's own quoted
+// string (`def f(a="("):`) or a trailing comment is skipped whole rather
+// than scanned character-by-character, the same way commaAfter (see
+// remove-sequence-item) already skips comments without a tokenizer. Because
+// depth returns to zero exactly at the header's own real closing delimiter,
+// this naturally never scans into the body that follows on the same
+// physical line (a compact `def f(): g()`) - no separate header boundary is
+// needed.
 function matchingDelimiterEnd(source, openPosition, openChar, closeChar) {
   if (openPosition === -1) return -1;
   let depth = 0;
-  for (let i = openPosition; i < source.length; i += 1) {
-    if (source[i] === openChar) depth += 1;
-    else if (source[i] === closeChar) {
-      depth -= 1;
-      if (depth === 0) return i;
+  let cursor = openPosition;
+  while (cursor < source.length) {
+    const char = source[cursor];
+    if (char === '#') {
+      const lineEnd = source.indexOf('\n', cursor);
+      cursor = lineEnd === -1 ? source.length : lineEnd + 1;
+      continue;
     }
+    if (char === '"' || char === '\'') {
+      cursor = skipPythonString(source, cursor);
+      continue;
+    }
+    if (char === openChar) depth += 1;
+    else if (char === closeChar) {
+      depth -= 1;
+      if (depth === 0) return cursor;
+    }
+    cursor += 1;
   }
   return -1;
+}
+
+// Returns the index just past a Python string literal starting at
+// quoteStart (its opening quote), honoring triple-quoting and
+// backslash-escaped quote characters. An unterminated string (malformed
+// input) falls through to the end of source, matching this file's existing
+// plain-text scans elsewhere.
+function skipPythonString(source, quoteStart) {
+  const quote = source[quoteStart];
+  const delimiter = source.startsWith(quote.repeat(3), quoteStart) ? quote.repeat(3) : quote;
+  let cursor = quoteStart + delimiter.length;
+  while (cursor < source.length) {
+    if (source[cursor] === '\\') { cursor += 2; continue; }
+    if (source.startsWith(delimiter, cursor)) return cursor + delimiter.length;
+    cursor += 1;
+  }
+  return source.length;
 }
 
 // The furthest end position among a set of Brython AST nodes that are

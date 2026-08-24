@@ -1343,6 +1343,54 @@ test('places a zero-parameter def\'s synthetic socket at its own closing parenth
   assert.equal(emptyParameter.from, source.indexOf(')'), 'the socket must sit at f\'s own closing parenthesis, not g()\'s');
 });
 
+test('adds a parameter to a def whose own default value string contains an unmatched "("', () => {
+  // matchingDelimiterEnd depth-tracked raw "(" and ")" characters with no
+  // awareness of Python string literals - a="(" leaves one unbalanced "("
+  // inside the string, so depth never returns to zero at the def's own real
+  // closing parenthesis and the scan ran off the end of the source instead.
+  const source = 'def f(a="("):\n  pass\n';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length - 1, children: [paramA],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length - 1}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a="(", ):\n  pass\n');
+});
+
+test('adds a parameter to a def whose own default value string contains an unmatched ")", without splicing into the string', () => {
+  // The mirror image of the "(" case above is worse: with a=")" as the last
+  // parameter, the fake ")" inside the string closes the raw depth count
+  // early, so the old scan returned a position *inside* the string literal
+  // instead of throwing - silently splicing the new parameter's comma into
+  // the middle of the string's own text instead of before the def's real
+  // closing parenthesis.
+  const source = 'def f(a=")"):\n  pass\n';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length - 1, children: [paramA],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length - 1}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a=")", ):\n  pass\n');
+});
+
 test('removes a middle call argument, splicing its own separating comma', () => {
   const source = 'first(a, b, c)\n';
   const args = ['a', 'b', 'c'].map((letter) => ({
