@@ -410,7 +410,19 @@ export class BlockSurface {
     if (this.#svg.hasPointerCapture?.(event.pointerId)) this.#svg.releasePointerCapture(event.pointerId);
     clearDragPreviews(this.#svg);
     if (!drag.moved) return;
+    // Cleared by the next surface click below - the synthetic one a real
+    // pointerup normally generates on the same element, suppressed here so
+    // ending a drag doesn't also select/open whatever is under the pointer.
+    // A pointercancel-resolved drag (see #handlePointerCancel) or one
+    // resolved by the document-level pointerup fallback (see the
+    // constructor) never generates that synthetic click at all, so left
+    // set, it would instead silently swallow the next genuine, unrelated
+    // click anywhere on the surface. Clearing it again on a later task -
+    // a real same-element pointerup's own synthetic click already fires
+    // synchronously within this same task, so this never races it - drops
+    // the suppression once nothing is left to consume it.
     this.#suppressClick = true;
+    setTimeout(() => { this.#suppressClick = false; }, 0);
     if (drag.operation) {
       this.#onOperation(drag.operation);
     } else if (drag.destination) {

@@ -375,6 +375,32 @@ test('completes a drop on pointercancel instead of losing the release', () => {
   assert.deepEqual(operations, [{type: 'delete-node', source: {from: 0, to: 7}, kind: 'statement'}]);
 });
 
+test('does not swallow the next genuine click after a pointercancel-resolved drag', async () => {
+  // #endDrag's own suppressClick flag is meant to be cleared by the
+  // synthetic click a real pointerup normally generates on the same
+  // element right after - but a pointercancel-resolved drag (unlike an
+  // ordinary pointerup) never generates one at all, so left set, it
+  // silently swallowed the very next genuine, unrelated click instead of
+  // selecting it.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const surface = new BlockSurface({parent: dom.window.document.querySelector('#host'), onOperation: () => {}});
+  surface.update(twoStatements());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const [first, second] = surface.layout.nodes.filter((node) => node.kind === 'statement');
+
+  svg.dispatchEvent(new dom.window.MouseEvent('pointerdown', {bubbles: true, button: 0,
+    clientX: first.bounds.left + 2, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointermove', {bubbles: true, button: 0, clientX: -400, clientY: first.bounds.top + 2}));
+  svg.dispatchEvent(new dom.window.MouseEvent('pointercancel', {bubbles: true}));
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  svg.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true, button: 0,
+    clientX: second.bounds.left + 2, clientY: second.bounds.top + 2}));
+  assert.equal(svg.dataset.dropletSelectedId, 'second');
+});
+
 test('cancels rather than completes a drop on a touch pointercancel', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];
