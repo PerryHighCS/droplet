@@ -46,9 +46,12 @@ intent; dropping an expression or socket onto a socket produces a
 whether that exact source transformation is valid.
 
 Select a statement or comment block and press Delete or Backspace to emit a
-`delete-node` intent. Releasing a dragged block outside the BlockSurface emits
-the same operation. Socket deletion clears the exact socket range through the
-normal editable/recovery path instead of introducing a separate block value.
+`delete-node` intent. Releasing a dragged block outside the BlockSurface does
+not always delete it: releasing above or below the rendered document moves it
+to the first or last insertion zone instead, matching a drop just past that
+edge; only a release past the surface's left or right edge emits `delete-node`.
+Socket deletion clears the exact socket range through the normal
+editable/recovery path instead of introducing a separate block value.
 Ctrl-drag (or Cmd-drag) a block to emit a `copy-node` intent at the indicated
 insertion destination.
 
