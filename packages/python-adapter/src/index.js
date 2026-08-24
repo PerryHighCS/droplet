@@ -791,6 +791,17 @@ function tripleQuotedStringRanges(text) {
   let openDelimiter = null;
   let match;
   while ((match = pattern.exec(text)) !== null) {
+    // A backslash immediately before the delimiter's own first quote
+    // character escapes it - a literal quote, not a real delimiter attempt
+    // - leaving only two bare quote characters right after it, which do not
+    // by themselves open or close a triple-quoted string. Left unchecked,
+    // this matched anyway, ending an open range early and leaving whatever
+    // real string content follows (up to the actual closing delimiter,
+    // possibly on a later line) unprotected from reindentation.
+    if (isEscapedQuote(text, match.index)) {
+      pattern.lastIndex = match.index + 1;
+      continue;
+    }
     if (openStart === null) {
       openStart = match.index;
       openDelimiter = match[0];
@@ -801,6 +812,19 @@ function tripleQuotedStringRanges(text) {
     }
   }
   return ranges;
+}
+
+// An even number of consecutive backslashes right before `index` means each
+// escapes the next one (a literal backslash), leaving the character at
+// `index` itself unescaped - only an odd count actually escapes it.
+function isEscapedQuote(text, index) {
+  let backslashes = 0;
+  let cursor = index - 1;
+  while (cursor >= 0 && text[cursor] === '\\') {
+    backslashes += 1;
+    cursor -= 1;
+  }
+  return backslashes % 2 === 1;
 }
 
 function ensureLineEnding(source, lineEnding) {

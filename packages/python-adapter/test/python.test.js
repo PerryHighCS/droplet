@@ -850,6 +850,38 @@ test('moving a statement with a multi-line triple-quoted string reindents code b
   );
 });
 
+test('moving a statement with a backslash-escaped triple quote inside its string leaves the raw string untouched', () => {
+  // tripleQuotedStringRanges scans raw text for '''/""" with no awareness of
+  // a preceding backslash escape - `\"""` is a backslash-escaped quote
+  // followed by two more literal quote characters (three "\"" characters do
+  // not terminate the string unless all three are unescaped), but the regex
+  // still matched them as a real closing delimiter, ending the protected
+  // range early. A later line that is really still inside the string (up to
+  // its own real closing delimiter) then fell outside that prematurely-ended
+  // range and got reindented like ordinary code instead of left untouched.
+  const source = 'if outer:\n  s = """first\\"""\nraw"""\n  if inner:\n    pass\n';
+  const statement = {id: 'statement:s', kind: 'statement', from: source.indexOf('s ='), to: source.indexOf('raw"""') + 6, children: []};
+  const inner = {
+    id: 'statement:inner', kind: 'statement', from: source.indexOf('if inner:'), to: source.length - 1, children: [],
+    metadata: {blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: source.length - 1, bodyIndentation: '    '}
+  };
+  const outer = {
+    id: 'statement:outer', kind: 'statement', from: 0, to: source.length, children: [statement, inner],
+    metadata: {blockRole: 'container', bodyFrom: statement.from, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [outer]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: statement.from, to: statement.to},
+    destination: {from: source.indexOf('pass'), to: source.indexOf('pass')}
+  }, parsed, () => ({}));
+
+  assert.equal(
+    applySourceChanges(source, changes),
+    'if outer:\n  if inner:\n    s = """first\\"""\nraw"""\n    pass\n'
+  );
+});
+
 test('deletes a Python statement line and leaves pass in an emptied suite', () => {
   const source = 'if ready:\n  first = 1\nnext = 2\n';
   const first = {id: 'statement:first', kind: 'statement', from: 12, to: 21, children: []};
