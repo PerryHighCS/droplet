@@ -39,7 +39,7 @@
     "dev": "grunt testserver",
     "test:browser": "npm --prefix playwright test",
     "test:browser:legacy": "npm --prefix playwright test -- tests/qunit-pages.spec.mjs",
-    "test:browser:modern": "npm --prefix playwright test -- tests/brython-ast.spec.mjs"
+    "test:browser:modern": "npm --prefix playwright test -- tests/brython-ast.spec.mjs tests/javascript-playground.spec.mjs"
   },
   "repository": {
     "type": "git",
