@@ -926,13 +926,14 @@ function renderClauseHeaderFrame(group, node, document) {
   if (isColonHeader(node)) renderSnakeFace(group, node.regions.header, document);
 }
 
-// "Add elif"/"add else" only ever appends after the chain's current last
-// branch (see block-surface-dom's remove/add operations) and only while an
-// else does not already exist - an if-chain only requires elif/else-if
-// before else, and this first pass only supports appending at the end.
-// showElif/showElse come from clause-add-eligibility.js, the single source
-// of truth block-surface.js's own footer-width reservation also uses, so the
-// two can't drift out of sync.
+// "Add elif" stays offered even once an else exists (the adapter always
+// anchors a new elif on the chain's last existing elif, inserting it right
+// before the else rather than after it - an if-chain only requires elif/
+// else-if to come before else, not that else be absent). "Add else" is the
+// one capped at exactly one: it disappears once an else exists. showElif/
+// showElse come from clause-add-eligibility.js, the single source of truth
+// block-surface.js's own footer-width reservation also uses, so the two
+// can't drift out of sync.
 function renderClauseControls(group, node, document) {
   const type = node.metadata?.type;
   const clauses = node.children.filter((child) => child.kind === 'clause');
