@@ -802,6 +802,33 @@ test('honors an explicit destination indentation for a body-end at EOF, where th
   assert.equal(applySourceChanges(source, changes), 'def f():\n    pass\n    return 1');
 });
 
+test('inserts at a body-end right before a following outer-scope line without reindenting it', () => {
+  // A body-end destination right before a following outer-scope line is a
+  // genuine line start (there is no pre-existing whitespace before it to
+  // lend the new text its own indentation) - insertStatementChange's own
+  // suffix indentation is meant only to restore a "before-sibling"
+  // destination's indentation, stolen as the new text's prefix from
+  // whitespace already there. Applying it here too left the new statement
+  // with no indentation of its own and wrongly re-indented "b" - an
+  // unrelated line at a different (here, lower) depth - to match instead.
+  const source = 'if x:\n  a\nb';
+  const aTo = source.indexOf('a') + 1;
+  const bFrom = source.indexOf('b');
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: aTo, children: [
+      {id: 'statement:a', kind: 'statement', from: source.indexOf('a'), to: aTo, children: []}
+    ],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('a'), bodyEnd: bFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement, {id: 'statement:b', kind: 'statement', from: bFrom, to: source.length, children: []}]);
+
+  const changes = transformPython({
+    type: 'insert-statement', destination: {from: bFrom, to: bFrom, indentation: '  '}, source: 'pass\n'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if x:\n  a\n  pass\nb');
+});
+
 test('copying a comment onto an empty suite leaves the synthetic pass in place instead of replacing it', () => {
   // A comment can't stand alone as a suite's only content - replacing the
   // pass outright (as a statement copy does) would leave a comment-only
@@ -854,6 +881,42 @@ test('copying an inline comment copies only its own text, not the code it trails
   }, parsed, () => ({}));
 
   assert.equal(applySourceChanges(source, changes), 'x = 1  # note\n# note');
+});
+
+test('moves a statement to a nested body end without reindenting the following outer-scope line', () => {
+  // moveLineRangeChanges unconditionally appended targetIndentation as a
+  // trailing suffix, meant only to restore a "before-sibling" destination's
+  // own orphaned indentation (stolen, as the moved text's own prefix, from
+  // whitespace already sitting before it). A body-end destination right
+  // before a following, differently-indented outer-scope line is already a
+  // genuine line start with no such whitespace to steal - appending the
+  // suffix there instead wrongly re-indented that unrelated line to match
+  // the moved statement's own new depth.
+  const source = 'if x:\n  if y:\n    a\n  b\nz\n';
+  const aFrom = source.indexOf('a');
+  const aTo = aFrom + 1;
+  const bFrom = source.indexOf('b');
+  const zFrom = source.indexOf('z');
+  // bodyEnd is the following line's own true start, right after "    a\n"
+  // ends - before its own "  " leading indentation, not at the literal "b".
+  const bodyEnd = source.indexOf('\n', aTo) + 1;
+  const inner = {
+    id: 'statement:inner', kind: 'statement', from: source.indexOf('if y'), to: aTo,
+    children: [{id: 'statement:a', kind: 'statement', from: aFrom, to: aTo, children: []}],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: aFrom, bodyEnd, bodyIndentation: '    '}
+  };
+  const outer = {
+    id: 'statement:if', kind: 'statement', from: 0, to: bFrom + 1,
+    children: [inner, {id: 'statement:b', kind: 'statement', from: bFrom, to: bFrom + 1, children: []}],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('if y'), bodyEnd: zFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [outer, {id: 'statement:z', kind: 'statement', from: zFrom, to: zFrom + 1, children: []}]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: zFrom, to: zFrom + 1}, destination: {from: bodyEnd, to: bodyEnd, indentation: '    '}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if x:\n  if y:\n    a\n    z\n  b\n');
 });
 
 test('moves only Python statement lines and preserves comments, blanks, and local indentation', () => {

@@ -695,7 +695,19 @@ function insertStatementChange(source, destination, statementSource, explicitInd
     const prefix = isLineStart(source, destination) ? indentation : lineEnding + indentation;
     return {from: destination, to: destination, insert: prefix + text};
   }
-  return {from: destination, to: destination, insert: `${text}${ensureLineEnding(text, lineEnding)}${indentation}`};
+  // A "before-sibling" destination sits past that sibling's own leading
+  // whitespace, not at its line's true start - the whitespace already there
+  // becomes the new text's own prefix "for free", and this must instead
+  // restore the sibling's now-orphaned indentation as a suffix. A body-end
+  // destination right before a following outer-scope line is different: it
+  // already IS a genuine line start (no such whitespace to inherit), so the
+  // new text needs its own explicit prefix - and appending a suffix there
+  // would wrongly re-indent that unrelated following line to match, instead
+  // of leaving its own original indentation untouched.
+  const lineStart = isLineStart(source, destination);
+  const prefix = lineStart ? indentation : '';
+  const suffix = lineStart ? '' : indentation;
+  return {from: destination, to: destination, insert: `${prefix}${text}${ensureLineEnding(text, lineEnding)}${suffix}`};
 }
 
 function moveLineRangeChanges(source, statementRange, destination, destinationIndentation, removalInsert = '') {
@@ -704,8 +716,18 @@ function moveLineRangeChanges(source, statementRange, destination, destinationIn
   if (!/^[\t \f]*$/.test(targetIndentation)) throw new TypeError('Destination indentation must contain only whitespace');
   const text = reindentPythonLines(source.slice(statementRange.from, statementRange.to), sourceIndentation, targetIndentation);
   const lineEnding = lineEndingAt(source, destination);
-  const prefix = isLineStart(source, destination) ? targetIndentation : '';
-  const insert = `${prefix}${text}${ensureLineEnding(text, lineEnding)}${targetIndentation}`;
+  // See insertStatementChange's own comment: a suffix is only needed to
+  // restore a "before-sibling" destination's own orphaned indentation
+  // (stolen, as this text's own prefix, from the whitespace already sitting
+  // before it) - appending it unconditionally also re-indented a genuine
+  // following line (a body-end destination right before an unrelated
+  // outer-scope line, which is already a real line start and needs no
+  // restoring) to match the moved statement's own new depth instead of
+  // leaving it untouched.
+  const lineStart = isLineStart(source, destination);
+  const prefix = lineStart ? targetIndentation : '';
+  const suffix = lineStart ? '' : targetIndentation;
+  const insert = `${prefix}${text}${ensureLineEnding(text, lineEnding)}${suffix}`;
   return [
     {from: statementRange.from, to: statementRange.to, insert: removalInsert},
     {from: destination, to: destination, insert}
