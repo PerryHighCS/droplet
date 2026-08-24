@@ -150,10 +150,17 @@ export class DropletCodeMirrorEditor {
       this.#readOnly = options.readOnly === true;
       this.#surface.setReadOnly(this.#readOnly);
     }
+    if (Object.hasOwn(options, 'onOperationError')) {
+      if (options.onOperationError !== undefined && typeof options.onOperationError !== 'function') {
+        throw new TypeError('onOperationError must be a function');
+      }
+      this.#onOperationError = options.onOperationError;
+    }
     const editorOptions = {...options};
     delete editorOptions.parse;
     delete editorOptions.transform;
     delete editorOptions.blockMode;
+    delete editorOptions.onOperationError;
     if (Object.hasOwn(options, 'extensions')) {
       editorOptions.extensions = [
         this.#projectionField,
