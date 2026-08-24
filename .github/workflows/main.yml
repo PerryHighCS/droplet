@@ -38,8 +38,9 @@ jobs:
       - run: npm --prefix playwright ci
       - run: npm --prefix playwright exec -- playwright install --with-deps chromium
       - run: npx grunt mochaTest
-      # tests/qunit-pages.spec.mjs only - the modern Python playground's own
-      # browser suite (tests/brython-ast.spec.mjs) runs as its own job below,
+      # tests/qunit-pages.spec.mjs only - the modern Python and JavaScript
+      # playgrounds' own browser suites (tests/brython-ast.spec.mjs and
+      # tests/javascript-playground.spec.mjs) run as their own job below,
       # under Modern verification, not here.
       - run: npm run test:browser:legacy
       - name: Upload Playwright failure diagnostics
@@ -53,7 +54,7 @@ jobs:
           if-no-files-found: ignore
 
   modern-python-playground:
-    name: Modern Python playground (browser)
+    name: Modern playground (browser)
     runs-on: ubuntu-latest
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
