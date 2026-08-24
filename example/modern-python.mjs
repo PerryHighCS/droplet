@@ -103,7 +103,14 @@ editor = createDropletCodeMirrorEditor({
   blockMode: true,
   parse: createBrythonPythonParser(pythonToAST, window.__BRYTHON__.tokenizer),
   transform: createBrythonPythonTransformer(pythonToAST),
-  onUpdate: refresh
+  onUpdate: refresh,
+  // A drag/drop, Delete, or add/remove-clause action dispatched through the
+  // rendered surface has no synchronous caller of its own to catch a
+  // rejection the way applyPaletteOperation's click-to-insert path does -
+  // dropping "break"/"continue"/"return" outside a valid context, in
+  // particular, would otherwise throw straight out of a DOM event handler as
+  // an uncaught exception, with no feedback ever reaching the user.
+  onOperationError: (error) => setStatus(`Couldn't place that block here: ${error.message}`)
 });
 
 renderPalette();

@@ -27,6 +27,7 @@ export class DropletCodeMirrorEditor {
   #surface;
   #socketRecovery;
   #readOnly;
+  #onOperationError;
 
   constructor(options) {
     if (typeof options?.parse !== 'function') {
@@ -36,10 +37,15 @@ export class DropletCodeMirrorEditor {
       throw new TypeError('A block transform must be a function');
     }
 
+    if (options.onOperationError !== undefined && typeof options.onOperationError !== 'function') {
+      throw new TypeError('onOperationError must be a function');
+    }
+
     this.#parse = options.parse;
     this.#transform = options.transform;
     this.#blockMode = options.blockMode === true;
     this.#readOnly = options.readOnly === true;
+    this.#onOperationError = options.onOperationError;
     this.#projection = this.#parseSource(options.value ?? '');
     this.#setProjection = StateEffect.define();
     this.#projectionField = createProjectionField(this.#setProjection, this.#projection);
@@ -60,7 +66,7 @@ export class DropletCodeMirrorEditor {
     this.#surface = new BlockSurface({
       parent: options.parent,
       onSelect: ({from, to}) => this.editor.setSelection({anchor: from, head: to}),
-      onOperation: (operation) => this.applyBlockOperation(operation),
+      onOperation: (operation) => this.#applyOperationFromSurface(operation),
       onSocketEdit: ({target, source}) => this.#replaceSocketText(target, source),
       layoutOptions: options.layoutOptions,
       readOnly: this.#readOnly
@@ -105,6 +111,24 @@ export class DropletCodeMirrorEditor {
         changes: normalizedChanges,
         annotations: blockOperationAnnotation.of(true)
       });
+    }
+  }
+
+  // BlockSurface's own onOperation wiring (drag/drop, add/remove-clause and
+  // sequence-item buttons, Delete) has no synchronous caller of its own to
+  // catch a rejection the way a consumer's click-to-insert handler does
+  // (see example/modern-python.mjs's applyPaletteOperation) - a destination
+  // Brython/Acorn rejects as invalid (dropping "break" outside a loop, for
+  // one) would otherwise throw straight out of a DOM event handler as an
+  // uncaught exception, with no feedback surfaced to the user at all.
+  // applyBlockOperation's own public contract (throwing synchronously) stays
+  // unchanged for a caller like that, which can still catch it directly.
+  #applyOperationFromSurface(operation) {
+    try {
+      this.applyBlockOperation(operation);
+    } catch (error) {
+      if (!this.#onOperationError) throw error;
+      this.#onOperationError(error, operation);
     }
   }
 

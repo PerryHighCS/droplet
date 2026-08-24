@@ -574,6 +574,44 @@ test('block operations use one CodeMirror source transaction and its existing un
   editor.destroy();
 });
 
+test('routes an operation the transform rejects through onOperationError instead of throwing uncaught', () => {
+  // BlockSurface's own onOperation wiring (drag/drop, Delete, the add/
+  // remove-clause and sequence-item buttons) has no synchronous caller of
+  // its own to catch a rejection the way a consumer's click-to-insert
+  // handler can - a destination the transform rejects as invalid would
+  // otherwise throw straight out of the DOM keydown handler here as an
+  // uncaught exception, with no feedback ever reaching the caller.
+  const parent = appendParent();
+  const errors = [];
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'score = 1\n', blockMode: true, parse: parseExample,
+    transform: () => { throw new Error('rejected'); },
+    onOperationError: (error, operation) => errors.push({message: error.message, operation})
+  });
+  const statement = parent.querySelector('.droplet-block-surface [data-droplet-kind="statement"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  statement.dispatchEvent(new window.MouseEvent('click', {bubbles: true, button: 0, clientX: 1, clientY: 1}));
+
+  const surfaceElement = parent.querySelector('.droplet-block-surface');
+  assert.doesNotThrow(() =>
+    surfaceElement.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Delete'})));
+
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].message, 'rejected');
+  assert.deepEqual(errors[0].operation, {type: 'delete-node', source: {from: 0, to: 10}, kind: 'statement'});
+  // The rejected operation must not have silently applied anyway.
+  assert.equal(editor.getValue(), 'score = 1\n');
+  editor.destroy();
+});
+
+test('rejects a non-function onOperationError', () => {
+  const parent = appendParent();
+  assert.throws(() => createDropletCodeMirrorEditor({
+    parent, value: 'score = 1\n', parse: parseExample, onOperationError: 'not a function'
+  }), /onOperationError must be a function/);
+});
+
 test('consumer extension updates retain opaque projection behavior', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({
