@@ -147,6 +147,35 @@ test('editing a rendered socket commits one CodeMirror source change on Enter', 
   editor.destroy();
 });
 
+test('Ctrl/Cmd-Z undoes a block edit while keyboard focus is on the block surface, not CodeMirror', () => {
+  // #publishProjection hides CodeMirror's own dom (display: none) in block
+  // mode, and #selectNode focuses the surface's own element - so a
+  // consumer's historyKeymap, bound to CodeMirror's dom, never sees the
+  // keystroke. The surface must forward it to CodeMirror's undo/redo
+  // commands itself rather than relying on focus reaching CodeMirror.
+  const parent = appendParent();
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: 'target = value\n', blockMode: true, parse: parseSocketExample
+  });
+  const socket = parent.querySelector('.droplet-block-surface [data-droplet-layout-id="value:value"]');
+  const svg = parent.querySelector('.droplet-block-surface svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+
+  clickRenderedSocket(socket);
+  const input = parent.querySelector('.droplet-socket-editor');
+  input.value = 'answer';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', {bubbles: true, key: 'Enter'}));
+  assert.equal(editor.getValue(), 'target = answer\n');
+
+  const surface = parent.querySelector('.droplet-block-surface');
+  surface.dispatchEvent(new window.KeyboardEvent('keydown', {
+    bubbles: true, key: 'z', ctrlKey: true
+  }));
+
+  assert.equal(editor.getValue(), 'target = value\n');
+  editor.destroy();
+});
+
 test('clicking again inside an already-open socket editor repositions the cursor instead of reopening it', () => {
   const parent = appendParent();
   const editor = createDropletCodeMirrorEditor({

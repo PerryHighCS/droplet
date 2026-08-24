@@ -1,4 +1,5 @@
 import {Annotation, EditorState, StateEffect, StateField} from '@codemirror/state';
+import {redo, undo} from '@codemirror/commands';
 import {
   applySourceChanges,
   isOpaque,
@@ -70,6 +71,22 @@ export class DropletCodeMirrorEditor {
       onSocketEdit: ({target, source}) => this.#replaceSocketText(target, source),
       layoutOptions: options.layoutOptions,
       readOnly: this.#readOnly
+    });
+    // Block mode hides CodeMirror's own dom and moves keyboard focus to the
+    // surface on selection (see #publishProjection/#selectNode), so a
+    // consumer's historyKeymap - bound to CodeMirror's dom - never receives
+    // Ctrl/Cmd-Z from there. Forward it directly to CodeMirror's own
+    // undo/redo commands instead of relying on focus reaching CodeMirror.
+    this.#surface.element.addEventListener('keydown', (event) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undo(this.editor.view);
+      } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault();
+        redo(this.editor.view);
+      }
     });
 
     if (this.#blockMode) this.#publishProjection();
