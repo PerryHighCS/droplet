@@ -261,18 +261,30 @@ function reindentRelocatedText(source, originalFrom, text, indentation) {
   const originalIndentation = indentationOf(source, originalFrom);
   const protectedRanges = templateLiteralRanges(text);
   let offset = 0;
-  return text.split('\n').map((line, index) => {
-    const lineOffset = offset;
-    offset += line.length + 1;
+  let lineIndex = 0;
+  // A plain text.split('\n') misses a bare "\r" line ending, like lineStart's
+  // own old bug - a CR-only multi-line relocated statement never split at
+  // all, so only its first line (the whole text, in that case) ever received
+  // the destination indentation, leaving its body and closing brace at their
+  // old depth. Splitting on a capturing (\r\n|\r|\n) group keeps every
+  // original terminator intact instead of normalizing it to "\n" on rejoin,
+  // matching the Python adapter's own reindentPythonLines.
+  return text.split(/(\r\n|\r|\n)/).map((part, index) => {
+    const partOffset = offset;
+    offset += part.length;
+    if (index % 2 === 1) return part;
+    const line = part;
+    const currentLine = lineIndex;
+    lineIndex += 1;
     // Line 0 never carries its own original indentation to strip (Acorn's
     // node.start already excludes it), but it still needs the destination's
     // own indentation applied, same as every other line.
-    if (index === 0) return indentation ? indentation + line : line;
-    if (protectedRanges.some((range) => lineOffset >= range.from && lineOffset < range.to)) return line;
+    if (currentLine === 0) return indentation ? indentation + line : line;
+    if (protectedRanges.some((range) => partOffset >= range.from && partOffset < range.to)) return line;
     if (!line.length) return line;
     const stripped = line.startsWith(originalIndentation) ? line.slice(originalIndentation.length) : line;
     return indentation ? indentation + stripped : stripped;
-  }).join('\n');
+  }).join('');
 }
 
 // Acorn's tokenizer splits a template literal into "template" tokens for its
@@ -476,7 +488,12 @@ function clauseHeaderMetadata(from, body, source) {
     return {headerTo: Math.min(lineTextEnd(source, from), body.start), bodyEnd: body.end};
   }
   const headerTo = Math.min(lineTextEnd(source, from), body.start + 1);
-  const singleLine = !source.slice(body.start, body.end).includes('\n');
+  // A raw .includes('\n') check, like lineStart's own old bug, misses a bare
+  // "\r" line ending - a CR-only multi-line clause body would otherwise be
+  // misclassified as single-line, using body.end - 1 directly (the closing
+  // brace itself) instead of reaching lineStart's own CR-aware handling,
+  // letting a body-end insertion split the brace from its indentation.
+  const singleLine = !/[\r\n]/.test(source.slice(body.start, body.end));
   const bodyEnd = singleLine ? body.end - 1 : lineStart(source, body.end - 1);
   return {headerTo, bodyEnd};
 }

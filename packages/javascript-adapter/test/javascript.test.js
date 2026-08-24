@@ -667,6 +667,38 @@ test('resolves a container\'s closing-brace line start in a bare-CR-only documen
   assert.notEqual(statement.metadata.bodyEnd, source.lastIndexOf('}'), 'must be the line start, not the brace\'s own position');
 });
 
+test('resolves an else clause\'s closing-brace line start in a bare-CR-only document', () => {
+  // clauseHeaderMetadata's own single-line check used a raw .includes('\n'),
+  // same bug as metadataFor's primary-container check already fixed above -
+  // a CR-only multi-line else body was misclassified as single-line and
+  // never reached lineStart's own CR-aware handling at all, splicing a
+  // bodyEnd insertion at the closing brace itself instead of its line start.
+  const source = 'if (x) {\r  a();\r} else {\r  b();\r  }\r';
+  const elseClause = findFirst(parseJavaScript(source).root, (node) => node.metadata?.clauseRole === 'else');
+  assert.equal(elseClause.metadata.bodyEnd, source.lastIndexOf('\r', source.lastIndexOf('}')) + 1);
+  assert.notEqual(elseClause.metadata.bodyEnd, source.lastIndexOf('}'), 'must be the line start, not the brace\'s own position');
+});
+
+test('reindents every line of a relocated multi-line statement in a bare-CR-only document', () => {
+  // reindentRelocatedText used a raw text.split('\n') - in a CR-only document
+  // that never splits at all, so only the whole (single-element) text ever
+  // received the destination's own indentation while every continuation
+  // line - the body, the closing brace - kept its old absolute depth.
+  const source = 'if (a) {\r  if (b) {\r    if (c) {\r      d();\r    }\r  }\r  y();\r}\r';
+  const inner = findFirst(parseJavaScript(source).root, (node) =>
+    node.metadata?.type === 'IfStatement' && node.from === source.indexOf('if (c)'));
+  const yStatement = findFirst(parseJavaScript(source).root, (node) =>
+    node.kind === 'statement' && node.from === source.indexOf('y()'));
+  const destination = {from: yStatement.from, to: yStatement.from};
+
+  const changes = transformJavaScript(
+    {type: 'move-statement', source: {from: inner.from, to: inner.to}, destination}, parseJavaScript(source));
+  assert.equal(
+    applySourceChanges(source, changes),
+    'if (a) {\r  if (b) {\r    \r  }\r  if (c) {\r    d();\r  }\n  y();\r}\r'
+  );
+});
+
 test('indents a statement inserted before a container\'s first line in a bare-CR-only document', () => {
   // insertionIndentation used a raw lastIndexOf('\n', ...) too - in a
   // CR-only document this always resolved destination's own line to the
