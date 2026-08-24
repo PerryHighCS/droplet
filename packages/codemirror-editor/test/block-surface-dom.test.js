@@ -970,6 +970,30 @@ test('drags a comment to the right of a bare statement to attach it inline', () 
   }]);
 });
 
+test('Ctrl-drags a comment past a statement\'s line end as a copy, not a move', () => {
+  // destinationForTarget's own comment-to-line-end branch resolved straight
+  // to a move-comment operation with no regard for the drag's own `copy`
+  // flag - #endDrag only consults `copy` in its generic destination
+  // fallback, so a Ctrl-drag onto this specific target always moved the
+  // original instead of copying it, unlike every other Ctrl-drag target.
+  const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
+  const operations = [];
+  const surface = new BlockSurface({
+    parent: dom.window.document.querySelector('#host'), onOperation: (operation) => operations.push(operation)
+  });
+  surface.update(statementWithTrailingComment());
+  const svg = surface.element.querySelector('svg');
+  svg.getBoundingClientRect = () => ({left: 0, top: 0});
+  const first = surface.layout.nodes.find((node) => node.id === 'first');
+  const comment = surface.layout.nodes.find((node) => node.id === 'comment');
+
+  drag(svg, dom.window, comment, first.bounds.right + 4, first.bounds.top + 2, {ctrlKey: true});
+
+  assert.deepEqual(operations, [{
+    type: 'copy-node', source: {from: 17, to: 24}, kind: 'comment', destination: {from: 0, to: 0, indentation: ''}
+  }]);
+});
+
 test('drags a comment to the right of a container header to attach it inline', () => {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const operations = [];

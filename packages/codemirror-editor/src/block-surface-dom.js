@@ -370,7 +370,7 @@ export class BlockSurface {
     if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
     this.#drag.moved = true;
     const target = dropTargetAtPoint(this.#layout, point);
-    const resolved = destinationForTarget(this.#layout, target, point, this.#drag.node) ??
+    const resolved = destinationForTarget(this.#layout, target, point, this.#drag.node, this.#drag.copy) ??
       escapeDestination(this.#layout, point, this.#drag.node, this.#drag.copy);
     this.#drag.destination = resolved?.destination;
     this.#drag.operation = resolved?.operation;
@@ -499,7 +499,7 @@ function targetWithinDraggedRange(target, dragNode) {
   return Boolean(node?.source) && node.source.from >= from && node.source.to <= to;
 }
 
-function destinationForTarget(layout, target, point, dragNode) {
+function destinationForTarget(layout, target, point, dragNode, copy = false) {
   // A resolved destination inside the dragged node's own source range can
   // never be a real move or copy: dropping a container into its own body
   // would nest a copy of itself inside itself (or, for a move, corrupt the
@@ -526,8 +526,11 @@ function destinationForTarget(layout, target, point, dragNode) {
   }
   // Dropping a comment to the right of a bare statement, or a container's
   // header line (`if x:`, `for y in z:`, ...), attaches it inline instead of
-  // reordering it as a sibling line.
-  if (dragNode?.kind === 'comment' && (target?.node?.kind === 'statement' || target?.kind === 'container-header')) {
+  // reordering it as a sibling line. This resolves straight to a move-comment
+  // operation with no `copy` branch of its own - a Ctrl/Cmd-drag falls
+  // through to the ordinary sibling-ordering path below instead, which
+  // already branches correctly on `copy` in #endDrag.
+  if (!copy && dragNode?.kind === 'comment' && (target?.node?.kind === 'statement' || target?.kind === 'container-header')) {
     const headerBounds = target.kind === 'container-header' ? target.node.regions.header : target.node.bounds;
     if (point.x >= headerBounds.right && !sameRange(dragNode.source, target.node.source)) {
       return {
