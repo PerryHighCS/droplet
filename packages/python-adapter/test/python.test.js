@@ -507,8 +507,8 @@ test('moves a statement to a container body end using the suite indentation', ()
 
 test('reindents a final nested statement when its outer-suite body end shares its range boundary', () => {
   const source = 'if outer:\n  if ready:\n    first()\n    second()\n';
-  const first = {id: 'statement:first', kind: 'statement', from: 25, to: 32, children: []};
-  const second = {id: 'statement:second', kind: 'statement', from: 37, to: 45, children: []};
+  const first = {id: 'statement:first', kind: 'statement', from: 26, to: 33, children: []};
+  const second = {id: 'statement:second', kind: 'statement', from: 38, to: 46, children: []};
   const parsed = projection(source, [{
     id: 'statement:outer', kind: 'statement', from: 0, to: source.length, children: [{
       id: 'statement:inner', kind: 'statement', from: 12, to: second.to, children: [first, second]
@@ -935,6 +935,26 @@ test('moves only Python statement lines and preserves comments, blanks, and loca
   assert.equal(applySourceChanges(source, changes), 'if ready:\n  second = 2\n  first = 1  # retain\n\n');
 });
 
+test('moves a semicolon-joined statement without carrying its own separator to the destination', () => {
+  // lineRange's own whole-line range was also reused as the relocated
+  // text (move-statement, unlike delete-node, pastes that same slice at
+  // the destination) - a semicolon-joined statement's line range swallowed
+  // its neighbor's own separator too, so the moved text arrived at its
+  // destination with a stray "; " prefix still attached.
+  const source = 'a = 1; b = 2\nc = 3\n';
+  const b = {id: 'statement:b', kind: 'statement', from: source.indexOf('b = 2'), to: source.indexOf('b = 2') + 5, children: []};
+  const c = {id: 'statement:c', kind: 'statement', from: source.indexOf('c = 3'), to: source.indexOf('c = 3') + 5, children: []};
+  const parsed = projection(source, [
+    {id: 'statement:a', kind: 'statement', from: 0, to: 5, children: []}, b, c
+  ]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: b.from, to: b.to}, destination: {from: c.from, to: c.from, indentation: ''}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'a = 1; \nb = 2\nc = 3\n');
+});
+
 test('moving a statement with a multi-line triple-quoted string reindents code but leaves the raw string untouched', () => {
   // reindentPythonLines blindly reindented every continuation line -
   // moving `s = """first\nraw"""` into a nested (differently indented)
@@ -1010,6 +1030,45 @@ test('deletes a Python statement line and leaves pass in an emptied suite', () =
   }, parsed, () => ({}));
 
   assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nnext = 2\n');
+});
+
+test('deletes one semicolon-joined statement without deleting its line siblings', () => {
+  // lineRange expanded every statement to its whole physical line - valid
+  // Python can put more than one statement on one line via ";", so deleting
+  // one deleted its line siblings too.
+  const source = 'a = 1; b = 2; c = 3\n';
+  const b = {id: 'statement:b', kind: 'statement', from: source.indexOf('b = 2'), to: source.indexOf('b = 2') + 5, children: []};
+  const parsed = projection(source, [
+    {id: 'statement:a', kind: 'statement', from: 0, to: 5, children: []},
+    b,
+    {id: 'statement:c', kind: 'statement', from: source.indexOf('c = 3'), to: source.indexOf('c = 3') + 5, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'delete-node', source: {from: b.from, to: b.to}, kind: 'statement'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'a = 1; c = 3\n');
+});
+
+test('deletes a compact single-line suite\'s own body statement without deleting its header', () => {
+  // Same underlying bug as the semicolon case above, for Python's other
+  // same-line construct: a compact single-line suite ("if ready: work()")
+  // has its header and body sharing one physical line.
+  const source = 'if ready: work()\nafter()\n';
+  const work = {id: 'statement:work', kind: 'statement', from: source.indexOf('work()'), to: source.indexOf('work()') + 6, children: []};
+  const parsed = projection(source, [
+    {id: 'statement:if', kind: 'statement', from: 0, to: work.to, children: [work],
+      metadata: {blockRole: 'container', bodyFrom: work.from, bodyEnd: work.to + 1}},
+    {id: 'statement:after', kind: 'statement', from: source.indexOf('after()'), to: source.indexOf('after()') + 7, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'delete-node', source: {from: work.from, to: work.to}, kind: 'statement'
+  }, parsed, () => ({}));
+
+  // The emptied suite still needs a body - the header itself must survive.
+  assert.equal(applySourceChanges(source, changes), 'if ready: pass\n\nafter()\n');
 });
 
 test('deletes an inline Python comment without deleting its statement', () => {

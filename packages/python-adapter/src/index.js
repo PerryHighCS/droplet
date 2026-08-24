@@ -166,7 +166,7 @@ export function transformPython(operation, parsed, pythonToAST) {
         break;
       }
       if (node.kind !== 'statement') throw new RangeError('Only statements and comments can be deleted');
-      const statementRange = lineRange(parsed.source, node);
+      const statementRange = deletionRange(parsed.source, node);
       changes = [{
         from: statementRange.from,
         to: statementRange.to,
@@ -789,13 +789,73 @@ function appendPassComment(source, pass, statement) {
   return `${statement.slice(0, at)}  ${comment}${statement.slice(at)}`;
 }
 
+// Valid Python can put more than one statement on a physical line
+// (semicolon-joined, or a compact single-line suite's own header and body)
+// - consuming the whole line unconditionally would remove/move a sibling
+// statement, or even a container's own header, right along with this one.
+// Only when this statement is genuinely alone on its line (a trailing
+// "# ..." comment doesn't count as company - it's this line's own
+// decoration, not a sibling) does the full line, including its own leading
+// indentation and trailing terminator, belong to it; otherwise this
+// returns just the statement's own bare range, leaving any adjacent
+// separator for a caller that actually needs it removed (see
+// deletionRange) to handle on its own - reusing this range as text to
+// relocate elsewhere (moveLineRangeChanges) must never carry a stray
+// separator along with it.
 function lineRange(source, statement) {
-  const from = lineStartAt(source, statement.from);
+  if (!isSoleOnLine(source, statement)) return {from: statement.from, to: statement.to};
+  const lineFrom = lineStartAt(source, statement.from);
   let to = statement.to;
   while (to < source.length && source[to] !== '\r' && source[to] !== '\n') to += 1;
   if (source[to] === '\r' && source[to + 1] === '\n') to += 2;
   else if (source[to] === '\r' || source[to] === '\n') to += 1;
-  return {from, to};
+  return {from: lineFrom, to};
+}
+
+// Only delete-node needs a same-line sibling's own separator actually
+// removed - reused as relocated text (move-statement) it must never carry
+// one along, so lineRange itself stays bare for that shared case.
+function deletionRange(source, statement) {
+  if (isSoleOnLine(source, statement)) return lineRange(source, statement);
+  const lineFrom = lineStartAt(source, statement.from);
+  const soleOnLineStart = /^[\t \f]*$/.test(source.slice(lineFrom, statement.from));
+  let lineEnd = statement.to;
+  while (lineEnd < source.length && source[lineEnd] !== '\r' && source[lineEnd] !== '\n') lineEnd += 1;
+  const soleOnLineEnd = /^[\t \f]*(#.*)?$/.test(source.slice(statement.to, lineEnd));
+  // Only this statement's own text, plus one adjacent ";" separator
+  // (preferring the following one, so removing a non-last statement still
+  // leaves exactly one separator between its now-adjacent neighbors) is
+  // actually this statement's own to take.
+  if (!soleOnLineEnd) return {from: soleOnLineStart ? lineFrom : statement.from, to: followingSeparatorEnd(source, statement.to)};
+  return {from: soleOnLineStart ? lineFrom : precedingSeparatorStart(source, statement.from), to: statement.to};
+}
+
+function isSoleOnLine(source, statement) {
+  const lineFrom = lineStartAt(source, statement.from);
+  const soleOnLineStart = /^[\t \f]*$/.test(source.slice(lineFrom, statement.from));
+  let lineEnd = statement.to;
+  while (lineEnd < source.length && source[lineEnd] !== '\r' && source[lineEnd] !== '\n') lineEnd += 1;
+  // A trailing "# ..." comment isn't a conflicting sibling the way another
+  // statement would be - it's this same line's own trailing decoration
+  // (moveStatementIntoEmptySuite, in particular, relies on lineRange
+  // carrying a "pass"'s own inline comment along with it), so it still
+  // counts as "nothing else real follows" here.
+  const soleOnLineEnd = /^[\t \f]*(#.*)?$/.test(source.slice(statement.to, lineEnd));
+  return soleOnLineStart && soleOnLineEnd;
+}
+
+function precedingSeparatorStart(source, from) {
+  let cursor = from;
+  while (cursor > 0 && (source[cursor - 1] === ' ' || source[cursor - 1] === '\t')) cursor -= 1;
+  return source[cursor - 1] === ';' ? cursor - 1 : from;
+}
+
+function followingSeparatorEnd(source, to) {
+  let cursor = to;
+  while (cursor < source.length && (source[cursor] === ' ' || source[cursor] === '\t')) cursor += 1;
+  if (source[cursor] !== ';') return to;
+  cursor += 1;
+  return source[cursor] === ' ' || source[cursor] === '\t' ? cursor + 1 : cursor;
 }
 
 function attachCommentToStatement(source, comment, statement) {
