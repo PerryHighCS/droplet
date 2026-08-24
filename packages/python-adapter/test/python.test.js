@@ -635,6 +635,30 @@ test('attaches a standalone comment to the end of a statement line', () => {
   assert.equal(applySourceChanges(source, changes), 'value = 1  # note\n');
 });
 
+test('attaches a standalone comment to the end of a multi-line statement\'s last line, not its first', () => {
+  // attachCommentToStatement anchored off statement.from's own physical
+  // line - for a multi-line statement those differ from statement.to's, so
+  // the comment landed after the statement's first line, inside its own
+  // source range, instead of trailing its last line. block-surface.js's own
+  // inlineCommentFor (the lookup that renders a trailing comment beside its
+  // statement) requires comment.from >= statement.to, so a comment placed
+  // there could never be found again.
+  const source = 'x = (\n  1\n)\n# note\n';
+  const statementTo = source.indexOf(')') + 1;
+  const commentFrom = source.indexOf('# note');
+  const commentTo = commentFrom + '# note'.length;
+  const parsed = projection(source, [
+    {id: 'statement:value', kind: 'statement', from: 0, to: statementTo, children: []},
+    {id: 'comment:note', kind: 'comment', from: commentFrom, to: commentTo, children: [], metadata: {inline: false}}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: commentFrom, to: commentTo},
+    destination: {from: 0, to: statementTo}, placement: 'line-end'
+  }, parsed, () => ({}));
+  assert.equal(applySourceChanges(source, changes), 'x = (\n  1\n)  # note\n');
+});
+
 test('moves an inline comment without moving its statement text', () => {
   const source = 'first = 1  # note\nnext = 2\n';
   const parsed = projection(source, [

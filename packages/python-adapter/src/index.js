@@ -771,7 +771,14 @@ function lineRange(source, statement) {
 
 function attachCommentToStatement(source, comment, statement) {
   const removal = comment.metadata?.inline ? inlineCommentRange(source, comment) : lineRange(source, comment);
-  const destination = lineTextEnd(source, statement.from);
+  // statement.to's own line, not statement.from's - for a multi-line
+  // statement those differ, and anchoring off .from placed the comment
+  // after the statement's first line, landing inside its own source range
+  // instead of trailing it. block-surface.js's own inlineCommentFor (the
+  // lookup that renders a trailing comment beside its statement) explicitly
+  // requires comment.from >= statement.to, so a comment placed there could
+  // never be found again - it rendered as if the attach had silently failed.
+  const destination = lineTextEnd(source, statement.to);
   const text = source.slice(comment.from, comment.to);
   return [
     {from: removal.from, to: removal.to, insert: ''},
