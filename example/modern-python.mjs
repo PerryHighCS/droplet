@@ -206,7 +206,13 @@ function insertPaletteBlock(block) {
       return;
     }
   }
-  const selected = range && nodes.find((node) => node.kind === 'statement' && node.from === range.from && node.to === range.to);
+  // An inline comment's own `from` is mid-line (right after its statement's
+  // code, not at a line start), so it stays excluded here - only a
+  // standalone comment's own line is a valid insertion anchor the same way
+  // a statement's is.
+  const selected = range && nodes.find((node) =>
+    (node.kind === 'statement' || (node.kind === 'comment' && !node.metadata?.inline)) &&
+    node.from === range.from && node.to === range.to);
   const at = selected?.from ?? editor.getValue().length;
   const source = block.kind === 'expression' ? `${block.source}\n` : block.source;
   // Nothing here resolves an enclosing loop/function for "break"/"continue"/

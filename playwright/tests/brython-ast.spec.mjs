@@ -349,6 +349,23 @@ test('manual modern Python playground inserts a Python palette block through the
   await expect(page.locator('#modern-python-status')).toHaveText('Inserted value = 1.');
 });
 
+test('manual modern Python playground inserts a palette block before a selected standalone comment', async ({page}) => {
+  // insertPaletteBlock's own "selected" lookup only matched kind: 'statement',
+  // so selecting a standalone comment first (the playground's own help text
+  // says selecting a block inserts before it) was silently ignored - the new
+  // block was appended at the document's own end instead.
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  const comment = page.locator('.droplet-block-surface [data-droplet-kind="comment"]').filter({hasText: '# standalone note'});
+  await comment.scrollIntoViewIfNeeded();
+  const box = await comment.boundingBox();
+  await page.mouse.click(box.x + 4, box.y + 4);
+
+  await page.locator('[data-palette-block="assignment"]').click();
+
+  await expect(page.locator('#modern-python-source')).toContainText('if outer:\n  value = 1\n  # standalone note');
+});
+
 test('manual modern Python playground keeps the opaque-recovery status visible after selecting a broken sample', async ({page}) => {
   // setValue() synchronously runs refresh() first, which already reports an
   // opaque-recovery issue for this sample - the sample-select handler's own
