@@ -202,6 +202,28 @@ test('add-clause finds the body\'s real closing brace, not one inside a string',
   assert.equal(applySourceChanges(source, changes), 'if (x) { s = "}"; } else {\n}\n');
 });
 
+test('add-clause preserves a CR-only document\'s line ending', () => {
+  const source = 'if (x) {\r}\r';
+  const statement = parseJavaScript(source).root.children[0];
+
+  const changes = transformJavaScript({
+    type: 'add-clause', target: {from: statement.from, to: statement.to}, role: 'else'
+  }, parseJavaScript(source));
+
+  assert.equal(applySourceChanges(source, changes), 'if (x) {\r} else {\r}\r');
+});
+
+test('add-clause preserves CR-only style at an unterminated end of file', () => {
+  const source = 'if (x) {\r}';
+  const statement = parseJavaScript(source).root.children[0];
+
+  const changes = transformJavaScript({
+    type: 'add-clause', target: {from: statement.from, to: statement.to}, role: 'else'
+  }, parseJavaScript(source));
+
+  assert.equal(applySourceChanges(source, changes), 'if (x) {\r} else {\r}');
+});
+
 test('an else clause is found by its real keyword token, not the first "else" text after a comment', () => {
   // A raw text search for "else" could match one inside a comment sitting
   // between the consequent's own closing brace and the real keyword,

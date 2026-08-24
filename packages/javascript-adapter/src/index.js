@@ -113,7 +113,8 @@ export function transformJavaScript(operation, parsed) {
       if (!Number.isInteger(insertAt)) throw new RangeError('Clause target has no body to extend');
       const indentation = indentationOf(parsed.source, statement.from);
       const header = operation.role === 'elif' ? 'else if (true)' : 'else';
-      changes = [{from: insertAt, to: insertAt, insert: ` ${header} {\n${indentation}}`}];
+      const lineEnding = lineEndingAt(parsed.source, insertAt);
+      changes = [{from: insertAt, to: insertAt, insert: ` ${header} {${lineEnding}${indentation}}`}];
       break;
     }
     case 'remove-clause': {
@@ -254,7 +255,7 @@ function relocatedStatementText(source, originalFrom, text, point) {
 // starting at `position`, falling back to "\n" only when none follows.
 function lineEndingAt(source, position) {
   const match = /\r\n|\r|\n/.exec(source.slice(position));
-  return match?.[0] ?? '\n';
+  return match?.[0] ?? [...source.matchAll(/\r\n|\r|\n/g)].at(-1)?.[0] ?? '\n';
 }
 
 // Unlike insert-statement's caller-supplied text, a relocated statement's

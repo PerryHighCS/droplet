@@ -41,6 +41,21 @@ test('sizes and grows an opaque node\'s box to fit every line of its text, not j
     'width must come from the single widest line, not the whole multi-line blob\'s total character count');
 });
 
+test('keeps trailing whitespace-only lines in an opaque recovery snapshot', () => {
+  const source = 'broken source\n \t\n';
+  const layout = createBlockLayout({
+    source,
+    root: documentNode(source, [
+      {id: 'broken', kind: 'opaque-statement', from: 0, to: source.length, editable: false, children: [], metadata: {}}
+    ])
+  }, {measureText: (text) => text.length * 10});
+  const node = layout.nodes.find((child) => child.id === 'broken');
+
+  assert.equal(node.text, 'broken source\n \t');
+  assert.equal(node.bounds.bottom - node.bounds.top, 28 * 2,
+    'the whitespace-only final source line must remain part of the opaque box');
+});
+
 test('keeps whitespace as a measured sibling and exposes insertion zones around it', () => {
   const source = 'first()\n \t\nsecond()\n';
   const layout = createBlockLayout({

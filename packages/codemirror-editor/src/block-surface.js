@@ -103,7 +103,12 @@ function layoutNode(node, source, settings, left, top, nextFrom = Infinity) {
 function layoutAtomic(node, source, settings, left, top, nextFrom = Infinity) {
   const inlineComment = node.kind === 'statement' ? inlineCommentFor(node, source, settings.inlineComments, nextFrom) : undefined;
   const textEnd = inlineComment ? inlineComment.from : node.kind === 'statement' ? Math.min(lineEnd(source, node.to), nextFrom) : node.to;
-  const text = source.slice(node.from, textEnd).trimEnd();
+  const rawText = source.slice(node.from, textEnd);
+  // Parsed source gives trailing blank lines their own whitespace nodes, but
+  // opaque recovery represents its complete snapshot as one atomic node.
+  // Keep that snapshot's trailing whitespace visible; only remove the final
+  // terminator that would otherwise add a synthetic row after its last line.
+  const text = node.kind?.startsWith('opaque-') ? rawText.replace(/\r\n$|\r$|\n$/, '') : rawText.trimEnd();
   const sockets = node.kind === 'statement' ? layoutSockets(sourceSockets(node), node, source, settings, left, top) : [];
   // A statement/comment's own text is always one physical line (textEnd
   // above caps a statement at its own line, and a comment never spans more
