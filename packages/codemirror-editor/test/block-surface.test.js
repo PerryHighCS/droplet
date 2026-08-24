@@ -75,6 +75,47 @@ test('renders an inline comment beside, rather than inside, its statement block'
   assert.ok(commentNode.bounds.left > statementNode.bounds.right);
 });
 
+test('caps a bare statement\'s own label at the next sibling sharing its physical line, not the whole line', () => {
+  // layoutAtomic's textEnd assumed at most one statement per physical line
+  // (lineEnd(source, node.to) has no upper bound at a following sibling's
+  // own start) - valid, semicolon-separated source ("first(); second();")
+  // puts two statements on the same line, and the first one's own label
+  // text used to run all the way to the line's end, rendering the second
+  // statement's text a second time, folded into the first's own label.
+  const source = 'first(); second();\n';
+  const layout = createBlockLayout({source, root: documentNode(source, [
+    statement('first', 0, source.indexOf('second') - 1),
+    statement('second', source.indexOf('second'), source.length - 1)
+  ])});
+  const first = layout.nodes.find((node) => node.id === 'first');
+  const second = layout.nodes.find((node) => node.id === 'second');
+
+  assert.equal(first.text, 'first();');
+  assert.equal(second.text, 'second();');
+});
+
+test('attaches a shared trailing comment on one physical line to only the nearest preceding statement', () => {
+  // inlineCommentFor's own line-end-bounded search had no upper bound at a
+  // following sibling's own start either - one comment trailing two
+  // semicolon-separated statements on the same physical line matched (and
+  // rendered beside) *every* preceding statement sharing that line, not just
+  // the nearest one it actually trails.
+  const source = 'first(); second();  # note\n';
+  const layout = createBlockLayout({source, root: documentNode(source, [
+    statement('first', 0, source.indexOf('second') - 1),
+    {
+      ...statement('second', source.indexOf('second'), source.indexOf('  #')),
+      children: [{id: 'note', kind: 'comment', from: source.indexOf('#'), to: source.length - 1, editable: true, children: [], metadata: {inline: true}}]
+    }
+  ])});
+  const first = layout.nodes.find((node) => node.id === 'first');
+  const second = layout.nodes.find((node) => node.id === 'second');
+
+  assert.equal(first.children.some((child) => child.kind === 'comment'), false,
+    'a comment trailing the second statement must not also attach to the first just because they share a physical line');
+  assert.equal(second.children.some((child) => child.kind === 'comment'), true);
+});
+
 test('lays out source-backed assignment sockets inside their statement block', () => {
   const source = 'target = value\n';
   const layout = createBlockLayout({source, root: documentNode(source, [{

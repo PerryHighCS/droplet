@@ -74,9 +74,18 @@ function layoutChildren(nodes, source, settings, left, top, bodyEnd, destination
   let right = left + settings.minimumWidth;
   const children = [];
   const insertionZones = [];
-  for (const node of nodes) {
+  for (const [index, node] of nodes.entries()) {
     insertionZones.push(insertionZone(node.from, left, cursor, right - left, settings, 'before-sibling', destination));
-    const child = layoutNode(node, source, settings, left, cursor);
+    // A bare statement's own label text is capped at its own physical line's
+    // end (see layoutAtomic) - but valid, semicolon-separated source can
+    // legitimately put more than one statement on that same physical line
+    // ("first(); second();"). Without also capping at the next sibling's own
+    // start, the first statement's label swallowed the second's text too
+    // (rendering it twice), and inlineCommentFor's own line-end-bounded
+    // search attached one trailing comment on that line to every preceding
+    // statement sharing it, not just the nearest one.
+    const nextFrom = nodes[index + 1]?.from ?? bodyEnd;
+    const child = layoutNode(node, source, settings, left, cursor, nextFrom);
     children.push(child);
     cursor = child.bounds.bottom + settings.rowGap;
     right = Math.max(right, layoutRight(child));
@@ -85,15 +94,15 @@ function layoutChildren(nodes, source, settings, left, top, bodyEnd, destination
   return {children, insertionZones, right, bottom: Math.max(top + settings.lineHeight, cursor)};
 }
 
-function layoutNode(node, source, settings, left, top) {
+function layoutNode(node, source, settings, left, top, nextFrom = Infinity) {
   if (node.kind === 'whitespace') return layoutWhitespace(node, settings, left, top);
   if (isContainer(node)) return layoutContainer(node, source, settings, left, top);
-  return layoutAtomic(node, source, settings, left, top);
+  return layoutAtomic(node, source, settings, left, top, nextFrom);
 }
 
-function layoutAtomic(node, source, settings, left, top) {
-  const inlineComment = node.kind === 'statement' ? inlineCommentFor(node, source, settings.inlineComments) : undefined;
-  const textEnd = inlineComment ? inlineComment.from : node.kind === 'statement' ? lineEnd(source, node.to) : node.to;
+function layoutAtomic(node, source, settings, left, top, nextFrom = Infinity) {
+  const inlineComment = node.kind === 'statement' ? inlineCommentFor(node, source, settings.inlineComments, nextFrom) : undefined;
+  const textEnd = inlineComment ? inlineComment.from : node.kind === 'statement' ? Math.min(lineEnd(source, node.to), nextFrom) : node.to;
   const text = source.slice(node.from, textEnd).trimEnd();
   const sockets = node.kind === 'statement' ? layoutSockets(sourceSockets(node), node, source, settings, left, top) : [];
   // A statement/comment's own text is always one physical line (textEnd
@@ -529,8 +538,8 @@ function collectInlineComments(node) {
   ];
 }
 
-function inlineCommentFor(statement, source, comments) {
-  const lineEndOffset = lineEnd(source, statement.from);
+function inlineCommentFor(statement, source, comments, nextFrom = Infinity) {
+  const lineEndOffset = Math.min(lineEnd(source, statement.from), nextFrom);
   return comments.find((comment) => comment.from >= statement.to && comment.from <= lineEndOffset);
 }
 
