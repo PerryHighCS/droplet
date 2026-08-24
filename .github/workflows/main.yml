@@ -66,6 +66,11 @@ jobs:
       - run: npm ci
       - run: npm --prefix playwright ci
       - run: npm --prefix playwright exec -- playwright install --with-deps chromium
+      # modern-javascript.html's import map resolves "acorn" straight off
+      # disk (see playwright/serve.mjs) from this package's own node_modules
+      # - install it, or that import 404s and the JS playground never gets
+      # past "Loading modern editor...".
+      - run: npm --prefix packages/javascript-adapter ci
       - run: npm run test:browser:modern
       - name: Upload Playwright failure diagnostics
         if: failure()
