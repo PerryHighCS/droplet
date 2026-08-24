@@ -1,5 +1,5 @@
 import {Annotation, EditorState, StateEffect, StateField} from '@codemirror/state';
-import {Decoration, EditorView} from '@codemirror/view';
+import {redo, undo} from '@codemirror/commands';
 import {
   applySourceChanges,
   isOpaque,
@@ -8,6 +8,7 @@ import {
 } from '@droplet/core';
 
 import {createCodeMirrorEditor, externalValueAnnotation} from './index.js';
+import {BlockSurface} from './block-surface-dom.js';
 
 /** Marks a source transaction produced by a block operation. */
 export const blockOperationAnnotation = Annotation.define();
@@ -24,7 +25,10 @@ export class DropletCodeMirrorEditor {
   #blockMode;
   #setProjection;
   #projectionField;
-  #interaction;
+  #surface;
+  #socketRecovery;
+  #readOnly;
+  #onOperationError;
 
   constructor(options) {
     if (typeof options?.parse !== 'function') {
@@ -34,13 +38,18 @@ export class DropletCodeMirrorEditor {
       throw new TypeError('A block transform must be a function');
     }
 
+    if (options.onOperationError !== undefined && typeof options.onOperationError !== 'function') {
+      throw new TypeError('onOperationError must be a function');
+    }
+
     this.#parse = options.parse;
     this.#transform = options.transform;
     this.#blockMode = options.blockMode === true;
+    this.#readOnly = options.readOnly === true;
+    this.#onOperationError = options.onOperationError;
     this.#projection = this.#parseSource(options.value ?? '');
     this.#setProjection = StateEffect.define();
     this.#projectionField = createProjectionField(this.#setProjection, this.#projection);
-    this.#interaction = createProjectionInteraction((operation) => this.applyBlockOperation(operation));
 
     this.editor = createCodeMirrorEditor({
       parent: options.parent,
@@ -48,11 +57,35 @@ export class DropletCodeMirrorEditor {
       language: options.language,
       theme: options.theme,
       readOnly: options.readOnly,
-      extensions: [this.#projectionField, this.#interaction, opaqueTheme, options.extensions ?? []],
+      extensions: [this.#projectionField, options.extensions ?? []],
       onChange: options.onChange,
       onUpdate: (update, metadata) => {
         if (update.docChanged) this.#reparse();
         options.onUpdate?.(update, metadata);
+      }
+    });
+    this.#surface = new BlockSurface({
+      parent: options.parent,
+      onSelect: ({from, to}) => this.editor.setSelection({anchor: from, head: to}),
+      onOperation: (operation) => this.#applyOperationFromSurface(operation),
+      onSocketEdit: ({target, source}) => this.#replaceSocketText(target, source),
+      layoutOptions: options.layoutOptions,
+      readOnly: this.#readOnly
+    });
+    // Block mode hides CodeMirror's own dom and moves keyboard focus to the
+    // surface on selection (see #publishProjection/#selectNode), so a
+    // consumer's historyKeymap - bound to CodeMirror's dom - never receives
+    // Ctrl/Cmd-Z from there. Forward it directly to CodeMirror's own
+    // undo/redo commands instead of relying on focus reaching CodeMirror.
+    this.#surface.element.addEventListener('keydown', (event) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undo(this.editor.view);
+      } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault();
+        redo(this.editor.view);
       }
     });
 
@@ -82,6 +115,7 @@ export class DropletCodeMirrorEditor {
   }
 
   applyBlockOperation(operation) {
+    if (this.#readOnly) throw new TypeError('Cannot apply a block operation to a read-only editor');
     if (!this.#transform) throw new TypeError('No block transform was configured');
     const changes = this.#transform(operation, this.#projection);
     if (!Array.isArray(changes)) {
@@ -94,6 +128,24 @@ export class DropletCodeMirrorEditor {
         changes: normalizedChanges,
         annotations: blockOperationAnnotation.of(true)
       });
+    }
+  }
+
+  // BlockSurface's own onOperation wiring (drag/drop, add/remove-clause and
+  // sequence-item buttons, Delete) has no synchronous caller of its own to
+  // catch a rejection the way a consumer's click-to-insert handler does
+  // (see example/modern-python.mjs's applyPaletteOperation) - a destination
+  // Brython/Acorn rejects as invalid (dropping "break" outside a loop, for
+  // one) would otherwise throw straight out of a DOM event handler as an
+  // uncaught exception, with no feedback surfaced to the user at all.
+  // applyBlockOperation's own public contract (throwing synchronously) stays
+  // unchanged for a caller like that, which can still catch it directly.
+  #applyOperationFromSurface(operation) {
+    try {
+      this.applyBlockOperation(operation);
+    } catch (error) {
+      if (!this.#onOperationError) throw error;
+      this.#onOperationError(error, operation);
     }
   }
 
@@ -111,15 +163,24 @@ export class DropletCodeMirrorEditor {
       this.#transform = options.transform;
     }
     if (Object.hasOwn(options, 'blockMode')) this.setBlockMode(options.blockMode);
+    if (Object.hasOwn(options, 'readOnly')) {
+      this.#readOnly = options.readOnly === true;
+      this.#surface.setReadOnly(this.#readOnly);
+    }
+    if (Object.hasOwn(options, 'onOperationError')) {
+      if (options.onOperationError !== undefined && typeof options.onOperationError !== 'function') {
+        throw new TypeError('onOperationError must be a function');
+      }
+      this.#onOperationError = options.onOperationError;
+    }
     const editorOptions = {...options};
     delete editorOptions.parse;
     delete editorOptions.transform;
     delete editorOptions.blockMode;
+    delete editorOptions.onOperationError;
     if (Object.hasOwn(options, 'extensions')) {
       editorOptions.extensions = [
         this.#projectionField,
-        this.#interaction,
-        opaqueTheme,
         options.extensions ?? []
       ];
     }
@@ -127,6 +188,7 @@ export class DropletCodeMirrorEditor {
   }
 
   destroy() {
+    this.#surface.destroy();
     this.editor.destroy();
   }
 
@@ -135,8 +197,41 @@ export class DropletCodeMirrorEditor {
   }
 
   #reparse() {
-    this.#projection = this.#parseSource(this.getValue());
+    const parsed = this.#parseSource(this.getValue());
+    // #socketRecovery is set by #replaceSocketText immediately before its own
+    // dispatch, so it is only ever valid for the one #reparse this triggers -
+    // consumed here regardless of outcome. Left set, a later, unrelated
+    // change (setValue, applyBlockOperation, a raw text edit) that happens to
+    // also leave some opaque node behind would reuse this stale target and
+    // previous-projection snapshot, whose length-based delta no longer
+    // corresponds to anything in the current source.
+    const recovery = this.#socketRecovery;
+    this.#socketRecovery = undefined;
+    this.#projection = (recovery && targetFailedToReproject(parsed.root, recovery, this.getValue()))
+      ? recoverSocketProjection(recovery.projection, this.getValue(), recovery.target, parsed.issues)
+      : parsed;
     this.#publishProjection();
+  }
+
+  #replaceSocketText(target, source) {
+    if (this.#readOnly) throw new TypeError('Cannot edit a socket on a read-only editor');
+    if (!Number.isInteger(target?.from) || !Number.isInteger(target?.to) || typeof source !== 'string') {
+      throw new TypeError('Socket editing requires a source range and string value');
+    }
+    this.#socketRecovery = {projection: this.#projection, target};
+    try {
+      this.editor.dispatch({changes: {from: target.from, to: target.to, insert: source}});
+    } finally {
+      // A successful dispatch triggers exactly one #reparse, which already
+      // consumes-and-clears this synchronously before dispatch returns. But
+      // the projection's own transactionFilter (see createProjectionField)
+      // can reject a change that touches an opaque node instead of applying
+      // it - no docChanged update reaches #reparse then, so #socketRecovery
+      // (valid only for the one #reparse a successful dispatch triggers)
+      // would otherwise stay stale until some later, unrelated change
+      // happens to also produce an opaque node and reuses it.
+      if (this.#socketRecovery?.target === target) this.#socketRecovery = undefined;
+    }
   }
 
   #publishProjection() {
@@ -146,6 +241,24 @@ export class DropletCodeMirrorEditor {
         blockMode: this.#blockMode
       })
     });
+    // #reparse runs this on every document change regardless of mode, but the
+    // surface is hidden (display: none) while in text mode - rebuilding its
+    // layout and re-rendering its whole SVG tree on every keystroke there
+    // pays real cost for something nobody can see. setBlockMode(true) already
+    // republishes once the surface actually becomes visible.
+    if (this.#blockMode) this.#surface?.update(this.#projection);
+    this.#surface?.setVisible(this.#blockMode);
+    // CodeMirror's own base theme sets ".cm-editor"'s display with !important
+    // (guarding its flex layout against accidental external overrides) - a
+    // plain style.display assignment loses that cascade fight silently in a
+    // real browser (JSDOM's simplified computed-style resolution never
+    // exercises the theme's injected stylesheet, so unit tests never caught
+    // this), leaving the raw text view visibly stacked above the block
+    // surface instead of actually hidden. setProperty's own priority
+    // argument is required to win that fight; a plain assignment cannot.
+    if (this.editor?.view?.dom) {
+      this.editor.view.dom.style.setProperty('display', this.#blockMode ? 'none' : '', this.#blockMode ? 'important' : '');
+    }
   }
 }
 
@@ -163,8 +276,6 @@ function createProjectionField(setProjection, initialProjection) {
       return value;
     },
     provide: (stateField) => [
-      EditorView.decorations.from(stateField, ({projection, blockMode}) =>
-        blockMode ? projectionDecorations(projection) : Decoration.none),
       EditorState.transactionFilter.of((transaction) => {
         const {projection, blockMode} = transaction.startState.field(stateField);
         if (!blockMode || !transaction.docChanged || isPermittedChange(transaction)) {
@@ -177,23 +288,6 @@ function createProjectionField(setProjection, initialProjection) {
   return field;
 }
 
-function projectionDecorations(projection) {
-  const ranges = collectProjectionNodes(projection.root)
-    .filter((node) => node.kind !== 'document' && node.from < node.to)
-    .map((node) => Decoration.mark({
-      class: isOpaque(node)
-        ? `droplet-block droplet-opaque droplet-block-${node.kind}`
-        : `droplet-block droplet-block-${node.kind}`,
-      attributes: {
-        'data-droplet-from': String(node.from),
-        'data-droplet-to': String(node.to),
-        'data-droplet-kind': node.kind,
-        draggable: 'true'
-      }
-    }).range(node.from, node.to));
-  return Decoration.set(ranges, true);
-}
-
 function changesTouchOpaqueNode(transaction, projection) {
   const opaqueNodes = collectOpaqueNodes(projection.root);
   let touched = false;
@@ -203,6 +297,33 @@ function changesTouchOpaqueNode(transaction, projection) {
   return touched;
 }
 
+// Recovery must trigger only when the *edited socket's own* updated range
+// failed to re-project as real structure - not merely because some opaque
+// node exists anywhere in the freshly parsed document. A mixed projection
+// with an unrelated opaque child is already supported (see
+// changesTouchOpaqueNode/collectOpaqueNodes above); checking for "any opaque
+// node anywhere" would otherwise discard a perfectly good fresh parse and
+// leave a validly-edited socket stuck as a recovery-socket indefinitely
+// whenever an unrelated opaque region happens to coexist alongside it.
+function targetFailedToReproject(root, recovery, source) {
+  const delta = source.length - recovery.projection.source.length;
+  const from = recovery.target.from;
+  const to = from + (recovery.target.to - recovery.target.from) + delta;
+  // intersects treats every node range as half-open, so a collapsed point
+  // exactly at an opaque node's own end (from === to === node.to) never
+  // counts as inside it - correct when real content follows at that position
+  // (the point is that content's start, not the node's), but wrong at the
+  // very end of the document, where there is no following content for it to
+  // belong to instead. Clearing a socket that was the document's last
+  // characters (no trailing newline) collapses the target to exactly that
+  // point, so without this it reads as a clean reprojection and recovery is
+  // skipped, leaving the whole document opaque instead of an editable
+  // recovery-socket.
+  return collectOpaqueNodes(root).some((node) =>
+    intersects(node, from, to) ||
+    (from === to && to === source.length && node.to === source.length && from >= node.from));
+}
+
 function collectOpaqueNodes(node) {
   return [
     ...(isOpaque(node) ? [node] : []),
@@ -210,53 +331,63 @@ function collectOpaqueNodes(node) {
   ];
 }
 
-function collectProjectionNodes(node) {
-  return [node, ...(node.children ?? []).flatMap(collectProjectionNodes)];
-}
-
 function intersects(node, from, to) {
   if (from === to) return from >= node.from && from < node.to;
   return from < node.to && to > node.from;
 }
 
+function recoverSocketProjection(previous, source, target, issues) {
+  const delta = source.length - previous.source.length;
+  const mapOffset = (offset) => offset >= target.to ? offset + delta : offset;
+  const mapNode = (node) => {
+    if (node.kind === 'socket' || node.kind === 'recovery-socket') {
+      if (node.from === target.from && node.to === target.to) {
+        return {
+          ...node,
+          kind: 'recovery-socket',
+          to: target.from + (target.to - target.from) + delta,
+          children: [],
+          metadata: {...node.metadata, recovery: true}
+        };
+      }
+    }
+    return {
+      ...node,
+      from: mapOffset(node.from),
+      to: mapOffset(node.to),
+      metadata: mapMetadataOffsets(node.metadata, mapOffset),
+      children: (node.children ?? []).map(mapNode)
+    };
+  };
+  return {source, root: mapNode(previous.root), issues};
+}
+
+// A reused node's own from/to are remapped above, but an adapter's own
+// metadata (a container's headerTo/bodyFrom/bodyEnd/blockEnd, a range like
+// emptySuitePass) carries further absolute source offsets of its own -
+// left untouched, they kept pointing at their pre-edit positions once the
+// edit's own delta shifted everything after it, so a container's rendered
+// header/body/footer boundaries and later block operations on it read
+// stale positions. This module has no adapter-specific knowledge of which
+// metadata keys are offsets, so - the same way mapNode already treats
+// every node's shape structurally, not semantically - any integer-valued
+// metadata property is treated as one and shifted identically to from/to;
+// every other value (a role/type string, a boolean, an indentation string)
+// is left alone.
+function mapMetadataOffsets(metadata, mapOffset) {
+  if (!metadata || typeof metadata !== 'object') return metadata;
+  const mapped = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (Number.isInteger(value)) mapped[key] = mapOffset(value);
+    else if (value && typeof value === 'object' && !Array.isArray(value)) mapped[key] = mapMetadataOffsets(value, mapOffset);
+    else mapped[key] = value;
+  }
+  return mapped;
+}
+
 function isPermittedChange(transaction) {
   return transaction.annotation(externalValueAnnotation) === true ||
     transaction.annotation(blockOperationAnnotation) === true;
-}
-
-function createProjectionInteraction(onOperation) {
-  return EditorView.domEventHandlers({
-    mousedown(event, view) {
-      if (event.button !== 0) return false;
-      const range = projectionRangeFromElement(event.target);
-      if (!range) return false;
-      view.dispatch({selection: {anchor: range.from, head: range.to}});
-      return true;
-    },
-    dragstart(event) {
-      const range = projectionRangeFromElement(event.target);
-      if (!range || !event.dataTransfer) return false;
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('application/x-droplet-projection', JSON.stringify(range));
-      return true;
-    },
-    dragover(event) {
-      if (!hasProjectionData(event.dataTransfer)) return false;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'move';
-      return true;
-    },
-    drop(event, view) {
-      const target = projectionRangeFromElement(event.target);
-      const source = readDraggedRange(event.dataTransfer);
-      if (!source || !target) return false;
-      const operation = projectionOperationFromDrop(source, target, view.state.doc.toString());
-      if (!operation) return false;
-      event.preventDefault();
-      onOperation(operation);
-      return true;
-    }
-  });
 }
 
 /** Derives a source operation from a supported rendered block drop. */
@@ -265,6 +396,19 @@ export function projectionOperationFromDrop(source, target, document) {
   if (source.kind === 'statement' && target.kind === 'statement') {
     return {
       type: 'move-statement',
+      source: {from: source.from, to: source.to},
+      destination: {from: target.from, to: target.from}
+    };
+  }
+  if (source.kind === 'comment' && (target.kind === 'statement' || target.kind === 'comment')) {
+    if (target.kind === 'statement') {
+      return {
+        type: 'move-comment', source: {from: source.from, to: source.to},
+        destination: {from: target.from, to: target.to}, placement: 'line-end'
+      };
+    }
+    return {
+      type: 'move-comment',
       source: {from: source.from, to: source.to},
       destination: {from: target.from, to: target.from}
     };
@@ -279,54 +423,6 @@ export function projectionOperationFromDrop(source, target, document) {
   return undefined;
 }
 
-function projectionRangeFromElement(element) {
-  const block = element?.closest?.('[data-droplet-from][data-droplet-to][data-droplet-kind]');
-  if (!block) return undefined;
-  const from = Number(block.dataset.dropletFrom);
-  const to = Number(block.dataset.dropletTo);
-  if (!Number.isInteger(from) || !Number.isInteger(to) || from > to) return undefined;
-  return {from, to, kind: block.dataset.dropletKind};
-}
-
-function readDraggedRange(dataTransfer) {
-  try {
-    const value = JSON.parse(dataTransfer?.getData('application/x-droplet-projection') ?? '');
-    if (!Number.isInteger(value?.from) || !Number.isInteger(value?.to) ||
-        value.from > value.to || typeof value.kind !== 'string') return undefined;
-    return value;
-  } catch {
-    return undefined;
-  }
-}
-
-function hasProjectionData(dataTransfer) {
-  const types = dataTransfer?.types;
-  return types?.includes?.('application/x-droplet-projection') === true ||
-    types?.contains?.('application/x-droplet-projection') === true;
-}
-
 function sameRange(left, right) {
   return left.from === right.from && left.to === right.to;
 }
-
-const opaqueTheme = EditorView.baseTheme({
-  '.droplet-block-statement': {
-    backgroundColor: '#eaf3ff',
-    borderRadius: '4px'
-  },
-  '.droplet-block-expression': {
-    backgroundColor: '#f3edff',
-    borderRadius: '3px'
-  },
-  '.droplet-block-socket': {
-    backgroundColor: '#fff',
-    boxShadow: 'inset 0 0 0 1px #9ab5d6',
-    borderRadius: '3px'
-  },
-  '.droplet-opaque': {
-    backgroundColor: '#fff3cd',
-    borderBottom: '1px dashed #8a6d3b'
-  },
-  '.droplet-opaque-expression': {borderRadius: '3px'},
-  '.droplet-opaque-statement, .droplet-opaque-region': {display: 'inline'}
-});

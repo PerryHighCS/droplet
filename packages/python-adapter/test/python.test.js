@@ -3,8 +3,11 @@ import test from 'node:test';
 
 import {
   collectPythonTrivia,
+  createEmptyPythonSuite,
+  transformPython,
   parsePython
 } from '../src/index.js';
+import {applySourceChanges} from '@droplet/core';
 
 test('maps Brython line and column locations to exact source ranges', () => {
   const source = 'value = outer(1)\n';
@@ -16,8 +19,170 @@ test('maps Brython line and column locations to exact source ranges', () => {
   assert.equal(parsed.root.children[0].kind, 'statement');
   assert.deepEqual(parsed.root.children[0].children[0], {
     id: 'socket:Call:8:16', kind: 'socket', from: 8, to: 16, editable: true,
-    children: [], metadata: {type: 'Call'}
+    children: [{
+      id: 'socket:call-argument:15:15', kind: 'socket', from: 15, to: 15, editable: true, children: [],
+      metadata: {type: 'CallArgument', socketRole: 'call-argument', empty: true}
+    }],
+    metadata: {type: 'Call', socketRole: 'assignment-value'}
   });
+});
+
+test('sockets a function\'s name and individual parameters instead of its whole header and body', () => {
+  const source = 'def greet(a, b):\n  pass\n';
+  // Brython's `arguments` node carries a lineno but no col_offset - it isn't
+  // itself a source-range node, only its own args are. Reproduce that shape
+  // exactly: treating it as located anyway previously fell back to the
+  // enclosing statement's full range as one oversized "socket".
+  const ast = {type: 'Module', body: [
+    {type: 'FunctionDef', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6, name: 'greet',
+      args: {lineno: 1, posonlyargs: [], args: [
+        {type: 'arg', lineno: 1, col_offset: 10, end_lineno: 1, end_col_offset: 11, arg: 'a'},
+        {type: 'arg', lineno: 1, col_offset: 13, end_lineno: 1, end_col_offset: 14, arg: 'b'}
+      ], vararg: null, kwonlyargs: [], kw_defaults: [], kwarg: null, defaults: []},
+      body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}],
+      decorator_list: []}
+  ]};
+
+  const kids = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(kids, [
+    {text: 'greet', role: 'name'},
+    {text: 'a', role: 'parameter'},
+    {text: 'b', role: 'parameter'}
+  ]);
+});
+
+test('sockets a function name even when it contains regex metacharacters', () => {
+  // pythonToAST is caller-supplied (see parsePython's own doc comment), so
+  // node.name is not guaranteed to be a plain identifier - interpolating it
+  // straight into a RegExp used to either throw on an invalid pattern or
+  // silently match the wrong span.
+  const source = 'def a+b(c):\n  pass\n';
+  const ast = {type: 'Module', body: [
+    {type: 'FunctionDef', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6, name: 'a+b',
+      args: {lineno: 1, posonlyargs: [], args: [
+        {type: 'arg', lineno: 1, col_offset: 8, end_lineno: 1, end_col_offset: 9, arg: 'c'}
+      ], vararg: null, kwonlyargs: [], kw_defaults: [], kwarg: null, defaults: []},
+      body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}],
+      decorator_list: []}
+  ]};
+
+  const kids = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(kids, [
+    {text: 'a+b', role: 'name'},
+    {text: 'c', role: 'parameter'}
+  ]);
+});
+
+test('sockets a class\'s name without letting the class keyword itself be edited', () => {
+  const source = 'class Widget:\n  pass\n';
+  const ast = {type: 'Module', body: [
+    {type: 'ClassDef', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6, name: 'Widget',
+      bases: [], keywords: [], body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}],
+      decorator_list: []}
+  ]};
+
+  const kids = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(kids, [{text: 'Widget', role: 'name'}]);
+});
+
+test('labels assignment targets, assignment values, and if conditions as distinct sockets', () => {
+  const source = 'target = value\nif ready:\n  pass\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Assign', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 14,
+      targets: [{type: 'Name', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 6}],
+      value: {type: 'Name', lineno: 1, col_offset: 9, end_lineno: 1, end_col_offset: 14}},
+    {type: 'If', lineno: 2, col_offset: 0, end_lineno: 3, end_col_offset: 6,
+      test: {type: 'Name', lineno: 2, col_offset: 3, end_lineno: 2, end_col_offset: 8},
+      body: [{type: 'Pass', lineno: 3, col_offset: 2, end_lineno: 3, end_col_offset: 6}]}
+  ]};
+
+  const sockets = parsePython(source, () => ast).root.children.flatMap((node) => node.children)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(sockets, [
+    {text: 'target', role: 'assignment-target'},
+    {text: 'value', role: 'assignment-value'},
+    {text: 'ready', role: 'if-condition'}
+  ]);
+});
+
+test('labels a unary operator\'s operand as an editable socket', () => {
+  const source = 'value = not ready\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Assign', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 17,
+      targets: [{type: 'Name', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 5}],
+      value: {type: 'UnaryOp', lineno: 1, col_offset: 8, end_lineno: 1, end_col_offset: 17,
+        op: {type: 'Not'},
+        operand: {type: 'Name', lineno: 1, col_offset: 12, end_lineno: 1, end_col_offset: 17, id: 'ready'}}}
+  ]};
+
+  const sockets = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(sockets, [
+    {text: 'value', role: 'assignment-target'},
+    {text: 'not ready', role: 'assignment-value'},
+    {text: 'ready', role: 'expression'}
+  ]);
+});
+
+test('sockets a call\'s function name alongside its arguments, leaving the parentheses fixed', () => {
+  const source = 'result = name(first)\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Assign', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 20,
+      targets: [{type: 'Name', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 6}],
+      value: {type: 'Call', lineno: 1, col_offset: 9, end_lineno: 1, end_col_offset: 20,
+        func: {type: 'Name', lineno: 1, col_offset: 9, end_lineno: 1, end_col_offset: 13, id: 'name'},
+        args: [{type: 'Name', lineno: 1, col_offset: 14, end_lineno: 1, end_col_offset: 19, id: 'first'}],
+        keywords: []}}
+  ]};
+
+  const sockets = collectProjectedNodes(parsePython(source, () => ast).root)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole}));
+
+  assert.deepEqual(sockets, [
+    {text: 'result', role: 'assignment-target'},
+    {text: 'name(first)', role: 'assignment-value'},
+    {text: 'name', role: 'call-target'},
+    {text: 'first', role: 'call-argument'}
+  ]);
+});
+
+test('projects a standalone print call as argument sockets, including an editable empty argument', () => {
+  const source = 'print()\nprint(first, second)\n';
+  const ast = {type: 'Module', body: [
+    {type: 'Expr', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 7,
+      value: {type: 'Call', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 7,
+        func: {type: 'Name', lineno: 1, col_offset: 0, end_lineno: 1, end_col_offset: 5, id: 'print'}, args: []}},
+    {type: 'Expr', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 20,
+      value: {type: 'Call', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 20,
+        func: {type: 'Name', lineno: 2, col_offset: 0, end_lineno: 2, end_col_offset: 5, id: 'print'}, args: [
+          {type: 'Name', lineno: 2, col_offset: 6, end_lineno: 2, end_col_offset: 11, id: 'first'},
+          {type: 'Name', lineno: 2, col_offset: 13, end_lineno: 2, end_col_offset: 19, id: 'second'}
+        ]}}
+  ]};
+
+  const statements = parsePython(source, () => ast).root.children;
+  const sockets = statements.map((statement) => collectProjectedNodes(statement)
+    .filter((node) => node.kind === 'socket')
+    .map((node) => ({text: source.slice(node.from, node.to), role: node.metadata.socketRole, empty: node.metadata.empty})));
+
+  assert.deepEqual(sockets, [
+    [{text: '', role: 'call-argument', empty: true}],
+    [{text: 'first', role: 'call-argument', empty: undefined}, {text: 'second', role: 'call-argument', empty: undefined}]
+  ]);
 });
 
 test('converts Brython syntax failures into an opaque source projection', () => {
@@ -106,7 +271,7 @@ test('contains child columns beyond their source line within their statement', (
   ]);
   assert.deepEqual(statements[0].children[0], {
     id: 'socket:Call:0:4', kind: 'socket', from: 0, to: 4, editable: true,
-    children: [], metadata: {type: 'Call'}
+    children: [], metadata: {type: 'Call', socketRole: 'expression'}
   });
 });
 
@@ -164,6 +329,375 @@ test('retains form-feed indentation prefixes', () => {
   assert.deepEqual(collectPythonTrivia(source, () => tokens).indentation, [
     {kind: 'indentation', from: 0, to: 3, text: '\f  '}
   ]);
+});
+
+test('projects tokenizer comments as independent movable nodes', () => {
+  const source = 'if ready:\n  # note\n  pass\n';
+  const ast = {type: 'Module', body: [{
+    type: 'If', lineno: 1, col_offset: 0, end_lineno: 3, end_col_offset: 6,
+    body: [{type: 'Pass', lineno: 3, col_offset: 2, end_lineno: 3, end_col_offset: 6}]
+  }]};
+  const tokenize = () => [{type: 65, string: '# note', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 8}];
+
+  const parsed = parsePython(source, () => ast, tokenize);
+  const comment = collectProjectedNodes(parsed.root).find((node) => node.kind === 'comment');
+  assert.deepEqual(comment, {
+    id: 'comment:12:18', kind: 'comment', from: 12, to: 18, editable: true, children: [],
+    metadata: {inline: false, commentPrefix: '#'}
+  });
+});
+
+test('identifies Python suites and their header lines for structural rendering', () => {
+  const source = 'for item in items:\n  use(item)\n';
+  const ast = {type: 'Module', body: [{
+    type: 'For', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 11,
+    body: [{type: 'Expr', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 11}]
+  }]};
+  const loop = parsePython(source, () => ast).root.children[0];
+
+  assert.deepEqual(loop.metadata, {
+    type: 'For', blockRole: 'container', headerTo: source.indexOf('\n'),
+    bodyFrom: source.indexOf('use(item)'), bodyEnd: source.length, bodyIndentation: '  '
+  });
+});
+
+test('projects an if/elif/else chain as its own branch clauses, not one merged body', () => {
+  const source = 'if ready:\n  first()\nelif retry:\n  second()\nelse:\n  third()\n';
+  const position = (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (type, from, to, extra = {}) => ({
+    type, ...position(from), end_lineno: position(to).lineno, end_col_offset: position(to).col_offset, ...extra
+  });
+  const call = (name) => {
+    const from = source.indexOf(`${name}()`);
+    const to = from + name.length + 2;
+    return located('Expr', from, to, {
+      value: located('Call', from, to, {func: located('Name', from, from + name.length, {id: name}), args: []})
+    });
+  };
+  const name = (text, from) => located('Name', from, from + text.length, {id: text});
+
+  const elifFrom = source.indexOf('elif retry:');
+  const elseFrom = source.indexOf('else:');
+  const elifNode = located('If', elifFrom, source.length - 1, {
+    test: name('retry', source.indexOf('retry')),
+    body: [call('second')],
+    orelse: [call('third')]
+  });
+  const ifNode = located('If', 0, source.length - 1, {
+    test: name('ready', source.indexOf('ready')),
+    body: [call('first')],
+    orelse: [elifNode]
+  });
+
+  const statement = parsePython(source, () => ({type: 'Module', body: [ifNode]})).root.children[0];
+  const clauses = statement.children.filter((child) => child.kind === 'clause')
+    .sort((left, right) => left.from - right.from);
+
+  assert.deepEqual(clauses.map((clause) => ({
+    role: clause.metadata.clauseRole, header: source.slice(clause.from, clause.metadata.headerTo)
+  })), [
+    {role: 'elif', header: 'elif retry:'},
+    {role: 'else', header: 'else:'}
+  ]);
+  const elifCondition = clauses[0].children.find((child) => child.kind === 'socket');
+  assert.equal(source.slice(elifCondition.from, elifCondition.to), 'retry');
+  assert.equal(elifCondition.metadata.socketRole, 'if-condition');
+  assert.equal(source.slice(clauses[0].metadata.bodyFrom, clauses[0].metadata.bodyEnd).trim(), 'second()');
+  assert.equal(clauses[1].children.some((child) => child.kind === 'socket'), false);
+  assert.equal(source.slice(clauses[1].metadata.bodyFrom, clauses[1].metadata.bodyEnd).trim(), 'third()');
+  // The primary if-body must not also carry the elif/else statements - the
+  // generic located-child walk used to sweep orelse in as flat siblings.
+  assert.deepEqual(statement.children.filter((child) => child.kind === 'statement')
+    .map((child) => source.slice(child.from, child.to)), ['first()']);
+});
+
+test('does not treat a literal `else:` followed by a nested `if` as an elif branch', () => {
+  const source = 'if ready:\n  first()\nelse:\n  if retry:\n    second()\n';
+  const position = (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (type, from, to, extra = {}) => ({
+    type, ...position(from), end_lineno: position(to).lineno, end_col_offset: position(to).col_offset, ...extra
+  });
+  const call = (name) => {
+    const from = source.indexOf(`${name}()`);
+    const to = from + name.length + 2;
+    return located('Expr', from, to, {
+      value: located('Call', from, to, {func: located('Name', from, from + name.length, {id: name}), args: []})
+    });
+  };
+  const name = (text, from) => located('Name', from, from + text.length, {id: text});
+
+  const nestedIfFrom = source.indexOf('if retry:');
+  const nestedIf = located('If', nestedIfFrom, source.length - 1, {
+    test: name('retry', source.indexOf('retry')),
+    body: [call('second')],
+    orelse: []
+  });
+  const ifNode = located('If', 0, source.length - 1, {
+    test: name('ready', source.indexOf('ready')),
+    body: [call('first')],
+    orelse: [nestedIf]
+  });
+
+  const statement = parsePython(source, () => ({type: 'Module', body: [ifNode]})).root.children[0];
+  const clauses = statement.children.filter((child) => child.kind === 'clause');
+  assert.equal(clauses.length, 1);
+  assert.equal(clauses[0].metadata.clauseRole, 'else');
+  // The nested `if` is a real statement inside the else body, not folded
+  // into the chain as another branch.
+  const nestedStatement = clauses[0].children.find((child) => child.kind === 'statement');
+  assert.equal(nestedStatement.metadata.type, 'If');
+});
+
+test('projects a for-loop else clause the same way as an if/else', () => {
+  const source = 'for item in items:\n  use(item)\nelse:\n  finish()\n';
+  const position = (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (type, from, to, extra = {}) => ({
+    type, ...position(from), end_lineno: position(to).lineno, end_col_offset: position(to).col_offset, ...extra
+  });
+  const call = (name) => {
+    const from = source.indexOf(`${name}(`);
+    const to = source.indexOf(')', from) + 1;
+    return located('Expr', from, to, {value: located('Call', from, to, {
+      func: located('Name', from, from + name.length, {id: name}), args: []
+    })});
+  };
+
+  const forFrom = 0;
+  const forNode = located('For', forFrom, source.length - 1, {
+    target: located('Name', source.indexOf('item'), source.indexOf('item') + 4, {id: 'item'}),
+    iter: located('Name', source.indexOf('items'), source.indexOf('items') + 5, {id: 'items'}),
+    body: [call('use')],
+    orelse: [call('finish')]
+  });
+
+  const statement = parsePython(source, () => ({type: 'Module', body: [forNode]})).root.children[0];
+  const clauses = statement.children.filter((child) => child.kind === 'clause');
+  assert.equal(clauses.length, 1);
+  assert.equal(clauses[0].metadata.clauseRole, 'else');
+  assert.equal(source.slice(clauses[0].from, clauses[0].metadata.headerTo), 'else:');
+  assert.equal(source.slice(clauses[0].metadata.bodyFrom, clauses[0].metadata.bodyEnd).trim(), 'finish()');
+});
+
+test('moves a statement to a container body end using the suite indentation', () => {
+  const source = 'if ready:\n  first()\nnext()\n';
+  const ast = {type: 'Module', body: [
+    {type: 'If', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 9,
+      body: [{type: 'Expr', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 9}]},
+    {type: 'Expr', lineno: 3, col_offset: 0, end_lineno: 3, end_col_offset: 6}
+  ]};
+  const parsed = parsePython(source, () => ast);
+  const [container, next] = parsed.root.children;
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: next.from, to: next.to},
+    destination: {from: container.metadata.bodyEnd, to: container.metadata.bodyEnd,
+      indentation: container.metadata.bodyIndentation}
+  }, parsed, () => ast);
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  first()\n  next()\n');
+});
+
+test('reindents a final nested statement when its outer-suite body end shares its range boundary', () => {
+  const source = 'if outer:\n  if ready:\n    first()\n    second()\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 26, to: 33, children: []};
+  const second = {id: 'statement:second', kind: 'statement', from: 38, to: 46, children: []};
+  const parsed = projection(source, [{
+    id: 'statement:outer', kind: 'statement', from: 0, to: source.length, children: [{
+      id: 'statement:inner', kind: 'statement', from: 12, to: second.to, children: [first, second]
+    }]
+  }]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: second.from, to: second.to},
+    destination: {from: second.to, to: second.to, indentation: '  '}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if outer:\n  if ready:\n    first()\n  second()\n');
+});
+
+test('deindents a final nested statement when dropped at a root-level boundary', () => {
+  const source = 'if ready:\n  second()\n';
+  const second = {id: 'statement:second', kind: 'statement', from: 10, to: 20, children: []};
+  const parsed = projection(source, [{id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [second]}]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: second.from, to: second.to},
+    destination: {from: source.length, to: source.length, indentation: ''}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\nsecond()\n');
+});
+
+test('moves the statement immediately after a synthetic pass into that suite', () => {
+  const source = 'if ready:\n  pass\nfirst()\n';
+  const pass = {id: 'statement:pass', kind: 'statement', from: 12, to: 16, metadata: {type: 'Pass'}, children: []};
+  const first = {id: 'statement:first', kind: 'statement', from: 17, to: 24, children: []};
+  const parsed = projection(source, [{
+    id: 'statement:ready', kind: 'statement', from: 0, to: 17,
+    metadata: {blockRole: 'container'}, children: [pass]
+  }, first]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: first.from, to: first.to},
+    destination: {from: 17, to: 17, emptySuitePass: {from: pass.from, to: pass.to}}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  first()\n');
+});
+
+test('leaves an actual pass when moving the only Python suite statement out', () => {
+  const source = 'if ready:\n  only()\nafter()\n';
+  const ast = {type: 'Module', body: [
+    {type: 'If', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 8,
+      body: [{type: 'Expr', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 8}]},
+    {type: 'Expr', lineno: 3, col_offset: 0, end_lineno: 3, end_col_offset: 7}
+  ]};
+  const parsed = parsePython(source, () => ast);
+  const [, only, after] = collectProjectedNodes(parsed.root).filter((node) => node.kind === 'statement');
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: only.from, to: only.to},
+    destination: {from: after.to + 1, to: after.to + 1}
+  }, parsed, () => ast);
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nafter()\nonly()\n');
+});
+
+test('fills a pass-only suite while retaining its comments and blank lines', () => {
+  const source = 'if ready:\n  # explain the work\n  pass  # TODO\n\nnext()\n';
+  const ast = {type: 'Module', body: [
+    {type: 'If', lineno: 1, col_offset: 0, end_lineno: 3, end_col_offset: 6,
+      body: [{type: 'Pass', lineno: 3, col_offset: 2, end_lineno: 3, end_col_offset: 6}]},
+    {type: 'Expr', lineno: 5, col_offset: 0, end_lineno: 5, end_col_offset: 6}
+  ]};
+  const parsed = parsePython(source, () => ast);
+  const [container, next] = parsed.root.children.filter((node) => node.kind === 'statement');
+  const pass = container.children.find((node) => node.metadata?.type === 'Pass');
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: next.from, to: next.to},
+    destination: {from: container.metadata.bodyEnd, to: container.metadata.bodyEnd,
+      emptySuitePass: {from: pass.from, to: pass.to}}
+  }, parsed, () => ast);
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  # explain the work\n  next()  # TODO\n\n');
+});
+
+test('projects a blank Python suite line as a source-preserving whitespace node', () => {
+  const source = 'if ready:\n  pass\n  \n';
+  const ast = {type: 'Module', body: [{
+    type: 'If', lineno: 1, col_offset: 0, end_lineno: 2, end_col_offset: 6,
+    body: [{type: 'Pass', lineno: 2, col_offset: 2, end_lineno: 2, end_col_offset: 6}]
+  }]};
+  const whitespace = collectProjectedNodes(parsePython(source, () => ast).root)
+    .find((node) => node.kind === 'whitespace');
+
+  assert.deepEqual(whitespace, {
+    id: 'whitespace:17:20', kind: 'whitespace', from: 17, to: 20, editable: false, children: [],
+    metadata: {text: '  ', lineEnding: '\n'}
+  });
+});
+
+test('moves an independent comment line without moving its containing statement', () => {
+  const source = 'if ready:\n  # note\n  pass\nnext()\n';
+  const ifStatement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: 25, children: [{
+      id: 'comment:12:18', kind: 'comment', from: 12, to: 18, children: []
+    }]
+  };
+  const parsed = projection(source, [ifStatement,
+    {id: 'statement:next', kind: 'statement', from: 26, to: 32, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: 12, to: 18}, destination: {from: 26, to: 26}
+  }, parsed, () => ({}));
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\n# note\nnext()\n');
+});
+
+test('attaches a standalone comment to the end of a statement line', () => {
+  const source = '# note\nvalue = 1\n';
+  const parsed = projection(source, [
+    {id: 'comment:0:6', kind: 'comment', from: 0, to: 6, children: [], metadata: {inline: false}},
+    {id: 'statement:value', kind: 'statement', from: 7, to: 16, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: 0, to: 6},
+    destination: {from: 7, to: 16}, placement: 'line-end'
+  }, parsed, () => ({}));
+  assert.equal(applySourceChanges(source, changes), 'value = 1  # note\n');
+});
+
+test('attaches a standalone comment to the end of a multi-line statement\'s last line, not its first', () => {
+  // attachCommentToStatement anchored off statement.from's own physical
+  // line - for a multi-line statement those differ from statement.to's, so
+  // the comment landed after the statement's first line, inside its own
+  // source range, instead of trailing its last line. block-surface.js's own
+  // inlineCommentFor (the lookup that renders a trailing comment beside its
+  // statement) requires comment.from >= statement.to, so a comment placed
+  // there could never be found again.
+  const source = 'x = (\n  1\n)\n# note\n';
+  const statementTo = source.indexOf(')') + 1;
+  const commentFrom = source.indexOf('# note');
+  const commentTo = commentFrom + '# note'.length;
+  const parsed = projection(source, [
+    {id: 'statement:value', kind: 'statement', from: 0, to: statementTo, children: []},
+    {id: 'comment:note', kind: 'comment', from: commentFrom, to: commentTo, children: [], metadata: {inline: false}}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: commentFrom, to: commentTo},
+    destination: {from: 0, to: statementTo}, placement: 'line-end'
+  }, parsed, () => ({}));
+  assert.equal(applySourceChanges(source, changes), 'x = (\n  1\n)  # note\n');
+});
+
+test('attaches a standalone comment to a container\'s own header line, not its last body line', () => {
+  // block-surface-dom.js's header-drop gesture targets the whole container
+  // node (there is no separate projected node for just its header) - a
+  // container's own .to is its last body line, not its header, so anchoring
+  // off .to the way a bare multi-line statement does attached the comment
+  // to wherever the body happened to end instead of the header the user
+  // actually dropped it on.
+  const source = '# note\nif ready:\n  pass\n';
+  const commentFrom = 0;
+  const commentTo = 6;
+  const containerFrom = 7;
+  const containerTo = source.length;
+  const headerTo = containerFrom + 'if ready:'.length;
+  const parsed = projection(source, [
+    {id: 'note', kind: 'comment', from: commentFrom, to: commentTo, children: [], metadata: {inline: false}},
+    {id: 'if', kind: 'statement', from: containerFrom, to: containerTo, children: [],
+      metadata: {blockRole: 'container', headerTo, bodyEnd: containerTo}}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: commentFrom, to: commentTo},
+    destination: {from: containerFrom, to: containerTo}, placement: 'line-end'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:  # note\n  pass\n');
+});
+
+test('moves an inline comment without moving its statement text', () => {
+  const source = 'first = 1  # note\nnext = 2\n';
+  const parsed = projection(source, [
+    {id: 'statement:first', kind: 'statement', from: 0, to: 17, children: []},
+    {id: 'comment:11:17', kind: 'comment', from: 11, to: 17, children: [], metadata: {inline: true}},
+    {id: 'statement:next', kind: 'statement', from: 18, to: 26, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'move-comment', source: {from: 11, to: 17}, destination: {from: 18, to: 18}
+  }, parsed, () => ({}));
+  assert.equal(applySourceChanges(source, changes), 'first = 1\n# note\nnext = 2\n');
 });
 
 test('classifies the complete modern Python statement set as statements', () => {
@@ -239,6 +773,959 @@ test('orders projected children by source range instead of AST field order', () 
   ]);
 });
 
+test('inserts Python statements using the destination indentation without normalizing source', () => {
+  const source = 'if ready:\n\tfirst = 1\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 11, to: 20, children: []};
+  const parsed = projection(source, [first]);
+
+  const changes = transformPython({
+    type: 'insert-statement', destination: {from: first.from, to: first.from}, source: 'pass'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n\tpass\n\tfirst = 1\n');
+  assert.equal(createEmptyPythonSuite('\t'), '\tpass');
+  assert.throws(() => createEmptyPythonSuite('  value'), /indentation/);
+});
+
+test('honors an explicit destination indentation for a body-end at EOF, where the physical line reads none', () => {
+  // A container body-end destination is often at EOF or at the next outer-
+  // scope line, where indentationAt(destination.from) reads the wrong
+  // (often empty) depth entirely - the layout's own explicit destination
+  // indentation is authoritative and must be used instead when supplied.
+  const source = 'def f():\n    pass\n';
+  const parsed = projection(source, []);
+
+  const changes = transformPython({
+    type: 'insert-statement', destination: {from: source.length, to: source.length, indentation: '    '}, source: 'return 1'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'def f():\n    pass\n    return 1');
+});
+
+test('inserts at a body-end right before a following outer-scope line without reindenting it', () => {
+  // A body-end destination right before a following outer-scope line is a
+  // genuine line start (there is no pre-existing whitespace before it to
+  // lend the new text its own indentation) - insertStatementChange's own
+  // suffix indentation is meant only to restore a "before-sibling"
+  // destination's indentation, stolen as the new text's prefix from
+  // whitespace already there. Applying it here too left the new statement
+  // with no indentation of its own and wrongly re-indented "b" - an
+  // unrelated line at a different (here, lower) depth - to match instead.
+  const source = 'if x:\n  a\nb';
+  const aTo = source.indexOf('a') + 1;
+  const bFrom = source.indexOf('b');
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: aTo, children: [
+      {id: 'statement:a', kind: 'statement', from: source.indexOf('a'), to: aTo, children: []}
+    ],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('a'), bodyEnd: bFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement, {id: 'statement:b', kind: 'statement', from: bFrom, to: source.length, children: []}]);
+
+  const changes = transformPython({
+    type: 'insert-statement', destination: {from: bFrom, to: bFrom, indentation: '  '}, source: 'pass\n'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if x:\n  a\n  pass\nb');
+});
+
+test('copying a comment onto an empty suite leaves the synthetic pass in place instead of replacing it', () => {
+  // A comment can't stand alone as a suite's only content - replacing the
+  // pass outright (as a statement copy does) would leave a comment-only
+  // suite body, invalid Python. Only a statement's own copy may replace it.
+  const source = 'if ready:\n    pass\n# note\n';
+  const passStatement = {
+    id: 'statement:pass', kind: 'statement', from: source.indexOf('pass'), to: source.indexOf('pass') + 4, children: [],
+    metadata: {type: 'Pass'}
+  };
+  const ifStatement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.indexOf('pass') + 4, children: [passStatement],
+    metadata: {
+      type: 'If', blockRole: 'container', bodyFrom: passStatement.from, bodyEnd: passStatement.to,
+      bodyIndentation: '    ', emptySuitePass: {from: passStatement.from, to: passStatement.to}
+    }
+  };
+  const comment = {
+    id: 'comment:note', kind: 'comment', from: source.indexOf('# note'), to: source.indexOf('# note') + 6, children: [],
+    metadata: {inline: false}
+  };
+  const parsed = projection(source, [ifStatement, comment]);
+
+  const changes = transformPython({
+    type: 'copy-node', source: {from: comment.from, to: comment.to}, kind: 'comment',
+    destination: {from: passStatement.from, to: passStatement.from, emptySuitePass: {from: passStatement.from, to: passStatement.to}}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n    # note\n    pass\n# note\n');
+});
+
+test('copying an inline comment copies only its own text, not the code it trails', () => {
+  // A comment's own from starts exactly at its "#" - normalizing that to the
+  // physical line's start (as a statement copy does, to preserve a
+  // multi-line statement's own first-line indentation) would instead sweep
+  // in the code an inline comment trails ("x = 1  " before "# note"),
+  // duplicating that code alongside the comment instead of copying just the
+  // comment's own text.
+  const source = 'x = 1  # note\n';
+  const commentFrom = source.indexOf('#');
+  const comment = {
+    id: 'comment:note', kind: 'comment', from: commentFrom, to: commentFrom + 6, children: [],
+    metadata: {inline: true}
+  };
+  const statement = {id: 'statement:x', kind: 'statement', from: 0, to: 5, children: []};
+  const parsed = projection(source, [statement, comment]);
+
+  const changes = transformPython({
+    type: 'copy-node', source: {from: comment.from, to: comment.to}, kind: 'comment',
+    destination: {from: source.length, to: source.length, indentation: ''}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'x = 1  # note\n# note');
+});
+
+test('moves a statement to a nested body end without reindenting the following outer-scope line', () => {
+  // moveLineRangeChanges unconditionally appended targetIndentation as a
+  // trailing suffix, meant only to restore a "before-sibling" destination's
+  // own orphaned indentation (stolen, as the moved text's own prefix, from
+  // whitespace already sitting before it). A body-end destination right
+  // before a following, differently-indented outer-scope line is already a
+  // genuine line start with no such whitespace to steal - appending the
+  // suffix there instead wrongly re-indented that unrelated line to match
+  // the moved statement's own new depth.
+  const source = 'if x:\n  if y:\n    a\n  b\nz\n';
+  const aFrom = source.indexOf('a');
+  const aTo = aFrom + 1;
+  const bFrom = source.indexOf('b');
+  const zFrom = source.indexOf('z');
+  // bodyEnd is the following line's own true start, right after "    a\n"
+  // ends - before its own "  " leading indentation, not at the literal "b".
+  const bodyEnd = source.indexOf('\n', aTo) + 1;
+  const inner = {
+    id: 'statement:inner', kind: 'statement', from: source.indexOf('if y'), to: aTo,
+    children: [{id: 'statement:a', kind: 'statement', from: aFrom, to: aTo, children: []}],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: aFrom, bodyEnd, bodyIndentation: '    '}
+  };
+  const outer = {
+    id: 'statement:if', kind: 'statement', from: 0, to: bFrom + 1,
+    children: [inner, {id: 'statement:b', kind: 'statement', from: bFrom, to: bFrom + 1, children: []}],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('if y'), bodyEnd: zFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [outer, {id: 'statement:z', kind: 'statement', from: zFrom, to: zFrom + 1, children: []}]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: zFrom, to: zFrom + 1}, destination: {from: bodyEnd, to: bodyEnd, indentation: '    '}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if x:\n  if y:\n    a\n    z\n  b\n');
+});
+
+test('moves only Python statement lines and preserves comments, blanks, and local indentation', () => {
+  const source = 'if ready:\n  first = 1  # retain\n  second = 2\n\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 12, to: 31, children: []};
+  const second = {id: 'statement:second', kind: 'statement', from: 34, to: 44, children: []};
+  const parsed = projection(source, [{
+    id: 'statement:if', kind: 'statement', from: 0, to: 44, children: [first, second]
+  }]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: second.from, to: second.to},
+    destination: {from: first.from, to: first.from}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  second = 2\n  first = 1  # retain\n\n');
+});
+
+test('moves a semicolon-joined statement without carrying its own separator to the destination', () => {
+  // lineRange's own whole-line range was also reused as the relocated
+  // text (move-statement, unlike delete-node, pastes that same slice at
+  // the destination) - a semicolon-joined statement's line range swallowed
+  // its neighbor's own separator too, so the moved text arrived at its
+  // destination with a stray "; " prefix still attached.
+  const source = 'a = 1; b = 2\nc = 3\n';
+  const b = {id: 'statement:b', kind: 'statement', from: source.indexOf('b = 2'), to: source.indexOf('b = 2') + 5, children: []};
+  const c = {id: 'statement:c', kind: 'statement', from: source.indexOf('c = 3'), to: source.indexOf('c = 3') + 5, children: []};
+  const parsed = projection(source, [
+    {id: 'statement:a', kind: 'statement', from: 0, to: 5, children: []}, b, c
+  ]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: b.from, to: b.to}, destination: {from: c.from, to: c.from, indentation: ''}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'a = 1; \nb = 2\nc = 3\n');
+});
+
+test('moving a statement with a multi-line triple-quoted string reindents code but leaves the raw string untouched', () => {
+  // reindentPythonLines blindly reindented every continuation line -
+  // moving `s = """first\nraw"""` into a nested (differently indented)
+  // suite prefixed "raw" with the destination indentation, changing the
+  // runtime string value instead of leaving that line's own raw content
+  // byte-for-byte intact.
+  const source = 'if outer:\n  s = """first\nraw"""\n  if inner:\n    pass\n';
+  const statement = {id: 'statement:s', kind: 'statement', from: source.indexOf('s ='), to: source.indexOf('raw"""') + 6, children: []};
+  const inner = {
+    id: 'statement:inner', kind: 'statement', from: source.indexOf('if inner:'), to: source.length - 1, children: [],
+    metadata: {blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: source.length - 1, bodyIndentation: '    '}
+  };
+  const outer = {
+    id: 'statement:outer', kind: 'statement', from: 0, to: source.length, children: [statement, inner],
+    metadata: {blockRole: 'container', bodyFrom: statement.from, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [outer]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: statement.from, to: statement.to},
+    destination: {from: source.indexOf('pass'), to: source.indexOf('pass')}
+  }, parsed, () => ({}));
+
+  assert.equal(
+    applySourceChanges(source, changes),
+    'if outer:\n  if inner:\n    s = """first\nraw"""\n    pass\n'
+  );
+});
+
+test('moving a statement with a backslash-escaped triple quote inside its string leaves the raw string untouched', () => {
+  // tripleQuotedStringRanges scans raw text for '''/""" with no awareness of
+  // a preceding backslash escape - `\"""` is a backslash-escaped quote
+  // followed by two more literal quote characters (three "\"" characters do
+  // not terminate the string unless all three are unescaped), but the regex
+  // still matched them as a real closing delimiter, ending the protected
+  // range early. A later line that is really still inside the string (up to
+  // its own real closing delimiter) then fell outside that prematurely-ended
+  // range and got reindented like ordinary code instead of left untouched.
+  const source = 'if outer:\n  s = """first\\"""\nraw"""\n  if inner:\n    pass\n';
+  const statement = {id: 'statement:s', kind: 'statement', from: source.indexOf('s ='), to: source.indexOf('raw"""') + 6, children: []};
+  const inner = {
+    id: 'statement:inner', kind: 'statement', from: source.indexOf('if inner:'), to: source.length - 1, children: [],
+    metadata: {blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: source.length - 1, bodyIndentation: '    '}
+  };
+  const outer = {
+    id: 'statement:outer', kind: 'statement', from: 0, to: source.length, children: [statement, inner],
+    metadata: {blockRole: 'container', bodyFrom: statement.from, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [outer]);
+
+  const changes = transformPython({
+    type: 'move-statement', source: {from: statement.from, to: statement.to},
+    destination: {from: source.indexOf('pass'), to: source.indexOf('pass')}
+  }, parsed, () => ({}));
+
+  assert.equal(
+    applySourceChanges(source, changes),
+    'if outer:\n  if inner:\n    s = """first\\"""\nraw"""\n    pass\n'
+  );
+});
+
+test('deletes a Python statement line and leaves pass in an emptied suite', () => {
+  const source = 'if ready:\n  first = 1\nnext = 2\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 12, to: 21, children: []};
+  const parsed = projection(source, [
+    {id: 'statement:if', kind: 'statement', from: 0, to: 21, children: [first],
+      metadata: {blockRole: 'container', bodyFrom: 12, bodyEnd: 21}},
+    {id: 'statement:next', kind: 'statement', from: 22, to: 30, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'delete-node', source: {from: first.from, to: first.to}, kind: 'statement'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nnext = 2\n');
+});
+
+test('deletes one semicolon-joined statement without deleting its line siblings', () => {
+  // lineRange expanded every statement to its whole physical line - valid
+  // Python can put more than one statement on one line via ";", so deleting
+  // one deleted its line siblings too.
+  const source = 'a = 1; b = 2; c = 3\n';
+  const b = {id: 'statement:b', kind: 'statement', from: source.indexOf('b = 2'), to: source.indexOf('b = 2') + 5, children: []};
+  const parsed = projection(source, [
+    {id: 'statement:a', kind: 'statement', from: 0, to: 5, children: []},
+    b,
+    {id: 'statement:c', kind: 'statement', from: source.indexOf('c = 3'), to: source.indexOf('c = 3') + 5, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'delete-node', source: {from: b.from, to: b.to}, kind: 'statement'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'a = 1; c = 3\n');
+});
+
+test('deletes a compact single-line suite\'s own body statement without deleting its header', () => {
+  // Same underlying bug as the semicolon case above, for Python's other
+  // same-line construct: a compact single-line suite ("if ready: work()")
+  // has its header and body sharing one physical line.
+  const source = 'if ready: work()\nafter()\n';
+  const work = {id: 'statement:work', kind: 'statement', from: source.indexOf('work()'), to: source.indexOf('work()') + 6, children: []};
+  const parsed = projection(source, [
+    {id: 'statement:if', kind: 'statement', from: 0, to: work.to, children: [work],
+      metadata: {blockRole: 'container', bodyFrom: work.from, bodyEnd: work.to + 1}},
+    {id: 'statement:after', kind: 'statement', from: source.indexOf('after()'), to: source.indexOf('after()') + 7, children: []}
+  ]);
+
+  const changes = transformPython({
+    type: 'delete-node', source: {from: work.from, to: work.to}, kind: 'statement'
+  }, parsed, () => ({}));
+
+  // The emptied suite still needs a body - the header itself must survive.
+  assert.equal(applySourceChanges(source, changes), 'if ready: pass\n\nafter()\n');
+});
+
+test('deletes an inline Python comment without deleting its statement', () => {
+  const source = 'first = 1  # note\n';
+  const comment = {id: 'comment:11', kind: 'comment', from: 11, to: 17, children: [], metadata: {inline: true}};
+  const parsed = projection(source, [{id: 'statement:first', kind: 'statement', from: 0, to: 9, children: [comment]}]);
+
+  const changes = transformPython({
+    type: 'delete-node', source: {from: 11, to: 17}, kind: 'comment'
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'first = 1\n');
+});
+
+test('copies a Python statement with destination indentation', () => {
+  const source = 'first = 1\nsecond = 2\n';
+  const first = {id: 'statement:first', kind: 'statement', from: 0, to: 9, children: []};
+  const parsed = projection(source, [first, {id: 'statement:second', kind: 'statement', from: 10, to: 20, children: []}]);
+
+  const changes = transformPython({
+    type: 'copy-node', source: {from: 0, to: 9}, kind: 'statement', destination: {from: source.length, to: source.length}
+  }, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'first = 1\nsecond = 2\nfirst = 1');
+});
+
+test('copies a nested multi-line statement preserving its relative indentation, not its old absolute depth', () => {
+  // A statement's own range (like any node here) excludes its first line's
+  // leading indentation, while continuation lines keep their absolute
+  // indentation - slicing from node.from alone dropped the first line's
+  // indentation but left the rest at their old absolute depth, so
+  // reindenting only stripped nothing from those lines and stacked the new
+  // target indentation on top of the stale one instead of the relative depth.
+  const source = 'if a:\n    if b:\n        x = 1\n        y = 2\n';
+  const innerFrom = source.indexOf('if b:');
+  const innerTo = source.length - 1;
+  const statement = {id: 'statement:inner', kind: 'statement', from: innerFrom, to: innerTo, children: []};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({
+    type: 'copy-node', source: {from: innerFrom, to: innerTo}, kind: 'statement',
+    destination: {from: source.length, to: source.length, indentation: ''}
+  }, parsed, () => ({}));
+
+  assert.equal(
+    applySourceChanges(source, changes),
+    'if a:\n    if b:\n        x = 1\n        y = 2\nif b:\n    x = 1\n    y = 2'
+  );
+});
+
+test('adds an elif branch with a default condition and empty suite', () => {
+  const source = 'if ready:\n  pass\n';
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({type: 'add-clause', target: {from: 0, to: source.length}, role: 'elif'}, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif True:\n  pass\n');
+});
+
+test('adds an elif branch when the suite\'s own last line has no trailing newline', () => {
+  // insertAt (bodyEnd) is normally right after the previous line's own
+  // terminator - a genuine line start - but when that line is the whole
+  // source's own last, with no trailing newline, insertAt instead lands
+  // immediately after "pass" itself. Splicing the new clause straight there
+  // with no separator merged it onto that text ("passelif True:"), invalid
+  // syntax the surface itself had just offered as an available action.
+  const source = 'if ready:\n  pass';
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({type: 'add-clause', target: {from: 0, to: source.length}, role: 'elif'}, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif True:\n  pass\n');
+});
+
+test('adds an else branch after the last existing elif', () => {
+  const source = 'if ready:\n  pass\nelif retry:\n  pass\n';
+  const elifClause = {
+    id: 'clause:elif', kind: 'clause', from: source.indexOf('elif retry:'), to: source.length, children: [],
+    metadata: {
+      clauseRole: 'elif', headerTo: source.indexOf('elif retry:') + 'elif retry:'.length,
+      bodyFrom: source.lastIndexOf('pass'), bodyEnd: source.length, bodyIndentation: '  '
+    }
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elifClause],
+    metadata: {
+      type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'),
+      bodyEnd: source.indexOf('elif retry:'), bodyIndentation: '  '
+    }
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({type: 'add-clause', target: {from: 0, to: source.length}, role: 'else'}, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif retry:\n  pass\nelse:\n  pass\n');
+});
+
+test('adds a new elif before an existing else, not after it', () => {
+  const source = 'if ready:\n  pass\nelse:\n  pass\n';
+  const elseFrom = source.indexOf('else:');
+  const elseClause = {
+    id: 'clause:else', kind: 'clause', from: elseFrom, to: source.length, children: [],
+    metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elseClause],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: elseFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython({type: 'add-clause', target: {from: 0, to: source.length}, role: 'elif'}, parsed, () => ({}));
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelif True:\n  pass\nelse:\n  pass\n');
+});
+
+test('rejects adding a second else branch', () => {
+  const source = 'if ready:\n  pass\nelse:\n  pass\n';
+  const elseFrom = source.indexOf('else:');
+  const elseClause = {
+    id: 'clause:else', kind: 'clause', from: elseFrom, to: source.length, children: [],
+    metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elseClause],
+    metadata: {type: 'If', blockRole: 'container', bodyFrom: source.indexOf('pass'), bodyEnd: elseFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  assert.throws(() => transformPython(
+    {type: 'add-clause', target: {from: 0, to: source.length}, role: 'else'}, parsed, () => ({})
+  ), /already has an else branch/);
+});
+
+test('removes an elif branch, splicing out its header and body', () => {
+  const source = 'if ready:\n  pass\nelif retry:\n  pass\nelse:\n  pass\n';
+  const elifFrom = source.indexOf('elif retry:');
+  const elseFrom = source.indexOf('else:');
+  const elifClause = {
+    id: 'clause:elif', kind: 'clause', from: elifFrom, to: elseFrom, children: [],
+    metadata: {clauseRole: 'elif', headerTo: elifFrom + 'elif retry:'.length, bodyEnd: elseFrom, bodyIndentation: '  '}
+  };
+  const elseClause = {
+    id: 'clause:else', kind: 'clause', from: elseFrom, to: source.length, children: [],
+    metadata: {clauseRole: 'else', headerTo: elseFrom + 'else:'.length, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elifClause, elseClause],
+    metadata: {type: 'If', blockRole: 'container', bodyEnd: elifFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-clause', target: {from: elifClause.from, to: elifClause.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\nelse:\n  pass\n');
+});
+
+test('removes the only elif branch, leaving a bare if', () => {
+  const source = 'if ready:\n  pass\nelif retry:\n  pass\n';
+  const elifFrom = source.indexOf('elif retry:');
+  const elifClause = {
+    id: 'clause:elif', kind: 'clause', from: elifFrom, to: source.length, children: [],
+    metadata: {clauseRole: 'elif', headerTo: elifFrom + 'elif retry:'.length, bodyEnd: source.length, bodyIndentation: '  '}
+  };
+  const statement = {
+    id: 'statement:if', kind: 'statement', from: 0, to: source.length, children: [elifClause],
+    metadata: {type: 'If', blockRole: 'container', bodyEnd: elifFrom, bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-clause', target: {from: elifClause.from, to: elifClause.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'if ready:\n  pass\n');
+});
+
+test('appends a new empty argument after existing call arguments', () => {
+  const source = 'first(a)\n';
+  const argSocket = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argSocket],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: callSocket.from, to: callSocket.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first(a, )\n');
+});
+
+test('adds an argument to a bare call statement with a trailing comment containing ")"', () => {
+  // A bare call-as-statement target searched to its own physical line's
+  // end, not its own range - a trailing comment sharing that line could
+  // contain its own ")" unrelated to the call, found before the call's real
+  // one, splicing the new argument into the comment instead of the call.
+  const source = 'f(a)  # )\n';
+  const argSocket = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argSocket],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.indexOf(')') + 1, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: statement.from, to: statement.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'f(a, )  # )\n');
+});
+
+test('appends a new empty element to a list literal', () => {
+  const source = 'items = [a]\n';
+  const itemSocket = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'list-item'}
+  };
+  const listSocket = {
+    id: 'socket:list', kind: 'socket', from: source.indexOf('['), to: source.indexOf(']') + 1, children: [itemSocket],
+    metadata: {type: 'List', socketRole: 'assignment-value'}
+  };
+  const statement = {id: 'statement:assign', kind: 'statement', from: 0, to: source.length, children: [listSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: listSocket.from, to: listSocket.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'items = [a, ]\n');
+});
+
+test('"+" on an empty call/list/def is a no-op, not an invalid leading comma', () => {
+  // A zero-item call/list/def already has a directly-editable synthetic
+  // empty socket (see emptyCallArgumentSocket/emptyParameterSocket/
+  // emptyListItemSocket) - splicing a leading "," in before any real item
+  // exists produces invalid syntax (`print(, )`), since a call/parameter
+  // list/list literal allows no leading elision.
+  let source = 'first()\n';
+  let callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  let statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  let parsed = projection(source, [statement]);
+  assert.deepEqual(transformPython(
+    {type: 'insert-sequence-item', target: {from: callSocket.from, to: callSocket.to}}, parsed, () => ({})
+  ), []);
+
+  source = 'items = []\n';
+  let listSocket = {
+    id: 'socket:list', kind: 'socket', from: source.indexOf('['), to: source.indexOf(']') + 1, children: [],
+    metadata: {type: 'List', socketRole: 'assignment-value'}
+  };
+  statement = {id: 'statement:assign', kind: 'statement', from: 0, to: source.length, children: [listSocket]};
+  parsed = projection(source, [statement]);
+  assert.deepEqual(transformPython(
+    {type: 'insert-sequence-item', target: {from: listSocket.from, to: listSocket.to}}, parsed, () => ({})
+  ), []);
+
+  source = 'def f():\n  pass\n';
+  statement = {id: 'statement:def', kind: 'statement', from: 0, to: source.length, children: [],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}};
+  parsed = projection(source, [statement]);
+  assert.deepEqual(transformPython(
+    {type: 'insert-sequence-item', target: {from: statement.from, to: statement.to}}, parsed, () => ({})
+  ), []);
+});
+
+test('appends a new empty parameter to a function definition', () => {
+  const source = 'def f(a, b):\n  pass\n';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const paramB = {
+    id: 'socket:b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length, children: [paramA, paramB],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a, b, ):\n  pass\n');
+});
+
+test('adds a parameter to a compact single-line def whose body has its own nested call', () => {
+  // insert-sequence-item's target search used the whole physical line for a
+  // statement target, not just its own header - for a compact single-line
+  // def (`def f(a): g()`), the line also contains the body, and a backward
+  // search for ")" from the line's end found g()'s own closing paren (the
+  // last one in the text) instead of f's own parameter list, corrupting the
+  // wrong call entirely.
+  const source = 'def f(a): g()\n';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length - 1, children: [paramA],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length - 1}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a, ): g()\n');
+});
+
+test('projects an editable trailing socket after "+" leaves a dangling "," behind a real call argument, parameter, or list item', () => {
+  // addEmptyCallArgumentSocket/addEmptyParameterSocket/addEmptyListItemSocket
+  // used to add their synthetic empty socket only when the sequence had zero
+  // real items. Brython still reports the same real item count after "+"
+  // splices a "," before the closing delimiter (the trailing "," is not
+  // itself an item), so the gap it leaves behind had nothing typed into it -
+  // and clicking "+" again would splice a second, invalid leading comma in
+  // front of the last real item.
+  const position = (source) => (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (source) => (type, from, to, extra = {}) => {
+    const pos = position(source);
+    return {type, ...pos(from), end_lineno: pos(to).lineno, end_col_offset: pos(to).col_offset, ...extra};
+  };
+
+  const callSource = 'first(a, )\n';
+  const at = located(callSource);
+  const argA = at('Name', callSource.indexOf('a'), callSource.indexOf('a') + 1, {id: 'a'});
+  const call = at('Call', 0, callSource.indexOf(')') + 1, {func: at('Name', 0, 5, {id: 'first'}), args: [argA]});
+  const callExpr = at('Expr', 0, callSource.indexOf(')') + 1, {value: call});
+  const callParsed = parsePython(callSource, () => ({type: 'Module', body: [callExpr]}));
+  const trailingArgument = collectProjectedNodes(callParsed.root).find((node) => node.metadata?.socketRole === 'call-argument' && node.metadata?.empty);
+  assert.ok(trailingArgument, 'a new editable call-argument socket must appear before the closing parenthesis');
+  assert.equal(trailingArgument.from, callSource.indexOf(')'));
+
+  const defSource = 'def f(a, ):\n  pass\n';
+  const atDef = located(defSource);
+  const paramA = atDef('arg', defSource.indexOf('a'), defSource.indexOf('a') + 1, {arg: 'a'});
+  const passStatement = atDef('Pass', defSource.indexOf('pass'), defSource.indexOf('pass') + 4);
+  const fn = atDef('FunctionDef', 0, defSource.indexOf('\n'), {
+    name: 'f', args: {lineno: 1, posonlyargs: [], args: [paramA], kwonlyargs: []}, body: [passStatement], decorator_list: []
+  });
+  const defParsed = parsePython(defSource, () => ({type: 'Module', body: [fn]}));
+  const trailingParameter = collectProjectedNodes(defParsed.root).find((node) => node.metadata?.socketRole === 'parameter' && node.metadata?.empty);
+  assert.ok(trailingParameter, 'a new editable parameter socket must appear before the closing parenthesis');
+  assert.equal(trailingParameter.from, defSource.indexOf(')'));
+
+  const listSource = 'x = [a, ]\n';
+  const atList = located(listSource);
+  const elt = atList('Name', listSource.indexOf('a'), listSource.indexOf('a') + 1, {id: 'a'});
+  const list = atList('List', listSource.indexOf('['), listSource.indexOf(']') + 1, {elts: [elt]});
+  const assign = atList('Assign', 0, listSource.length - 1, {targets: [atList('Name', 0, 1, {id: 'x'})], value: list});
+  const listParsed = parsePython(listSource, () => ({type: 'Module', body: [assign]}));
+  const trailingItem = collectProjectedNodes(listParsed.root).find((node) => node.metadata?.socketRole === 'list-item' && node.metadata?.empty);
+  assert.ok(trailingItem, 'a new editable list-item socket must appear before the closing bracket');
+  assert.equal(trailingItem.from, listSource.indexOf(']'));
+});
+
+test('finds the trailing socket even when the last real item is a keyword argument or a defaulted parameter', () => {
+  // The dangling-"," detection above only looked at a call's positional
+  // node.args, or a def's bare parameter names - a call's own keyword
+  // arguments (f(a, b=1)) are a separate AST field, and a parameter's
+  // default value expression (def f(a, b=1)) sits further into the source
+  // than its own name. Either one can be the last real item by position,
+  // and was missed entirely.
+  const position = (source) => (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (source) => (type, from, to, extra = {}) => {
+    const pos = position(source);
+    return {type, ...pos(from), end_lineno: pos(to).lineno, end_col_offset: pos(to).col_offset, ...extra};
+  };
+
+  const callSource = 'first(a, b=1, )\n';
+  const at = located(callSource);
+  const argA = at('Name', callSource.indexOf('a'), callSource.indexOf('a') + 1, {id: 'a'});
+  const kwValue = at('Num', callSource.indexOf('1'), callSource.indexOf('1') + 1, {});
+  const keyword = at('keyword', callSource.indexOf('b'), callSource.indexOf('1') + 1, {arg: 'b', value: kwValue});
+  const call = at('Call', 0, callSource.indexOf(')') + 1, {
+    func: at('Name', 0, 5, {id: 'first'}), args: [argA], keywords: [keyword]
+  });
+  const callExpr = at('Expr', 0, callSource.indexOf(')') + 1, {value: call});
+  const callParsed = parsePython(callSource, () => ({type: 'Module', body: [callExpr]}));
+  const trailingArgument = collectProjectedNodes(callParsed.root)
+    .find((node) => node.metadata?.socketRole === 'call-argument' && node.metadata?.empty);
+  assert.ok(trailingArgument, 'a new editable call-argument socket must appear after the keyword argument');
+  assert.equal(trailingArgument.from, callSource.indexOf(')'));
+
+  const defSource = 'def f(a, b=1, ):\n  pass\n';
+  const atDef = located(defSource);
+  const paramA = atDef('arg', defSource.indexOf('a'), defSource.indexOf('a') + 1, {arg: 'a'});
+  const paramB = atDef('arg', defSource.indexOf('b'), defSource.indexOf('b') + 1, {arg: 'b'});
+  const defaultValue = atDef('Num', defSource.indexOf('1'), defSource.indexOf('1') + 1, {});
+  const passStatement = atDef('Pass', defSource.indexOf('pass'), defSource.indexOf('pass') + 4);
+  const fn = atDef('FunctionDef', 0, defSource.indexOf('\n'), {
+    name: 'f',
+    args: {lineno: 1, posonlyargs: [], args: [paramA, paramB], kwonlyargs: [], defaults: [defaultValue]},
+    body: [passStatement], decorator_list: []
+  });
+  const defParsed = parsePython(defSource, () => ({type: 'Module', body: [fn]}));
+  const trailingParameter = collectProjectedNodes(defParsed.root)
+    .find((node) => node.metadata?.socketRole === 'parameter' && node.metadata?.empty);
+  assert.ok(trailingParameter, 'a new editable parameter socket must appear after the defaulted parameter');
+  assert.equal(trailingParameter.from, defSource.indexOf(')'));
+});
+
+test('places a zero-parameter def\'s synthetic socket at its own closing parenthesis, not a nested call\'s', () => {
+  // addEmptyParameterSocket searched backward from the physical line's end -
+  // for a compact single-line def with no parameters ("def f(): g()"), the
+  // line also contains the body, and that search found g()'s own closing
+  // paren (the last one in the text) instead of f's own, placing the
+  // synthetic empty socket inside the nested call instead of before f's ")".
+  const position = (source) => (offset) => {
+    const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+    return {lineno: source.slice(0, offset).split('\n').length, col_offset: offset - lineStart};
+  };
+  const located = (source) => (type, from, to, extra = {}) => {
+    const pos = position(source);
+    return {type, ...pos(from), end_lineno: pos(to).lineno, end_col_offset: pos(to).col_offset, ...extra};
+  };
+
+  const source = 'def f(): g()\n';
+  const at = located(source);
+  const gCall = at('Call', source.indexOf('g'), source.indexOf('g()') + 3, {
+    func: at('Name', source.indexOf('g'), source.indexOf('g') + 1, {id: 'g'}), args: []
+  });
+  const gExpr = at('Expr', source.indexOf('g'), source.indexOf('g()') + 3, {value: gCall});
+  const fn = at('FunctionDef', 0, source.indexOf('\n'), {
+    name: 'f', args: {lineno: 1, posonlyargs: [], args: [], kwonlyargs: []}, body: [gExpr], decorator_list: []
+  });
+  const parsed = parsePython(source, () => ({type: 'Module', body: [fn]}));
+
+  const emptyParameter = collectProjectedNodes(parsed.root)
+    .find((node) => node.metadata?.socketRole === 'parameter' && node.metadata?.empty);
+  assert.ok(emptyParameter, 'the zero-parameter def must still get its own empty parameter socket');
+  assert.equal(emptyParameter.from, source.indexOf(')'), 'the socket must sit at f\'s own closing parenthesis, not g()\'s');
+});
+
+test('adds a parameter to a def whose own default value string contains an unmatched "("', () => {
+  // matchingDelimiterEnd depth-tracked raw "(" and ")" characters with no
+  // awareness of Python string literals - a="(" leaves one unbalanced "("
+  // inside the string, so depth never returns to zero at the def's own real
+  // closing parenthesis and the scan ran off the end of the source instead.
+  const source = 'def f(a="("):\n  pass\n';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length - 1, children: [paramA],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length - 1}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a="(", ):\n  pass\n');
+});
+
+test('adds a parameter to a def whose own default value string contains an unmatched ")", without splicing into the string', () => {
+  // The mirror image of the "(" case above is worse: with a=")" as the last
+  // parameter, the fake ")" inside the string closes the raw depth count
+  // early, so the old scan returned a position *inside* the string literal
+  // instead of throwing - silently splicing the new parameter's comma into
+  // the middle of the string's own text instead of before the def's real
+  // closing parenthesis.
+  const source = 'def f(a=")"):\n  pass\n';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length - 1, children: [paramA],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length - 1}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a=")", ):\n  pass\n');
+});
+
+test('adds a parameter to a def whose header comment sits on a bare-CR line', () => {
+  // matchingDelimiterEnd's own comment-skip searched only for "\n" - with a
+  // bare-CR source (old Mac-style line endings, still valid input this
+  // adapter otherwise handles - see physicalLines), indexOf('\n', ...) never
+  // finds one, so the comment-skip jumped straight to the end of the whole
+  // source instead of just past the comment's own line, treating everything
+  // after the comment (including the def's own real closing parenthesis) as
+  // part of it and never finding a real delimiter to depth-track.
+  const source = 'def f(a,  # note\r      b):\r  pass\r';
+  const paramA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const paramB = {
+    id: 'socket:b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, children: [],
+    metadata: {type: 'arg', socketRole: 'parameter'}
+  };
+  const statement = {
+    id: 'statement:def', kind: 'statement', from: 0, to: source.length - 1, children: [paramA, paramB],
+    metadata: {type: 'FunctionDef', blockRole: 'container', bodyIndentation: '  '}
+  };
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'insert-sequence-item', target: {from: 0, to: source.length - 1}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'def f(a,  # note\r      b, ):\r  pass\r');
+});
+
+test('removes the last call argument when its own separating comma follows a comment on a bare-CR line', () => {
+  // commaAfter's own comment-skip has the same "\n"-only bug as
+  // matchingDelimiterEnd above - with the kept argument's comment on a
+  // bare-CR continuation line, the scan jumped to the end of the source
+  // and never found the real separating comma, leaving it dangling behind
+  // after the removed item instead of being removed along with it.
+  const source = 'first(a  # keep a\r      , b)\r';
+  const argA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const argB = {
+    id: 'socket:b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argA, argB],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: argB.from, to: argB.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first(a)\r');
+});
+
+test('removes a middle call argument, splicing its own separating comma', () => {
+  const source = 'first(a, b, c)\n';
+  const args = ['a', 'b', 'c'].map((letter) => ({
+    id: `socket:${letter}`, kind: 'socket', from: source.indexOf(letter, 5), to: source.indexOf(letter, 5) + 1,
+    children: [], metadata: {type: 'Name', socketRole: 'call-argument'}
+  }));
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: args,
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: args[1].from, to: args[1].to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first(a, c)\n');
+});
+
+test('removes the last remaining call argument, leaving an empty call', () => {
+  const source = 'first(a)\n';
+  const argSocket = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argSocket],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: argSocket.from, to: argSocket.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first()\n');
+});
+
+test('removing the last call argument does not delete a trailing comment that belongs to the one before it', () => {
+  // remove-sequence-item's last-item branch used to delete everything from
+  // the *previous*, kept argument's own end through the removed item's own
+  // end - a trailing "#" comment between them (visually attached to the
+  // previous, surviving argument) was swept away along with the separating
+  // comma and the removed item, even though it describes "a" completely
+  // untouched by this edit.
+  const source = 'first(a,  # keep a\n  b)\n';
+  const argA = {
+    id: 'socket:a', kind: 'socket', from: source.indexOf('a'), to: source.indexOf('a') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const argB = {
+    id: 'socket:b', kind: 'socket', from: source.indexOf('b'), to: source.indexOf('b') + 1, children: [],
+    metadata: {type: 'Name', socketRole: 'call-argument'}
+  };
+  const callSocket = {
+    id: 'socket:call', kind: 'socket', from: 0, to: source.indexOf(')') + 1, children: [argA, argB],
+    metadata: {type: 'Call', socketRole: 'expression'}
+  };
+  const statement = {id: 'statement:call', kind: 'statement', from: 0, to: source.length, children: [callSocket]};
+  const parsed = projection(source, [statement]);
+
+  const changes = transformPython(
+    {type: 'remove-sequence-item', target: {from: argB.from, to: argB.to}}, parsed, () => ({})
+  );
+
+  assert.equal(applySourceChanges(source, changes), 'first(a  # keep a\n  )\n');
+});
+
+test('rejects Python block changes that Brython cannot parse', () => {
+  const source = 'value = 1\n';
+  const socket = {id: 'socket:value', kind: 'socket', from: 8, to: 9, children: []};
+  const parsed = projection(source, [{id: 'statement:assign', kind: 'statement', from: 0, to: 9, children: [socket]}]);
+
+  assert.throws(() => transformPython({
+    type: 'replace-socket', target: {from: 8, to: 9}, source: '('
+  }, parsed, () => { throw new Error('invalid syntax'); }), /invalid source/);
+});
+
 function collectProjectedNodes(node) {
   return [node, ...(node.children ?? []).flatMap(collectProjectedNodes)];
+}
+
+function projection(source, children) {
+  return {source, root: {id: 'document', kind: 'document', from: 0, to: source.length, children}};
 }

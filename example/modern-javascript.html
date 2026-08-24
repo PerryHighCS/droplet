@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Modern Droplet JavaScript playground</title>
+  <style>
+    body { margin: 0; color: #182235; background: #f7f9fc; font: 15px/1.4 system-ui, sans-serif; }
+    header, main { max-width: 1200px; margin: auto; padding: 1rem; }
+    header { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 1.45rem; }
+    .controls { display: flex; gap: .5rem; flex-wrap: wrap; }
+    button, select { font: inherit; padding: .35rem .55rem; }
+    #modern-javascript-status { color: #3d566e; min-height: 1.4rem; }
+    .workspace { display: grid; grid-template-columns: minmax(190px, .28fr) minmax(0, 1.72fr); gap: 1rem; align-items: start; }
+    .panels { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); gap: 1rem; }
+    .panel { min-width: 0; background: white; border: 1px solid #d8e0eb; border-radius: 6px; padding: .75rem; }
+    .panel h2 { margin: 0 0 .6rem; font-size: 1rem; }
+    #modern-javascript-editor { min-height: 360px; }
+    #modern-javascript-editor .droplet-block-surface { padding: 14px 10px 10px 10px; }
+    /* Matches css/droplet.css's ".droplet-ace { font-family: Courier, monospace }";
+       still monospace, so the engine's built-in text-width measurement (used
+       to size and position sockets) stays accurate. */
+    #modern-javascript-editor text { font-family: Courier, monospace; }
+    pre { margin: 0; padding: .65rem; overflow: auto; background: #f4f7fb; border-radius: 4px; white-space: pre-wrap; }
+    #modern-javascript-editor [data-droplet-kind="statement"],
+    #modern-javascript-editor [data-droplet-kind="container"] { cursor: grab; }
+    @media (max-width: 800px) { .workspace, .panels { grid-template-columns: 1fr; } }
+
+    /*
+     * Colors match App Lab's own toolbox (code.org's browser JavaScript
+     * environment - a customized skin over this same Droplet library, not
+     * its generic defaults): four categories cover plain JavaScript -
+     * control (blue), math (orange, covering arithmetic AND comparison/
+     * boolean operators together the way App Lab's Math category does),
+     * variables (purple), and functions (green, which is also where App Lab
+     * puts a function call, alongside the definition it invokes). Approximated
+     * by eye from the App Lab toolbox screenshots, not pixel-sampled.
+     * Black monospace text throughout (css/droplet.css:
+     * ".droplet-main-canvas text { fill: #000 }") and the notched/interlocking
+     * block silhouette (view.coffee's tab/bevel geometry) come from the
+     * engine's own layoutOptions.tabConnector mode, not this stylesheet.
+     */
+    #modern-javascript-palette { display: grid; gap: .5rem; }
+    .palette-category summary { margin: 0 0 .35rem; padding: .3rem .5rem; border-radius: 4px; font-size: .9rem; font-weight: 700; cursor: pointer; color: #fff; }
+    .palette-category summary:hover, .palette-category summary:focus-visible { filter: brightness(1.08); }
+    .palette-category[open] summary { margin-bottom: .5rem; }
+    .palette-blocks { display: grid; gap: .4rem; }
+    .palette-block {
+      border: 1px solid var(--cat-stroke, #7a9ec4); border-radius: 3px;
+      background: var(--cat-fill, #fff); color: #000; cursor: grab;
+      font: 14px Courier, ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left;
+      padding: .4rem .6rem;
+    }
+    .palette-block:hover, .palette-block:focus-visible { filter: brightness(.96); outline: 2px solid var(--cat-stroke, #7a9ec4); outline-offset: 1px; }
+    /* App Lab's Math operators are rounded "value"/reporter blocks (ovals),
+       distinct from the notched statement-block shape everything else uses;
+       a block dropped into a socket renders as a compound socket instead
+       (see block-surface-dom.js's renderCompoundSocket), so only the
+       palette button itself needs this shape. */
+    .cat-math .palette-block { border-radius: 999px; padding-left: .8rem; padding-right: .8rem; }
+
+    /* Each category's saturated tone (used at full strength in App Lab's own
+       toolbox, whose header/summary bars use white text) is too dark a
+       background for the black text every block itself carries - so it
+       becomes the block's border/shadow instead, and a lighter tint of the
+       same hue (high enough luminance for comfortable black-on-fill
+       contrast) is the block's own fill. */
+    /* control: if/if-else, while, for, break/continue */
+    .cat-control summary { background: #2f6bab; }
+    .cat-control .palette-block { --cat-fill: #8fbce8; --cat-stroke: #4d90d6; }
+    /* math: arithmetic, comparison, boolean operators, and Math.* */
+    .cat-math summary { background: #c4841f; }
+    .cat-math .palette-block { --cat-fill: #f5c785; --cat-stroke: #efa83d; }
+    /* variables: declaration, assignment, compound assignment */
+    .cat-variables summary { background: #7649a0; }
+    .cat-variables .palette-block { --cat-fill: #c3a8dd; --cat-stroke: #9c6fc4; }
+    /* functions: declare, call, return */
+    .cat-functions summary { background: #3f8a3f; }
+    .cat-functions .palette-block { --cat-fill: #a3d3a3; --cat-stroke: #63b563; }
+
+    /* Recolor the rendered blocks on the surface to match the same
+       categories. Text always stays black, matching the legacy renderer.
+       (Statement/container frames render as a plain rect/path only when
+       narrower than the notch+tab connector shape needs - see
+       hasConnectorWidth in block-surface-dom.js - so both element types are
+       covered here.) */
+    #modern-javascript-editor [data-droplet-kind="statement"] > rect,
+    #modern-javascript-editor [data-droplet-kind="statement"] > path,
+    #modern-javascript-editor [data-droplet-kind="container"] > path { stroke-width: 1.5px; }
+    #modern-javascript-editor [data-droplet-kind="socket"] > rect,
+    #modern-javascript-editor [data-droplet-kind="recovery-socket"] > rect { rx: 3px; ry: 3px; fill: #fff; stroke: #9aa5b1; }
+
+    #modern-javascript-editor [data-droplet-category="control"] > rect,
+    #modern-javascript-editor [data-droplet-category="control"] > path
+      { fill: #8fbce8; stroke: #4d90d6; filter: drop-shadow(1.5px 1.5px 0 #4d90d6); }
+    #modern-javascript-editor [data-droplet-category="math"] > rect,
+    #modern-javascript-editor [data-droplet-category="math"] > path
+      { fill: #f5c785; stroke: #efa83d; filter: drop-shadow(1.5px 1.5px 0 #efa83d); }
+    #modern-javascript-editor [data-droplet-category="variables"] > rect,
+    #modern-javascript-editor [data-droplet-category="variables"] > path
+      { fill: #c3a8dd; stroke: #9c6fc4; filter: drop-shadow(1.5px 1.5px 0 #9c6fc4); }
+    #modern-javascript-editor [data-droplet-category="functions"] > rect,
+    #modern-javascript-editor [data-droplet-category="functions"] > path
+      { fill: #a3d3a3; stroke: #63b563; filter: drop-shadow(1.5px 1.5px 0 #63b563); }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "@droplet/core": "/packages/core/src/index.js",
+        "@droplet/codemirror-editor": "/packages/codemirror-editor/src/index.js",
+        "@droplet/codemirror-editor/droplet": "/packages/codemirror-editor/src/droplet.js",
+        "@droplet/javascript-adapter": "/packages/javascript-adapter/src/index.js",
+        "acorn": "/packages/javascript-adapter/node_modules/acorn/dist/acorn.mjs",
+        "@codemirror/state": "/playwright/node_modules/@codemirror/state/dist/index.js",
+        "@codemirror/view": "/playwright/node_modules/@codemirror/view/dist/index.js",
+        "@codemirror/commands": "/playwright/node_modules/@codemirror/commands/dist/index.js",
+        "@codemirror/language": "/playwright/node_modules/@codemirror/language/dist/index.js",
+        "@lezer/common": "/playwright/node_modules/@lezer/common/dist/index.js",
+        "@lezer/highlight": "/playwright/node_modules/@lezer/highlight/dist/index.js",
+        "@lezer/lr": "/playwright/node_modules/@lezer/lr/dist/index.js",
+        "@marijn/find-cluster-break": "/playwright/node_modules/@marijn/find-cluster-break/src/index.js",
+        "crelt": "/playwright/node_modules/crelt/index.js",
+        "style-mod": "/playwright/node_modules/style-mod/src/style-mod.js",
+        "w3c-keyname": "/playwright/node_modules/w3c-keyname/index.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Modern Droplet JavaScript playground</h1>
+    <div class="controls">
+      <label>Sample <select id="modern-javascript-sample"></select></label>
+      <button id="modern-javascript-mode" type="button">Use block mode</button>
+      <button id="modern-javascript-move" type="button">Move statement</button>
+      <button id="modern-javascript-insert" type="button">Insert if-block</button>
+    </div>
+    <output id="modern-javascript-status">Loading modern editor…</output>
+  </header>
+  <main class="workspace">
+    <aside class="panel">
+      <h2>Palette</h2>
+      <p>Blocks use App Lab's own category colors and the legacy Droplet editor's notch shape. Drag one to an insertion guide, or select a block/socket first and click a palette block to insert or replace it.</p>
+      <div id="modern-javascript-palette"></div>
+    </aside>
+    <div class="panels">
+      <section class="panel">
+      <h2>Editor</h2>
+      <p id="modern-javascript-help">Colored statement and container blocks are draggable. A floating preview follows the pointer, while a translucent preview and insertion guide show the gap where it will land. Switch to text mode to edit raw source.</p>
+      <div id="modern-javascript-editor"></div>
+      </section>
+      <section class="panel">
+      <h2>Exact source</h2>
+      <pre id="modern-javascript-source"></pre>
+      <h2>Current projection</h2>
+      <pre id="modern-javascript-projection"></pre>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="./modern-javascript.mjs"></script>
+</body>
+</html>

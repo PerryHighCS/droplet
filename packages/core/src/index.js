@@ -125,6 +125,118 @@ export function normalizeSourceChanges(source, changes) {
   return normalized;
 }
 
+/**
+ * Depth-first search for a node with an exact kind and range match. Shared by
+ * the language adapters' transform functions to resolve a source-range
+ * operation's target/source back to a live projection node.
+ */
+export function findNode(node, range, kind) {
+  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
+  if (node.kind === kind && node.from === range.from && node.to === range.to) return node;
+  for (const child of node.children ?? []) {
+    const found = findNode(child, range, kind);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** Depth-first search for a 'socket' or 'recovery-socket' node at an exact range. */
+export function findSocket(node, range) {
+  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
+  if ((node.kind === 'socket' || node.kind === 'recovery-socket') && node.from === range.from && node.to === range.to) {
+    return node;
+  }
+  for (const child of node.children ?? []) {
+    const found = findSocket(child, range);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * Depth-first search for any node at an exact range, regardless of kind -
+ * preferring the innermost match, the same way hitTestBlockLayout prefers a
+ * child over its enclosing container. A single-statement document with no
+ * trailing newline gives its one statement (or a call/def nested inside it)
+ * the exact same range as the document root itself; checking children first
+ * resolves the specific statement/expression a caller actually meant instead
+ * of the document wrapping it, without needing kind-aware call sites.
+ */
+export function findAny(node, range) {
+  if (!node || !Number.isInteger(range?.from) || !Number.isInteger(range?.to)) return undefined;
+  for (const child of node.children ?? []) {
+    const found = findAny(child, range);
+    if (found) return found;
+  }
+  return node.from === range.from && node.to === range.to ? node : undefined;
+}
+
+/** Finds the direct parent of a specific node instance within a projection tree. */
+export function findParent(node, target) {
+  for (const child of node.children ?? []) {
+    if (child === target) return node;
+    const parent = findParent(child, target);
+    if (parent) return parent;
+  }
+  return undefined;
+}
+
+/** A stable, source-position-first ordering for a projection node's children. */
+export function compareProjectedNodes(left, right) {
+  return left.from - right.from || left.to - right.to || left.id.localeCompare(right.id);
+}
+
+/** Throws unless `parsed` looks like a current `{source, root}` projection. */
+export function assertParsedSource(parsed, language) {
+  if (typeof parsed?.source !== 'string' || !parsed?.root) {
+    throw new TypeError(`A current ${language} projection is required`);
+  }
+}
+
+/** Throws unless a block operation's own replacement/insertion text is a string. */
+export function assertOperationSource(source, label) {
+  if (typeof source !== 'string') throw new TypeError(`${label} source must be a string`);
+}
+
+/** Throws unless a statement destination is a zero-width position within the source. */
+export function assertInsertionPoint(source, destination) {
+  if (!Number.isInteger(destination?.from) || destination.from !== destination.to ||
+      destination.from < 0 || destination.from > source.length) {
+    throw new RangeError('Statement destination must be a zero-width source position');
+  }
+}
+
+/**
+ * Splits source into its physical lines, each carrying its own line-ending
+ * string (so the original text is exactly `lines.map(l => l.text + l.ending).join('')`).
+ * A trailing line with no terminator is included with ending: ''.
+ */
+export function physicalLines(source) {
+  const lines = [];
+  let from = 0;
+  // A sticky/global regex with lastIndex, not source.slice(index) re-run on
+  // every line: slicing the whole remaining source on each iteration makes
+  // this O(source length x line count), and this runs on every parse - every
+  // keystroke, in the live editor.
+  const ending = /\r\n|\r|\n/g;
+  let match;
+  while ((match = ending.exec(source)) !== null) {
+    const to = match.index + match[0].length;
+    lines.push({from, to, text: source.slice(from, match.index), ending: match[0]});
+    from = to;
+    ending.lastIndex = to;
+  }
+  if (from < source.length) lines.push({from, to: source.length, text: source.slice(from), ending: ''});
+  return lines;
+}
+
+/** The end of the physical line containing `position` (before its own line ending, if any). */
+export function lineTextEnd(source, position) {
+  let end = position;
+  while (end < source.length && source[end] !== '\r' && source[end] !== '\n') end += 1;
+  return end;
+}
+
 function normalizeOpaqueRegion(source, region, index) {
   if (!OPAQUE_KINDS.has(region?.kind)) {
     throw new TypeError(`Unsupported opaque node kind: ${region?.kind}`);

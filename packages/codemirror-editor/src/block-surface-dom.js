@@ -1,0 +1,1476 @@
+import {createBlockLayout, createSubtreePreview, hitTestBlockLayout} from './block-surface.js';
+import {canAddElifClause, canAddElseClause} from './clause-add-eligibility.js';
+
+/**
+ * DOM/SVG host for a BlockSurface layout. It owns visual geometry only: source
+ * and editing remain with the CodeMirror adapter that supplies projections.
+ */
+export class BlockSurface {
+  #parent;
+  #dom;
+  #svg;
+  #onSelect;
+  #onOperation;
+  #onSocketEdit;
+  #layoutOptions;
+  #layout;
+  #drag;
+  #socketEditor;
+  #selectedNode;
+  #suppressClick = false;
+  #document;
+  #endDragFromDocument;
+  #cancelDragFromDocument;
+  #readOnly = false;
+
+  constructor({parent, onSelect, onOperation, onSocketEdit, layoutOptions = {}, readOnly = false}) {
+    if (!parent?.ownerDocument) throw new TypeError('A BlockSurface parent element is required');
+    if (onSelect !== undefined && typeof onSelect !== 'function') throw new TypeError('onSelect must be a function');
+    if (onOperation !== undefined && typeof onOperation !== 'function') throw new TypeError('onOperation must be a function');
+    if (onSocketEdit !== undefined && typeof onSocketEdit !== 'function') throw new TypeError('onSocketEdit must be a function');
+    this.#parent = parent;
+    this.#onSelect = onSelect;
+    this.#onOperation = onOperation;
+    this.#onSocketEdit = onSocketEdit;
+    this.#layoutOptions = layoutOptions;
+    this.#readOnly = readOnly === true;
+    this.#dom = parent.ownerDocument.createElement('div');
+    this.#dom.className = 'droplet-block-surface';
+    Object.assign(this.#dom.style, {
+      display: 'none', overflow: 'auto', position: 'relative', minHeight: '100%', userSelect: 'none'
+    });
+    this.#dom.tabIndex = 0;
+    this.#svg = parent.ownerDocument.createElementNS(SVG_NAMESPACE, 'svg');
+    this.#svg.setAttribute('role', 'tree');
+    this.#svg.setAttribute('aria-label', 'Droplet blocks');
+    this.#svg.style.display = 'block';
+    // A snake-styled container's wavy edge can dip a pixel or two past its
+    // nominal bounds; let that overshoot paint instead of clipping at the
+    // SVG's own viewBox edge. A host page provides the surrounding padding.
+    this.#svg.style.overflow = 'visible';
+    this.#dom.append(this.#svg);
+    this.#dom.addEventListener('click', (event) => this.#handleClick(event));
+    this.#dom.addEventListener('keydown', (event) => this.#handleKeydown(event));
+    this.#svg.addEventListener('pointerdown', (event) => this.#beginDrag(event));
+    this.#svg.addEventListener('pointermove', (event) => this.#continueDrag(event));
+    this.#svg.addEventListener('pointerup', (event) => this.#endDrag(event));
+    // A trackpad drag toward the canvas edge can end with the OS or browser
+    // delivering pointercancel instead of pointerup (a gesture interrupting
+    // the sequence, or the pointer briefly leaving the capturing element).
+    // Without handling it, the drag state never clears and the release the
+    // user just made is silently lost - so a non-touch cancel still resolves
+    // the drag the same way #endDrag does. A touch pointercancel is a
+    // different situation: the OS taking the gesture over for its own
+    // purposes (scrolling, a system gesture) is not the user releasing over a
+    // chosen destination, and resolving it as one could move, copy, or delete
+    // a block the user never actually dropped - so that case only cancels.
+    this.#svg.addEventListener('pointercancel', (event) => this.#handlePointerCancel(event));
+    // Pointer capture on the SVG normally keeps a release targeted at it even
+    // once the cursor leaves its bounds (dragging above/below the surface),
+    // but that is not perfectly reliable across every browser/input-device
+    // combination. A document-level fallback keeps a drag from getting stuck
+    // - and the user's release from being silently dropped - when it isn't.
+    this.#document = parent.ownerDocument;
+    this.#endDragFromDocument = (event) => this.#endDrag(event);
+    this.#cancelDragFromDocument = (event) => this.#handlePointerCancel(event);
+    this.#document.addEventListener('pointerup', this.#endDragFromDocument, true);
+    this.#document.addEventListener('pointercancel', this.#cancelDragFromDocument, true);
+    this.#dom.addEventListener('dragover', (event) => this.#continuePaletteDrag(event));
+    this.#dom.addEventListener('dragleave', (event) => this.#leavePaletteDrag(event));
+    this.#dom.addEventListener('drop', (event) => this.#dropPaletteBlock(event));
+    parent.append(this.#dom);
+  }
+
+  get element() {
+    return this.#dom;
+  }
+
+  get layout() {
+    return this.#layout;
+  }
+
+  update(projection) {
+    this.#closeSocketEditor();
+    this.#selectedNode = undefined;
+    delete this.#svg.dataset.dropletSelectedId;
+    this.#layout = createBlockLayout(projection, this.#layoutOptions);
+    renderLayout(this.#svg, this.#layout, this.#dom.ownerDocument, this.#layoutOptions);
+    markActionButtonsReadOnly(this.#svg, this.#readOnly);
+  }
+
+  setVisible(visible) {
+    this.#dom.style.display = visible ? 'block' : 'none';
+  }
+
+  setReadOnly(readOnly) {
+    this.#readOnly = readOnly === true;
+    // The add/remove action buttons are otherwise only re-marked on the next
+    // renderLayout() (see update()) - without this, a button already on
+    // screen when readOnly toggles stays tabbable and announced as an
+    // enabled control (#dispatchAction already silently no-ops it, but nothing
+    // signals that to a keyboard or screen-reader user) until the next reparse.
+    markActionButtonsReadOnly(this.#svg, this.#readOnly);
+    if (!this.#readOnly) return;
+    // Flipping the flag alone only gates *future* interaction. An inline
+    // socket editor already open (or a drag already in progress) when
+    // readOnly turns on would otherwise stay live - committing that edit or
+    // completing that drag would still reach #replaceSocketText/
+    // applyBlockOperation, which now throw for a read-only editor.
+    this.#closeSocketEditor();
+    this.#cancelDrag();
+  }
+
+  destroy() {
+    this.#closeSocketEditor();
+    this.#document.removeEventListener('pointerup', this.#endDragFromDocument, true);
+    this.#document.removeEventListener('pointercancel', this.#cancelDragFromDocument, true);
+    this.#dom.remove();
+    this.#layout = undefined;
+  }
+
+  #handleClick(event) {
+    if (this.#suppressClick) {
+      this.#suppressClick = false;
+      return;
+    }
+    if (!this.#layout || event.defaultPrevented) return;
+    // A click inside the already-open inline editor is ordinary text-field
+    // interaction (repositioning the cursor, adjusting the selection). Left
+    // to hit-test against the layout underneath, it would find the same
+    // socket/comment again and reopen the editor, destroying and recreating
+    // the input - clearing whatever selection the click just made.
+    if (event.target?.tagName === 'INPUT') return;
+    // #selectNode's own focus() call below would otherwise blur a different,
+    // still-open socket editor as a side effect, synchronously committing it
+    // mid-handler - if that commit's own text changed length, the reparse
+    // and layout rebuild it triggers happen *after* this handler already
+    // resolved directNode/target below from the stale (pre-edit) layout, so
+    // a click from one edited socket straight to another opened an editor
+    // with a value sliced using now-incorrect offsets. Committing first
+    // (event.target's own detached DOM subtree still resolves correctly
+    // against the refreshed layout below - layoutNodeForElement looks its
+    // node up by id, not by live position) avoids resolving anything from a
+    // layout this click's own side effects are about to invalidate.
+    if (this.#socketEditor) this.#commitSocketEditor(this.#socketEditor);
+    // The elif/else and sequence add/remove affordances are their own
+    // clickable elements, not part of the ordinary hit-test/select flow -
+    // check for one before any of that runs.
+    const actionButton = event.target?.closest?.('[data-droplet-action]');
+    if (actionButton) {
+      this.#dispatchAction(actionButton);
+      return;
+    }
+    const directNode = layoutNodeForElement(this.#layout, event.target);
+    if (isInlineEditable(directNode)) {
+      this.#selectNode(directNode);
+      if (!this.#readOnly) this.#openInlineEditor(directNode);
+      return;
+    }
+    const target = hitTestBlockLayout(this.#layout, pointFor(this.#svg, event));
+    if (isInlineEditable(target?.node)) {
+      this.#selectNode(target.node);
+      if (!this.#readOnly) this.#openInlineEditor(target.node);
+      return;
+    }
+    if (target?.node?.source) this.#selectNode(target.node);
+  }
+
+  #handleKeydown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      // Mirrors #handleClick's own data-droplet-action check: these SVG
+      // button groups have no native Enter/Space activation of their own
+      // (unlike a real <button>), so keyboard focus reaching one is handled
+      // here instead.
+      const actionButton = event.target?.closest?.('[data-droplet-action]');
+      if (actionButton) {
+        event.preventDefault();
+        this.#dispatchAction(actionButton);
+      }
+      return;
+    }
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    // Delete/Backspace inside the open inline editor is ordinary text
+    // editing (its own keydown handler covers clearing it entirely via
+    // select-all) and must not also bubble into the "delete this block"
+    // shortcut below. Checked by element type rather than comparing against
+    // #socketEditor: committing an edit clears that reference synchronously,
+    // before this same event finishes bubbling here.
+    if (event.target?.tagName === 'INPUT' || this.#readOnly) return;
+    const node = this.#selectedNode;
+    if (!node || !isDeletable(node)) return;
+    event.preventDefault();
+    this.#deleteNode(node);
+  }
+
+  #selectNode(node) {
+    this.#selectedNode = node;
+    renderSelection(this.#svg, node, this.#dom.ownerDocument);
+    this.#dom.focus();
+    this.#onSelect?.(node.source);
+  }
+
+  #deleteNode(node) {
+    if (isSocketNode(node)) {
+      this.#onSocketEdit?.({target: node.source, source: ''});
+      return;
+    }
+    this.#onOperation?.({
+      type: 'delete-node',
+      source: node.source,
+      kind: node.kind === 'container' ? 'statement' : node.kind
+    });
+  }
+
+  #dispatchAction(button) {
+    if (!this.#onOperation || this.#readOnly) return;
+    const target = {from: Number(button.dataset.dropletTargetFrom), to: Number(button.dataset.dropletTargetTo)};
+    switch (button.dataset.dropletAction) {
+      case 'add-clause':
+        this.#onOperation({type: 'add-clause', target, role: button.dataset.dropletRole});
+        break;
+      case 'remove-clause':
+        this.#onOperation({type: 'remove-clause', target});
+        break;
+      case 'insert-sequence-item':
+        this.#onOperation({type: 'insert-sequence-item', target});
+        break;
+      case 'remove-sequence-item':
+        this.#onOperation({type: 'remove-sequence-item', target});
+        break;
+    }
+  }
+
+  #openInlineEditor(node) {
+    if (!this.#onSocketEdit) return;
+    const isComment = node.kind === 'comment';
+    this.#closeSocketEditor();
+    // The input is an absolutely positioned sibling of the SVG, not part of
+    // its coordinate system, so a host page adding padding/border around the
+    // SVG (or scaling it) would otherwise leave the input misaligned with
+    // the node it edits.
+    const {left, top, scale} = this.#svgOffset();
+    // A comment's own leading marker (Python's "#"; some other adapter's own
+    // syntax, e.g. a future JavaScript "//") isn't part of what the user is
+    // editing, so exclude it from the input's value and bounds and leave it
+    // showing through as plain, uneditable text. This surface is otherwise
+    // language-independent - the marker itself comes from the comment node's
+    // own projection metadata, not a hardcoded literal, so an adapter using a
+    // different (or multi-character) marker is not corrupted on edit. 8
+    // matches the horizontal text padding renderSourceLabels positions
+    // labels with.
+    const measureText = this.#layoutOptions.measureText ?? ((text) => text.length * 10);
+    const commentPrefix = node.metadata?.commentPrefix ?? '#';
+    const prefixWidth = isComment ? 8 + measureText(commentPrefix) : 0;
+    const editableFrom = node.source.from + (isComment ? commentPrefix.length : 0);
+    const input = this.#dom.ownerDocument.createElement('input');
+    input.className = 'droplet-socket-editor';
+    input.value = this.#layout.source.slice(editableFrom, node.source.to);
+    input.setAttribute('aria-label', isComment ? 'comment' : `${node.metadata?.socketRole ?? 'expression'} socket`);
+    Object.assign(input.style, {
+      position: 'absolute',
+      left: `${left + (node.bounds.left + prefixWidth) * scale}px`, top: `${top + node.bounds.top * scale}px`,
+      width: `${Math.max(24, (node.bounds.right - node.bounds.left - prefixWidth) * scale)}px`,
+      height: `${(node.bounds.bottom - node.bounds.top) * scale}px`, boxSizing: 'border-box',
+      border: '1px solid #246ca8', borderRadius: '3px', padding: '0 3px',
+      font: '16px ui-monospace, SFMono-Regular, Menlo, monospace', color: '#24344d', background: '#fff'
+    });
+    const editing = {input, node, isComment, commentPrefix, source: node.source, original: input.value};
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        this.#commitSocketEditor(editing);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        this.#closeSocketEditor();
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && input.selectionStart === 0 &&
+          input.selectionEnd === input.value.length) {
+        event.preventDefault();
+        input.value = '';
+        this.#commitSocketEditor(editing);
+      }
+    });
+    input.addEventListener('blur', () => this.#commitSocketEditor(editing));
+    this.#socketEditor = editing;
+    this.#dom.append(input);
+    input.focus();
+    input.select();
+  }
+
+  #svgOffset() {
+    const svgRect = this.#svg.getBoundingClientRect();
+    const hostRect = this.#dom.getBoundingClientRect();
+    const declaredWidth = Number(this.#svg.getAttribute('width'));
+    const scale = declaredWidth && svgRect.width ? svgRect.width / declaredWidth : 1;
+    // #dom is the scrollable element (overflow: auto) the socket-editor
+    // input is absolutely positioned within, so its own CSS left/top are
+    // interpreted in #dom's local content coordinates - scroll-invariant.
+    // svgRect/hostRect are live viewport rects, though: #dom's own rect
+    // does not move when its content scrolls, but the SVG's does, so their
+    // raw difference is already short by exactly the current scroll offset
+    // and needs it added back to land in that same local coordinate space.
+    return {
+      left: (svgRect.left || 0) - (hostRect.left || 0) + this.#dom.scrollLeft,
+      top: (svgRect.top || 0) - (hostRect.top || 0) + this.#dom.scrollTop,
+      scale
+    };
+  }
+
+  #commitSocketEditor(editing) {
+    if (this.#socketEditor !== editing) return;
+    this.#socketEditor = undefined;
+    editing.input.remove();
+    if (editing.input.value === editing.original) return;
+    // An emptied comment has nothing left to keep; remove it outright
+    // through the normal delete path instead of asking the language adapter
+    // to accept a bare "#" or an empty comment.
+    if (editing.isComment && editing.input.value.trim() === '') {
+      this.#deleteNode(editing.node);
+      return;
+    }
+    // The input's value excludes the comment's own leading marker (it isn't
+    // editable); restore it so the replacement still reads as a comment.
+    const source = editing.isComment ? `${editing.commentPrefix}${editing.input.value}` : editing.input.value;
+    this.#onSocketEdit({target: editing.source, source});
+  }
+
+  #closeSocketEditor() {
+    const editing = this.#socketEditor;
+    this.#socketEditor = undefined;
+    editing?.input.remove();
+  }
+
+  #beginDrag(event) {
+    // A drag is bound to the one pointer that started it (see #continueDrag/
+    // #endDrag's own pointerId checks) - a second pointer pressing a movable
+    // node while that drag is still active must not overwrite its node,
+    // start point, or pointerId. Left unguarded, the first pointer's own
+    // eventual pointerup would fail the pointerId check in #endDrag and its
+    // release would be silently lost.
+    if (event.button !== 0 || !this.#layout || !this.#onOperation || this.#readOnly || this.#drag) return;
+    // A remove badge sits right at a socket's own corner and an add button
+    // right at a container/compound-socket's own edge, so a press there can
+    // also hit-test to the movable node underneath. The button click, not a
+    // drag, is what the press was for.
+    if (event.target?.closest?.('[data-droplet-action]')) return;
+    const target = hitTestBlockLayout(this.#layout, pointFor(this.#svg, event));
+    if (!target?.node || !isMovable(target.node)) return;
+    this.#drag = {
+      pointerId: event.pointerId,
+      node: target.node,
+      copy: event.ctrlKey || event.metaKey,
+      start: pointFor(this.#svg, event),
+      lastPoint: pointFor(this.#svg, event),
+      moved: false,
+      destination: undefined,
+      operation: undefined,
+      preview: undefined,
+      lastZone: undefined
+    };
+    this.#svg.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  #continueDrag(event) {
+    // Pointer capture routes this pointer's own events to #svg regardless of
+    // where it physically is, but does not stop an unrelated second pointer
+    // (a second touch, a simultaneous stylus/mouse) from also firing events
+    // here if it happens to be over the same element. Without this check, a
+    // second pointer's moves would steer the drag the first pointer started.
+    if (!this.#drag || event.pointerId !== this.#drag.pointerId) return;
+    const point = pointFor(this.#svg, event);
+    this.#drag.lastPoint = point;
+    if (!this.#drag.moved && Math.hypot(point.x - this.#drag.start.x, point.y - this.#drag.start.y) < 4) return;
+    this.#drag.moved = true;
+    const target = dropTargetAtPoint(this.#layout, point);
+    const resolved = destinationForTarget(this.#layout, target, point, this.#drag.node, this.#drag.copy) ??
+      escapeDestination(this.#layout, point, this.#drag.node, this.#drag.copy);
+    this.#drag.destination = resolved?.destination;
+    this.#drag.operation = resolved?.operation;
+    // The dragged subtree's own geometry never changes mid-drag - computed
+    // once here (not eagerly in #beginDrag, so a plain click that never
+    // crosses the movement threshold above never pays for it) and reused for
+    // every remaining pointermove, instead of rescanning layout.nodes and
+    // rebuilding both preview copies' DOM on every single one.
+    this.#drag.preview ??= createSubtreePreview(this.#layout, this.#drag.node.id);
+    const zoneChanged = !sameDropZone(resolved?.zone, this.#drag.lastZone);
+    this.#drag.lastZone = resolved?.zone;
+    updateDragPreviews(this.#svg, this.#drag.preview, point, resolved?.zone, zoneChanged, this.#layoutOptions);
+    event.preventDefault();
+  }
+
+  #endDrag(event) {
+    const drag = this.#drag;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    this.#drag = undefined;
+    // A pointercancel implicitly releases capture right after dispatch, and
+    // some implementations mark the pointer inactive before this handler
+    // runs - calling releasePointerCapture on an already-released pointerId
+    // throws NotFoundError there, which would skip the cleanup and operation
+    // dispatch below.
+    if (this.#svg.hasPointerCapture?.(event.pointerId)) this.#svg.releasePointerCapture(event.pointerId);
+    clearDragPreviews(this.#svg);
+    if (!drag.moved) return;
+    // Cleared by the next surface click below - the synthetic one a real
+    // pointerup normally generates on the same element, suppressed here so
+    // ending a drag doesn't also select/open whatever is under the pointer.
+    // A pointercancel-resolved drag (see #handlePointerCancel) or one
+    // resolved by the document-level pointerup fallback (see the
+    // constructor) never generates that synthetic click at all, so left
+    // set, it would instead silently swallow the next genuine, unrelated
+    // click anywhere on the surface. Clearing it again on a later task -
+    // a real same-element pointerup's own synthetic click already fires
+    // synchronously within this same task, so this never races it - drops
+    // the suppression once nothing is left to consume it.
+    this.#suppressClick = true;
+    setTimeout(() => { this.#suppressClick = false; }, 0);
+    if (drag.operation) {
+      this.#onOperation(drag.operation);
+    } else if (drag.destination) {
+      this.#onOperation(drag.copy ? {
+        type: 'copy-node',
+        source: drag.node.source,
+        kind: drag.node.kind === 'container' ? 'statement' : drag.node.kind,
+        destination: drag.destination
+      } : {
+        type: drag.node.kind === 'comment' ? 'move-comment' : 'move-statement',
+        source: drag.node.source,
+        destination: drag.destination
+      });
+    } else if (!drag.copy && isOutsideCanvas(this.#layout, drag.lastPoint ?? pointFor(this.#svg, event))) {
+      this.#deleteNode(drag.node);
+    }
+    event.preventDefault();
+  }
+
+  // A touch pointercancel means the OS took the gesture over for its own
+  // purposes (touch scrolling, a system gesture) - not the user releasing
+  // over a chosen destination - so it only cancels, the same way readOnly
+  // turning on mid-drag does. Every other pointercancel (trackpad, pen, mouse
+  // capture loss) still resolves the drag via #endDrag, the same as a real
+  // pointerup - see the SVG/document pointercancel wiring in the constructor.
+  #handlePointerCancel(event) {
+    if (event.pointerType !== 'touch') { this.#endDrag(event); return; }
+    if (!this.#drag || event.pointerId !== this.#drag.pointerId) return;
+    this.#cancelDrag();
+  }
+
+  // Releases capture and clears the preview the same way #endDrag does, but
+  // never dispatches an operation - used when readOnly turns on mid-drag,
+  // where the drag must simply stop, not resolve to a move/copy/delete.
+  #cancelDrag() {
+    const drag = this.#drag;
+    if (!drag) return;
+    this.#drag = undefined;
+    if (this.#svg.hasPointerCapture?.(drag.pointerId)) this.#svg.releasePointerCapture(drag.pointerId);
+    clearDragPreviews(this.#svg);
+  }
+
+  #continuePaletteDrag(event) {
+    if (!this.#layout || !this.#onOperation || this.#readOnly || !isPaletteDrag(event)) return;
+    event.dataTransfer.dropEffect = 'move';
+    const point = pointFor(this.#svg, event);
+    const target = dropTargetAtPoint(this.#layout, point);
+    // An expression block (an operator, a value) is meant to replace a
+    // socket's contents, not sit beside it as a new statement.
+    if (paletteDragKind(event) === 'expression' && isSocketNode(target?.node)) {
+      renderExternalDropGuide(this.#svg, {bounds: target.node.bounds});
+      event.preventDefault();
+      return;
+    }
+    const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
+    renderExternalDropGuide(this.#svg, resolved?.zone);
+    event.preventDefault();
+  }
+
+  #leavePaletteDrag(event) {
+    if (!this.#dom.contains(event.relatedTarget)) clearDragPreviews(this.#svg);
+  }
+
+  #dropPaletteBlock(event) {
+    const dropped = paletteSource(event);
+    if (!this.#layout || !this.#onOperation || this.#readOnly || !dropped) return;
+    const point = pointFor(this.#svg, event);
+    const target = dropTargetAtPoint(this.#layout, point);
+    clearDragPreviews(this.#svg);
+    if (dropped.kind === 'expression' && isSocketNode(target?.node)) {
+      this.#onOperation({type: 'replace-socket', target: target.node.source, source: dropped.source});
+      event.preventDefault();
+      return;
+    }
+    const resolved = destinationForTarget(this.#layout, target, point, {kind: 'statement'});
+    if (resolved?.destination) {
+      // A bare expression is only valid Python as its own statement line;
+      // palette statement sources already carry their own trailing newline.
+      const source = dropped.kind === 'expression' ? `${dropped.source}\n` : dropped.source;
+      this.#onOperation({type: 'insert-statement', destination: resolved.destination, source});
+    }
+    event.preventDefault();
+  }
+}
+
+// See destinationForTarget's own comment for why this check exists. A
+// palette drag's dragNode is a synthetic {kind: 'statement'} placeholder
+// with no `.source` (nothing dragged from the document to self-collide
+// with), so this always passes for one.
+function targetWithinDraggedRange(target, dragNode) {
+  if (!dragNode?.source) return false;
+  if (target?.kind === 'insertion') {
+    // A source-range check here (comparing target.zone.destination.from
+    // against dragNode's own [from, to)) misses a container whose own
+    // body-end zone sits past its source node's own `to` - Python's bodyEnd
+    // includes the suite's trailing line ending, so it can be greater than
+    // the container AST node's own end. Layout-node ancestry instead: every
+    // insertion zone a node exposes (collectInsertionZones's flattened list
+    // included) shares the exact same `destination` object reference as the
+    // owning node's own insertionZones entry, so membership here is exact
+    // regardless of how source ranges compare.
+    return collectOwnInsertionDestinations(dragNode).includes(target.zone.destination);
+  }
+  const {from, to} = dragNode.source;
+  const node = target?.node;
+  return Boolean(node?.source) && node.source.from >= from && node.source.to <= to;
+}
+
+function collectOwnInsertionDestinations(node) {
+  return [
+    ...(node.insertionZones ?? []).map((zone) => zone.destination),
+    ...(node.children ?? []).flatMap(collectOwnInsertionDestinations)
+  ];
+}
+
+function destinationForTarget(layout, target, point, dragNode, copy = false) {
+  // A resolved destination inside the dragged node's own source range can
+  // never be a real move or copy: dropping a container into its own body
+  // would nest a copy of itself inside itself (or, for a move, corrupt the
+  // very range being read from), and letting the dragged node itself (or one
+  // of its own descendants) stand in as a sibling-ordering reference point
+  // means removing it also removes that reference - "insert before my own
+  // next sibling," resolved while still hovering over my own lower half,
+  // leaves a stray blank line where the original used to be instead of the
+  // no-op it looks like on screen. A destination exactly at the dragged
+  // node's own boundary (its `from` or `to`) is still allowed - "duplicate
+  // right above/below myself" is a legitimate copy gesture.
+  if (targetWithinDraggedRange(target, dragNode)) return undefined;
+  if (target?.kind === 'insertion') return {destination: target.zone.destination, zone: target.zone};
+  if (isSocketNode(dragNode) && isSocketNode(target?.node)) {
+    if (sameRange(dragNode.source, target.node.source)) return undefined;
+    return {
+      operation: {
+        type: 'replace-socket',
+        target: target.node.source,
+        source: layout.source.slice(dragNode.source.from, dragNode.source.to)
+      },
+      zone: {bounds: target.node.bounds}
+    };
+  }
+  // Dropping a comment to the right of a bare statement, or a container's
+  // header line (`if x:`, `for y in z:`, ...), attaches it inline instead of
+  // reordering it as a sibling line. This resolves straight to a move-comment
+  // operation with no `copy` branch of its own - a Ctrl/Cmd-drag falls
+  // through to the ordinary sibling-ordering path below instead, which
+  // already branches correctly on `copy` in #endDrag.
+  if (!copy && dragNode?.kind === 'comment' && (target?.node?.kind === 'statement' || target?.kind === 'container-header')) {
+    const headerBounds = target.kind === 'container-header' ? target.node.regions.header : target.node.bounds;
+    if (point.x >= headerBounds.right && !sameRange(dragNode.source, target.node.source)) {
+      return {
+        operation: {
+          type: 'move-comment', source: dragNode.source,
+          destination: {from: target.node.source.from, to: target.node.source.to},
+          placement: 'line-end'
+        },
+        zone: {bounds: headerBounds}
+      };
+    }
+  }
+  // Standalone comments, blank lines, and container headers participate in
+  // their suite's vertical sibling order. A container body/footer retains
+  // its structural insertion zones; only the header gets before/after
+  // behavior. An inline comment is a child of its statement rather than a
+  // suite-level sibling, so it borrows its owning statement's position for
+  // this purpose.
+  const inlineOwner = target?.node?.kind === 'comment' && target.node.metadata?.inline
+    ? findParent(layout.root, target.node.id) : undefined;
+  const targetNode = inlineOwner ?? target?.node;
+  if (targetNode?.kind !== 'statement' && targetNode?.kind !== 'comment' && targetNode?.kind !== 'whitespace' &&
+      target?.kind !== 'container-header') return undefined;
+  const targetBounds = target.kind === 'container-header' ? target.node.regions.header : targetNode.bounds;
+  const before = point.y < (targetBounds.top + targetBounds.bottom) / 2;
+  if (target.kind === 'container-header' && !before) {
+    const zone = target.node.insertionZones.find((candidate) => candidate.role === 'before-sibling') ??
+      target.node.insertionZones.find((candidate) => candidate.role === 'body-end');
+    return zone ? {destination: zone.destination, zone} : undefined;
+  }
+  const parent = findParent(layout.root, targetNode.id);
+  if (!parent) return undefined;
+  if (targetNode.metadata?.type === 'Pass' && parent.metadata?.emptySuitePass) {
+    const from = parent.metadata.bodyEnd ?? parent.source.to;
+    return {
+      destination: {
+        from, to: from,
+        indentation: parent.metadata.bodyIndentation ?? '',
+        emptySuitePass: parent.metadata.emptySuitePass
+      },
+      zone: {bounds: targetNode.bounds}
+    };
+  }
+  const index = parent.children.findIndex((child) => child.id === targetNode.id);
+  const zone = before
+    ? parent.insertionZones.find((candidate) => candidate.role === 'before-sibling' && candidate.destination.from === targetNode.source.from)
+    : index + 1 < parent.children.length
+      ? parent.insertionZones.find((candidate) => candidate.role === 'before-sibling' &&
+        candidate.destination.from === parent.children[index + 1].source.from)
+      : parent.insertionZones.find((candidate) => candidate.role === 'body-end');
+  if (!zone) return undefined;
+  return {
+    destination: zone.destination,
+    zone: {...zone, bounds: statementHalfBounds(targetBounds, before)}
+  };
+}
+
+// A release above or below the whole rendered document — not just a gap
+// between two rows — reorders a top-level statement or comment to the very
+// start or end instead of requiring a pixel-precise drop on a thin gap.
+// Sockets and other expression drags fall through to the ordinary outside-
+// canvas delete instead, since "top/bottom of the document" is meaningless
+// for them.
+function escapeDestination(layout, point, dragNode, copy) {
+  if (dragNode?.kind !== 'statement' && dragNode?.kind !== 'container' && dragNode?.kind !== 'comment') return undefined;
+  const zones = layout.root.insertionZones;
+  const zone = point.y < 0 ? zones.at(0) : point.y > layout.bounds.bottom ? zones.at(-1) : undefined;
+  if (!zone) return undefined;
+  const kind = dragNode.kind === 'container' ? 'statement' : dragNode.kind;
+  return {
+    operation: copy
+      ? {type: 'copy-node', source: dragNode.source, kind, destination: zone.destination}
+      : {type: dragNode.kind === 'comment' ? 'move-comment' : 'move-statement', source: dragNode.source, destination: zone.destination},
+    zone
+  };
+}
+
+function dropTargetAtPoint(layout, point) {
+  const direct = hitTestBlockLayout(layout, point);
+  if (direct?.kind === 'insertion' || isSiblingDropTarget(direct) || isSocketNode(direct?.node)) return direct;
+  // renderLayout adds a 16px right gutter around the layout bounds.
+  if (point.x < 0 || point.x > layout.bounds.right + 16) return direct;
+  // The target row extends across the visible block-surface lane. This makes
+  // before/after dropping practical beside a narrow block, while preserving
+  // the more specific structural insertion zones inside container bodies.
+  const candidate = layout.nodes
+    .filter((node) => node.kind === 'statement' || node.kind === 'comment' || node.kind === 'container' || node.kind === 'whitespace')
+    .map((node) => ({node, bounds: node.kind === 'container' ? node.regions.header : node.bounds}))
+    .filter(({bounds}) => point.y >= bounds.top && point.y <= bounds.bottom)
+    .sort((left, right) => (left.bounds.right - left.bounds.left) - (right.bounds.right - right.bounds.left))[0];
+  return candidate ? {
+    kind: candidate.node.kind === 'container' ? 'container-header' : candidate.node.kind,
+    node: candidate.node
+  } : direct;
+}
+
+function isSiblingDropTarget(target) {
+  return target?.node?.kind === 'statement' || target?.node?.kind === 'comment' ||
+    target?.node?.kind === 'whitespace' || target?.kind === 'container-header';
+}
+
+function findParent(node, childId) {
+  for (const child of node.children ?? []) {
+    if (child.id === childId) return node;
+    const parent = findParent(child, childId);
+    if (parent) return parent;
+  }
+  return undefined;
+}
+
+function statementHalfBounds(bounds, before) {
+  const middle = (bounds.top + bounds.bottom) / 2;
+  return {...bounds, top: before ? bounds.top : middle, bottom: before ? middle : bounds.bottom};
+}
+
+function isMovable(node) {
+  return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment' || isSocketNode(node);
+}
+
+function isDeletable(node) {
+  return node.kind === 'statement' || node.kind === 'container' || node.kind === 'comment' || isSocketNode(node);
+}
+
+function isSocketNode(node) { return node?.kind === 'socket' || node?.kind === 'recovery-socket'; }
+// A compound socket (one with its own nested sockets, e.g. `value + value`)
+// is selectable and movable like any socket, but not click-to-edit as free
+// text - only its own leaf sockets are, so the user can't rewrite the
+// operator structure that makes it that expression.
+function isInlineEditable(node) { return (isSocketNode(node) && !node.children?.length) || node?.kind === 'comment'; }
+function sameRange(left, right) { return left?.from === right?.from && left?.to === right?.to; }
+
+function layoutNodeForElement(layout, element) {
+  const id = element?.closest?.('[data-droplet-layout-id]')?.dataset.dropletLayoutId;
+  return id ? layout.nodes.find((node) => node.id === id) : undefined;
+}
+
+// dragover can't read dataTransfer.getData (only .types) in most browsers, so
+// the expression/statement distinction needed while a palette drag is still
+// in flight comes from which MIME type is present, not its value.
+function paletteDragKind(event) {
+  const types = [...(event.dataTransfer?.types ?? [])];
+  if (types.includes('application/x-droplet-expression')) return 'expression';
+  if (types.includes('application/x-droplet-statement')) return 'statement';
+  return undefined;
+}
+
+function paletteSource(event) {
+  const kind = paletteDragKind(event);
+  if (!kind) return undefined;
+  const type = kind === 'expression' ? 'application/x-droplet-expression' : 'application/x-droplet-statement';
+  const source = event.dataTransfer.getData(type);
+  return typeof source === 'string' && source.length ? {source, kind} : undefined;
+}
+
+function isPaletteDrag(event) {
+  return paletteDragKind(event) !== undefined;
+}
+
+// Layout/hit-testing coordinates are in the SVG's own declared (viewBox)
+// coordinate space, not CSS pixels - the two only coincide when a host page
+// renders the SVG at its own declared width. A host that scales it (CSS
+// width/height, a transform) would otherwise shift every hit test and drag
+// target by the mismatch, growing with distance from the SVG's own origin.
+// #svgOffset already accounts for this the same way when positioning the
+// inline socket editor; this is its inverse (screen space to layout space).
+function pointFor(svg, event) {
+  const bounds = svg.getBoundingClientRect();
+  const declaredWidth = Number(svg.getAttribute('width'));
+  const scale = declaredWidth && bounds.width ? bounds.width / declaredWidth : 1;
+  return {x: (event.clientX - bounds.left) / scale, y: (event.clientY - bounds.top) / scale};
+}
+
+function isOutsideCanvas(layout, point) {
+  return point.x < 0 || point.y < 0 || point.x > layout.bounds.right + 16 || point.y > layout.bounds.bottom + 16;
+}
+
+// The floating copy just follows the pointer (only its own transform needs
+// updating, every move); the placement copy and the guide represent the
+// resolved drop zone, which usually stays the same across many consecutive
+// moves within it, so they only need rebuilding when it actually changes -
+// see sameDropZone, and #continueDrag's own preview/zoneChanged caching.
+function updateDragPreviews(svg, preview, point, zone, zoneChanged, layoutOptions = {}) {
+  const document = svg.ownerDocument;
+  const previewOptions = {...layoutOptions, showSocketText: true};
+  let floating = svg.querySelector('.droplet-drag-preview');
+  if (!floating) {
+    floating = document.createElementNS(SVG_NAMESPACE, 'g');
+    floating.classList.add('droplet-drag-preview');
+    floating.setAttribute('opacity', '.85');
+    floating.append(renderNode(preview, document, previewOptions));
+    svg.append(floating);
+  }
+  floating.setAttribute('transform', `translate(${point.x + 12} ${point.y + 12})`);
+  if (!zoneChanged) return;
+  svg.querySelectorAll('.droplet-drop-preview, .droplet-drop-guide').forEach((element) => element.remove());
+  if (!zone) return;
+  const placement = document.createElementNS(SVG_NAMESPACE, 'g');
+  placement.classList.add('droplet-drop-preview');
+  placement.setAttribute('transform', `translate(${zone.bounds.left} ${zone.bounds.top})`);
+  placement.setAttribute('opacity', '.55');
+  placement.append(renderNode(preview, document, previewOptions));
+  const guide = document.createElementNS(SVG_NAMESPACE, 'rect');
+  guide.classList.add('droplet-drop-guide');
+  guide.setAttribute('x', String(zone.bounds.left));
+  guide.setAttribute('y', String(zone.bounds.top + 4));
+  guide.setAttribute('width', String(zone.bounds.right - zone.bounds.left));
+  guide.setAttribute('height', '3');
+  guide.setAttribute('fill', '#4d7fb5');
+  svg.append(placement, guide);
+}
+
+// Reference equality doesn't work here - destinationForTarget constructs a
+// fresh zone object literal on essentially every call, even when hovering
+// the exact same logical target across consecutive pointermove events - so
+// this compares the values that actually affect rendering instead (bounds,
+// since that is all updateDragPreviews reads from a zone).
+function sameDropZone(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.bounds.left === right.bounds.left && left.bounds.top === right.bounds.top &&
+    left.bounds.right === right.bounds.right && left.bounds.bottom === right.bounds.bottom;
+}
+
+function renderExternalDropGuide(svg, zone) {
+  clearDragPreviews(svg);
+  if (!zone) return;
+  const guide = svg.ownerDocument.createElementNS(SVG_NAMESPACE, 'rect');
+  guide.classList.add('droplet-drop-guide');
+  guide.setAttribute('x', String(zone.bounds.left));
+  guide.setAttribute('y', String(zone.bounds.top + 4));
+  guide.setAttribute('width', String(zone.bounds.right - zone.bounds.left));
+  guide.setAttribute('height', '3');
+  guide.setAttribute('fill', '#4d7fb5');
+  svg.append(guide);
+}
+
+function clearDragPreviews(svg) {
+  svg.querySelectorAll('.droplet-drag-preview, .droplet-drop-preview, .droplet-drop-guide').forEach((element) => element.remove());
+}
+
+function renderLayout(svg, layout, document, options = {}) {
+  svg.replaceChildren();
+  const width = Math.ceil(layout.bounds.right + 16);
+  const height = Math.ceil(layout.bounds.bottom + 16);
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('width', String(width));
+  svg.setAttribute('height', String(height));
+  for (const child of layout.root.children) svg.append(renderNode(child, document, options));
+}
+
+function renderSelection(svg, node, document) {
+  svg.querySelector('.droplet-block-selection')?.remove();
+  const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
+  rect.classList.add('droplet-block-selection');
+  rect.setAttribute('x', String(node.bounds.left - 3));
+  rect.setAttribute('y', String(node.bounds.top - 3));
+  rect.setAttribute('width', String(node.bounds.right - node.bounds.left + 6));
+  rect.setAttribute('height', String(node.bounds.bottom - node.bounds.top + 6));
+  rect.setAttribute('rx', '6');
+  rect.setAttribute('fill', 'rgba(245, 158, 11, .10)');
+  rect.setAttribute('stroke', '#d97706');
+  rect.setAttribute('stroke-width', '2.5');
+  rect.setAttribute('stroke-dasharray', '4 2');
+  rect.setAttribute('pointer-events', 'none');
+  svg.dataset.dropletSelectedId = node.id;
+  svg.append(rect);
+}
+
+function renderNode(node, document, options = {}) {
+  const group = document.createElementNS(SVG_NAMESPACE, 'g');
+  group.setAttribute('data-droplet-layout-id', node.id);
+  group.setAttribute('data-droplet-kind', node.kind);
+  if (node.metadata?.type) group.setAttribute('data-droplet-type', node.metadata.type);
+  group.setAttribute('data-droplet-from', String(node.source.from));
+  group.setAttribute('data-droplet-to', String(node.source.to));
+  group.setAttribute('role', 'treeitem');
+  const socketChildren = node.children.filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket');
+  const otherChildren = node.children.filter((child) => child.kind !== 'socket' && child.kind !== 'recovery-socket');
+  if (node.kind === 'container') {
+    renderContainerFrame(group, node, document, options);
+    for (const child of socketChildren) group.append(renderNode(child, document, options));
+    renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document, options);
+    if (node.footerText) {
+      group.append(createLabel(node.footerText, node.regions.footer.left + 8, node.regions.footer.top + 20,
+        document, 'droplet-label-keyword'));
+    }
+    renderClauseControls(group, node, document);
+    renderParameterAddButton(group, node, document);
+  } else if (node.kind === 'clause') {
+    renderClauseHeaderFrame(group, node, document);
+    for (const child of socketChildren) group.append(renderNode(child, document, options));
+    renderSourceLabels(group, node, node.regions.header.left + 8, node.regions.header.top + 20, document, options);
+    if (node.metadata?.clauseRole === 'elif' || node.metadata?.clauseRole === 'else') {
+      appendRemoveButton(group, document, {
+        action: 'remove-clause', x: node.regions.header.right - 2, y: node.regions.header.top + 2,
+        dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Remove clause'
+      });
+    }
+  } else if (node.kind === 'whitespace') {
+    renderWhitespace(group, node, document);
+  } else if (node.kind === 'socket' || node.kind === 'recovery-socket') {
+    renderSocket(group, node, document, options);
+  } else {
+    renderAtomicFrame(group, node, document, options);
+    for (const child of socketChildren) group.append(renderNode(child, document, options));
+    renderSourceLabels(group, node, node.bounds.left + 8, node.bounds.top + 20, document, options);
+    renderCallArgumentAddButton(group, node, document);
+  }
+  for (const child of otherChildren) group.append(renderNode(child, document, options));
+  return group;
+}
+
+function renderContainerFrame(group, node, document, options = {}) {
+  const {header, footer} = node.regions;
+  // A colon-terminated header (Python's `if x:`, `for y in z:`, ...) is the
+  // only shape this "snake" styling targets; brace-bodied languages such as
+  // JavaScript keep the plain frame.
+  const isSnake = isColonHeader(node);
+  const path = document.createElementNS(SVG_NAMESPACE, 'path');
+  const radius = 4;
+  const clauseHeaders = (node.children ?? [])
+    .filter((child) => child.kind === 'clause')
+    .sort((left, right) => left.bounds.top - right.bounds.top)
+    .map((clause) => clause.regions.header);
+  if (!isSnake && options.tabConnector && hasConnectorWidth(header.right - header.left)) {
+    path.setAttribute('d', tabConnectorContainerPath([header, ...clauseHeaders], footer, node.regions.body.left, radius));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#246ca8');
+    path.setAttribute('stroke-width', '3');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    group.append(path);
+    return;
+  }
+  // The box corners share the footer's fixed 10px height with each other, so
+  // their radius stays small; the wave-to-bar blends have a full body height
+  // to work with and can afford a much more generous curve.
+  const blendRadius = 12;
+  const spine = footer.left + 18;
+  // An elif/else (or for/while else) branch is a head of the same snake:
+  // its own header bulges out to its own width, exactly like the primary
+  // header does, with the spine narrowing back in between them. One
+  // continuous outline covers every branch instead of a separate box per
+  // branch, so nothing but the primary header's own protrusion draws a
+  // border across the body.
+  const bulges = [header, ...clauseHeaders];
+  const commands = [
+    // The top-left corner is where the closing wavy edge blends back in, so
+    // it starts at blendRadius rather than the smaller box-corner radius.
+    `M ${header.left + (isSnake ? blendRadius : radius)} ${header.top}`
+  ];
+  bulges.forEach((bulge, index) => {
+    const nextTop = index + 1 < bulges.length ? bulges[index + 1].top : footer.top;
+    commands.push(
+      `H ${bulge.right - radius}`,
+      `Q ${bulge.right} ${bulge.top} ${bulge.right} ${bulge.top + radius}`,
+      `V ${bulge.bottom - radius}`,
+      `Q ${bulge.right} ${bulge.bottom} ${bulge.right - radius} ${bulge.bottom}`,
+      // Round each place a wavy edge meets a flat bar, so the wave blends
+      // into the bar instead of turning a sharp corner into the curve.
+      isSnake ? `H ${spine + blendRadius}` : `H ${spine}`
+    );
+    if (isSnake) {
+      commands.push(
+        `Q ${spine} ${bulge.bottom} ${spine} ${bulge.bottom + blendRadius}`,
+        ...wavySpine(spine, bulge.bottom + blendRadius, nextTop - blendRadius),
+        `Q ${spine} ${nextTop} ${spine + blendRadius} ${nextTop}`
+      );
+    } else {
+      commands.push(`V ${nextTop}`);
+    }
+  });
+  commands.push(
+    `H ${footer.right - radius}`,
+    `Q ${footer.right} ${footer.top} ${footer.right} ${footer.top + radius}`,
+    `V ${footer.bottom - radius}`,
+    `Q ${footer.right} ${footer.bottom} ${footer.right - radius} ${footer.bottom}`,
+    isSnake ? `H ${header.left + blendRadius}` : `H ${spine}`
+  );
+  // Close the snake's body with a single wavy outer-left edge back up to the
+  // primary header - clause headers align with the primary header's own
+  // left edge, so this outer boundary never needs to bulge.
+  if (isSnake) {
+    commands.push(
+      `Q ${header.left} ${footer.bottom} ${header.left} ${footer.bottom - blendRadius}`,
+      ...wavySpine(header.left, footer.bottom - blendRadius, header.top + blendRadius),
+      `Q ${header.left} ${header.top} ${header.left + blendRadius} ${header.top}`,
+      'Z'
+    );
+  }
+  path.setAttribute('d', commands.join(' '));
+  path.setAttribute('fill', isSnake ? SNAKE_FILL : 'none');
+  path.setAttribute('stroke', isSnake ? SNAKE_STROKE : '#246ca8');
+  path.setAttribute('stroke-width', '3');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  group.append(path);
+  if (isSnake) renderSnakeFace(group, header, document);
+}
+
+// An elif/else (or for/while else) branch is another head of the same
+// snake: the container's own outline (see renderContainerFrame) already
+// bulges out to cover this branch's header with a continuous border and
+// fill, so this only adds the same colon-eyes-and-tongue face the primary
+// header gets - no separate box, or its own edges would draw a second,
+// competing border right on top of the container's one continuous outline.
+function renderClauseHeaderFrame(group, node, document) {
+  if (isColonHeader(node)) renderSnakeFace(group, node.regions.header, document);
+}
+
+// "Add elif" stays offered even once an else exists (the adapter always
+// anchors a new elif on the chain's last existing elif, inserting it right
+// before the else rather than after it - an if-chain only requires elif/
+// else-if to come before else, not that else be absent). "Add else" is the
+// one capped at exactly one: it disappears once an else exists. showElif/
+// showElse come from clause-add-eligibility.js, the single source of truth
+// block-surface.js's own footer-width reservation also uses, so the two
+// can't drift out of sync.
+function renderClauseControls(group, node, document) {
+  const type = node.metadata?.type;
+  const clauses = node.children.filter((child) => child.kind === 'clause');
+  const showElif = canAddElifClause(node, clauses);
+  const showElse = canAddElseClause(node, clauses);
+  if (!showElif && !showElse) return;
+  const dataset = {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to};
+  const elifLabel = type === 'IfStatement' ? '+ else if' : '+ elif';
+  const gap = 6;
+  const elifWidth = showElif ? buttonWidth(elifLabel) : 0;
+  const elseWidth = showElse ? buttonWidth('+ else') : 0;
+  const totalWidth = elifWidth + elseWidth + (showElif && showElse ? gap : 0);
+  const {footer} = node.regions;
+  // A footer showing its own closing-token text (JavaScript's "}") has these
+  // controls sit to its right, on the same row; a textless footer (Python
+  // has none) centers them in its own dedicated row instead.
+  let x = node.footerText
+    ? footer.right - totalWidth - 8
+    : footer.left + (footer.right - footer.left - totalWidth) / 2;
+  const y = footer.top + (footer.bottom - footer.top - ACTION_BUTTON_HEIGHT) / 2;
+  if (showElif) {
+    appendActionButton(group, document, {
+      action: 'add-clause', label: elifLabel, x, y, dataset: {...dataset, dropletRole: 'elif'}
+    });
+    x += elifWidth + gap;
+  }
+  if (showElse) {
+    appendActionButton(group, document, {
+      action: 'add-clause', label: '+ else', x, y, dataset: {...dataset, dropletRole: 'else'}
+    });
+  }
+}
+
+// A def's parameter list is rendered as direct header sockets on the
+// container (not a nested compound socket - see relabelParameterSockets in
+// the Python adapter), so its own add-parameter button lives here instead
+// of alongside renderCompoundSocket's call/list add-item button.
+// 'FunctionDef'/'AsyncFunctionDef' are Python's AST type names;
+// 'FunctionDeclaration'/'FunctionExpression' are JavaScript's.
+const PARAMETER_ADD_ELIGIBLE_TYPES = new Set(['FunctionDef', 'AsyncFunctionDef', 'FunctionDeclaration', 'FunctionExpression']);
+
+function renderParameterAddButton(group, node, document) {
+  if (!PARAMETER_ADD_ELIGIBLE_TYPES.has(node.metadata?.type)) return;
+  // Both adapters reject insert-sequence-item as a no-op until a real
+  // parameter/argument/item exists (see hasRealSequenceItem) - a zero-
+  // parameter def has only its synthetic empty parameter socket, so the
+  // button would sit there, focusable, doing nothing when pressed. The
+  // empty socket itself is already the affordance for typing the first one.
+  if (!hasRealSequenceChild(node.children, 'parameter')) return;
+  appendActionButton(group, document, {
+    action: 'insert-sequence-item', label: '+', x: node.regions.header.right - 12, y: node.regions.header.top - 4,
+    dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Add parameter'
+  });
+}
+
+// A call used as an entire statement (`myFunction();`, `console.log(x);`) is
+// flat, atomic text, not a compound socket with its own bounds (see
+// renderCompoundSocket, which covers a call nested as a value instead) - its
+// arguments still reach here as this statement's own direct sockets, though
+// (see sourceSockets/structuralChildren in block-surface.js: a JavaScript
+// expression wrapper contributes no visible block of its own, only its own
+// sockets), so a real 'call-argument' among them is exactly the signal that
+// this statement's own expression is a call with something to add another
+// item after. The always-present synthetic empty slot a zero-argument call
+// still gets does not count - see hasRealSequenceChild.
+function renderCallArgumentAddButton(group, node, document) {
+  if (!hasRealSequenceChild(node.children, 'call-argument')) return;
+  appendActionButton(group, document, {
+    action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
+    dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Add argument'
+  });
+}
+
+const ACTION_BUTTON_HEIGHT = 15;
+const ACTION_BUTTON_PADDING_X = 5;
+
+function buttonWidth(label) {
+  return label.length * 6.5 + ACTION_BUTTON_PADDING_X * 2;
+}
+
+// Every add/remove action button carries dropletAction (see
+// appendActionButton/appendRemoveButton) - a single pass over that shared
+// marker keeps every button's focus/activation state in sync with readOnly
+// without threading it through renderNode's whole call chain.
+function markActionButtonsReadOnly(svg, readOnly) {
+  for (const button of svg.querySelectorAll('[data-droplet-action]')) {
+    button.setAttribute('tabindex', readOnly ? '-1' : '0');
+    if (readOnly) button.setAttribute('aria-disabled', 'true');
+    else button.removeAttribute('aria-disabled');
+  }
+}
+
+// These SVG groups are the only affordance for their action (add/remove a
+// clause, argument, or list item) - a pointer-only activation would make
+// that action unreachable without a mouse. `role="button"` alone gets no
+// free Enter/Space handling the way a real `<button>` does (that behavior is
+// native-element-specific, not granted by ARIA role), so #handleKeydown
+// activates these explicitly; see its own 'Enter'/' ' branch.
+function markAsButton(button, ariaLabel) {
+  button.setAttribute('tabindex', '0');
+  button.setAttribute('role', 'button');
+  if (ariaLabel) button.setAttribute('aria-label', ariaLabel);
+}
+
+function appendActionButton(group, document, {action, label, x, y, dataset = {}, ariaLabel = label}) {
+  const paddingX = ACTION_BUTTON_PADDING_X;
+  const width = buttonWidth(label);
+  const height = ACTION_BUTTON_HEIGHT;
+  const button = document.createElementNS(SVG_NAMESPACE, 'g');
+  button.dataset.dropletAction = action;
+  for (const [key, value] of Object.entries(dataset)) button.dataset[key] = String(value);
+  button.style.cursor = 'pointer';
+  markAsButton(button, ariaLabel);
+  const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
+  rect.setAttribute('x', String(x));
+  rect.setAttribute('y', String(y));
+  rect.setAttribute('width', String(width));
+  rect.setAttribute('height', String(height));
+  rect.setAttribute('rx', '7');
+  rect.setAttribute('fill', '#eaf4ff');
+  rect.setAttribute('stroke', '#4d7fb5');
+  rect.setAttribute('stroke-width', '1');
+  button.append(rect);
+  const label_ = createLabel(label, x + paddingX, y + 11, document);
+  label_.setAttribute('font-size', '11');
+  button.append(label_);
+  group.append(button);
+  return {width, height};
+}
+
+function appendRemoveButton(group, document, {action, x, y, dataset = {}, ariaLabel = 'Remove'}) {
+  const radius = 6;
+  const button = document.createElementNS(SVG_NAMESPACE, 'g');
+  button.dataset.dropletAction = action;
+  for (const [key, value] of Object.entries(dataset)) button.dataset[key] = String(value);
+  button.style.cursor = 'pointer';
+  markAsButton(button, ariaLabel);
+  const circle = document.createElementNS(SVG_NAMESPACE, 'circle');
+  circle.setAttribute('cx', String(x));
+  circle.setAttribute('cy', String(y));
+  circle.setAttribute('r', String(radius));
+  circle.setAttribute('fill', '#fdecec');
+  circle.setAttribute('stroke', '#b3413d');
+  circle.setAttribute('stroke-width', '1');
+  button.append(circle);
+  const label = createLabel('×', x - 3, y + 3, document);
+  label.setAttribute('font-size', '10');
+  label.setAttribute('fill', '#b3413d');
+  button.append(label);
+  group.append(button);
+}
+
+function isColonHeader(node) {
+  return typeof node.text === 'string' && node.text.trimEnd().endsWith(':');
+}
+
+// A gentle wave down a body edge, in place of a straight line, so a wrapping
+// if/for block reads as a snake curled around its children. The offset is a
+// function of absolute document y (not distance travelled), so every edge —
+// including a nested container's own spine and left border — ripples in the
+// same phase instead of each restarting its own wave at a different height.
+function wavySpine(x, yFrom, yTo, amplitude = 1.1, wavelength = 40) {
+  if (yFrom === yTo) return [];
+  const direction = yTo > yFrom ? 1 : -1;
+  const sampleStep = wavelength / 6;
+  const commands = [];
+  let y = yFrom;
+  while (direction > 0 ? y < yTo : y > yTo) {
+    y = direction > 0 ? Math.min(y + sampleStep, yTo) : Math.max(y - sampleStep, yTo);
+    commands.push(`L ${x + amplitude * Math.sin((2 * Math.PI * y) / wavelength)} ${y}`);
+  }
+  return commands;
+}
+
+// The colon that ends the header already reads as the snake's eyes; add
+// only a small forked tongue flicking out past it.
+function renderSnakeFace(group, header, document) {
+  const centerY = (header.top + header.bottom) / 2;
+  const tongue = document.createElementNS(SVG_NAMESPACE, 'path');
+  const tongueLeft = header.right + 2;
+  const tongueY = centerY + 4;
+  tongue.setAttribute('d', [
+    `M ${tongueLeft} ${tongueY}`,
+    `L ${tongueLeft + 8} ${tongueY}`,
+    `L ${tongueLeft + 13} ${tongueY - 3}`,
+    `M ${tongueLeft + 8} ${tongueY}`,
+    `L ${tongueLeft + 13} ${tongueY + 3}`
+  ].join(' '));
+  tongue.setAttribute('fill', 'none');
+  tongue.setAttribute('stroke', SNAKE_TONGUE);
+  tongue.setAttribute('stroke-width', '1.5');
+  tongue.setAttribute('stroke-linecap', 'round');
+  group.append(tongue);
+}
+
+function renderAtomicFrame(group, node, document, options = {}) {
+  const {left, top, right, bottom} = node.bounds;
+  const radius = 4;
+  const useConnector = options.tabConnector && node.kind === 'statement' && hasConnectorWidth(right - left);
+  const element = document.createElementNS(SVG_NAMESPACE, useConnector ? 'path' : 'rect');
+  if (useConnector) {
+    element.setAttribute('d', tabConnectorAtomicPath(left, top, right, bottom, radius));
+  } else {
+    element.setAttribute('x', String(left));
+    element.setAttribute('y', String(top));
+    element.setAttribute('width', String(right - left));
+    element.setAttribute('height', String(bottom - top));
+    element.setAttribute('rx', String(radius));
+  }
+  element.setAttribute('fill', node.kind === 'comment' ? '#f0f0f0' : '#fff');
+  element.setAttribute('stroke', node.kind === 'comment' ? '#999' : '#7a9ec4');
+  group.append(element);
+}
+
+function renderSocket(group, node, document, options = {}) {
+  // A compound socket (e.g. `value + value`) only lets the user edit its own
+  // operand sockets, not the operator/keyword structure around them: render
+  // its nested sockets and their surrounding text, the same way a
+  // statement's own sockets render, instead of one flat, freely-editable box.
+  if (node.children.length) return renderCompoundSocket(group, node, document, options);
+  const {showSocketText = false} = options;
+  const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
+  rect.setAttribute('x', String(node.bounds.left));
+  rect.setAttribute('y', String(node.bounds.top));
+  rect.setAttribute('width', String(node.bounds.right - node.bounds.left));
+  rect.setAttribute('height', String(node.bounds.bottom - node.bounds.top));
+  rect.setAttribute('rx', '3');
+  rect.setAttribute('fill', node.kind === 'recovery-socket' ? '#ffecd7' : '#eaf4ff');
+  rect.setAttribute('stroke', node.kind === 'recovery-socket' ? '#b96b25' : '#4d7fb5');
+  rect.setAttribute('stroke-width', '1.25');
+  group.append(rect);
+  if (showSocketText) {
+    const label = createLabel(node.text, (node.bounds.left + node.bounds.right) / 2, node.bounds.top + 20, document);
+    label.setAttribute('text-anchor', 'middle');
+    group.append(label);
+  }
+  if (isSequenceItemRole(node.metadata?.socketRole) && !node.metadata?.empty) {
+    appendRemoveButton(group, document, {
+      action: 'remove-sequence-item', x: node.bounds.right, y: node.bounds.top,
+      dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to}, ariaLabel: 'Remove item'
+    });
+  }
+}
+
+function isSequenceItemRole(role) {
+  return role === 'call-argument' || role === 'list-item' || role === 'parameter';
+}
+
+// Both adapters' insert-sequence-item transform rejects as a no-op until a
+// real (non-synthetic) item of the given role exists - mirrors each
+// adapter's own hasRealSequenceItem check, read straight off the already-
+// projected children an add button's own node carries.
+function hasRealSequenceChild(children, role) {
+  return children.some((child) => child.metadata?.socketRole === role && !child.metadata?.empty);
+}
+
+function renderCompoundSocket(group, node, document, options) {
+  // A compound socket has no click-to-edit text of its own (see
+  // isInlineEditable) - only its leaf sockets do - but it is still one
+  // selectable, movable, replaceable unit (e.g. dragging a palette block onto
+  // it, or onto the container that holds it, replaces the whole comparison or
+  // assignment, not just a leaf). Without a frame of its own it reads as bare
+  // text merged into its container, with no visible boundary showing where
+  // that unit starts and ends.
+  const frame = document.createElementNS(SVG_NAMESPACE, 'rect');
+  frame.setAttribute('x', String(node.bounds.left));
+  frame.setAttribute('y', String(node.bounds.top));
+  frame.setAttribute('width', String(node.bounds.right - node.bounds.left));
+  frame.setAttribute('height', String(node.bounds.bottom - node.bounds.top));
+  frame.setAttribute('rx', '6');
+  frame.setAttribute('fill', 'none');
+  frame.setAttribute('stroke', '#9aa5b1');
+  frame.setAttribute('stroke-dasharray', '3 2');
+  group.append(frame);
+  for (const child of node.children) group.append(renderNode(child, document, options));
+  renderSourceLabels(group, node, node.textLeft, node.bounds.top + 20, document, options);
+  // A Call/List's own sequence items render as this compound socket's direct
+  // children (unlike a def's parameters, which sit on the container - see
+  // renderParameterAddButton); its add button lives here to match. 'List'/
+  // 'Call' are Python's AST type names; 'CallExpression'/'NewExpression' are
+  // JavaScript's (JavaScript has no array-literal-as-its-own-node the way
+  // Python's List is - an array literal socket has no add/remove button yet).
+  const role = node.metadata?.type === 'List' ? 'list-item'
+    : (node.metadata?.type === 'Call' || node.metadata?.type === 'CallExpression' || node.metadata?.type === 'NewExpression') ? 'call-argument'
+    : undefined;
+  // Both adapters reject insert-sequence-item as a no-op until a real item
+  // exists (see hasRealSequenceChild) - an empty call/list has only its
+  // synthetic empty socket, so the button would sit there doing nothing.
+  if (role && hasRealSequenceChild(node.children, role)) {
+    appendActionButton(group, document, {
+      action: 'insert-sequence-item', label: '+', x: node.bounds.right - 12, y: node.bounds.top - 4,
+      dataset: {dropletTargetFrom: node.source.from, dropletTargetTo: node.source.to},
+      ariaLabel: role === 'list-item' ? 'Add item' : 'Add argument'
+    });
+  }
+}
+
+function renderSourceLabels(group, node, left, top, document, options = {}) {
+  const sockets = node.children.filter((child) => child.kind === 'socket' || child.kind === 'recovery-socket')
+    .sort((first, second) => first.source.from - second.source.from);
+  if (!sockets.length) {
+    group.append(createLabel(node.text, left, top, document, 'droplet-label-keyword', options.lineHeight));
+    return;
+  }
+  let sourceCursor = node.source.from;
+  let visualCursor = left;
+  for (const socket of sockets) {
+    const from = sourceCursor - node.source.from;
+    const to = socket.source.from - node.source.from;
+    const prefix = node.text.slice(from, to);
+    if (prefix) group.append(createLabel(prefix, visualCursor, top, document, 'droplet-label-keyword', options.lineHeight));
+    // A compound socket already rendered its own nested sockets and text (the
+    // earlier renderNode call for it, in the loop above this one); drawing
+    // its flat text here too would duplicate and overlap that.
+    if (!socket.children.length) {
+      group.append(createLabel(socket.text, socket.textLeft, top, document, 'droplet-label-socket', options.lineHeight));
+    }
+    sourceCursor = socket.source.to;
+    visualCursor = socket.bounds.right + 4;
+  }
+  const suffix = node.text.slice(sourceCursor - node.source.from);
+  if (suffix) group.append(createLabel(suffix, visualCursor, top, document, 'droplet-label-keyword', options.lineHeight));
+}
+
+function renderWhitespace(group, node, document) {
+  const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
+  rect.setAttribute('x', String(node.bounds.left));
+  rect.setAttribute('y', String(node.bounds.top + 8));
+  rect.setAttribute('width', String(node.bounds.right - node.bounds.left));
+  rect.setAttribute('height', String(Math.max(4, node.bounds.bottom - node.bounds.top - 16)));
+  rect.setAttribute('rx', '3');
+  rect.setAttribute('fill', 'rgba(196, 196, 196, .18)');
+  rect.setAttribute('stroke', '#9aa5b1');
+  rect.setAttribute('stroke-dasharray', '3 3');
+  group.append(rect);
+}
+
+function createLabel(text, x, y, document, className, lineHeight = LABEL_LINE_HEIGHT) {
+  const label = document.createElementNS(SVG_NAMESPACE, 'text');
+  if (className) label.setAttribute('class', className);
+  label.setAttribute('x', String(x));
+  label.setAttribute('y', String(y));
+  label.setAttribute('fill', '#24344d');
+  label.setAttribute('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace');
+  label.setAttribute('font-size', '16');
+  // SVG text collapses leading/trailing whitespace by default, which would
+  // trim gap text like " + " down to "+" and leave an infix operator hugging
+  // its left operand while the layout still reserves the full measured width
+  // before the next socket. xml:space="preserve" is the SVG-native way to
+  // opt out, but browsers now key whitespace handling off the CSS
+  // white-space property instead, so set that directly.
+  label.style.whiteSpace = 'pre';
+  const lines = text.split(/\r\n|\r|\n/);
+  if (lines.length === 1) {
+    label.textContent = text;
+    return label;
+  }
+  // A genuinely multi-line label (most commonly an opaque-recovered node's
+  // whole document snapshot, kept as one block while parsing is broken) used
+  // to be truncated to its own first line here - SVG <text> does not wrap or
+  // even display a "\n" as a line break, it renders as ordinary collapsed
+  // whitespace, so every later line silently vanished from the block surface
+  // while CodeMirror's own text view stayed hidden underneath it. One <tspan>
+  // per line, each repeating the label's own x and stepped down by
+  // lineHeight (matching layoutOptions.lineHeight, which is what
+  // layoutAtomic already grows the node's box by per line - a caller that
+  // overrides it must thread the same value here, or these tspans drift out
+  // of the box they were measured for), is the standard SVG idiom for that.
+  for (const [index, line] of lines.entries()) {
+    const tspan = document.createElementNS(SVG_NAMESPACE, 'tspan');
+    tspan.setAttribute('x', String(x));
+    if (index > 0) tspan.setAttribute('dy', String(lineHeight));
+    tspan.textContent = line;
+    label.append(tspan);
+  }
+  return label;
+}
+
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+// createLabel's own fallback when a caller has no layoutOptions.lineHeight to
+// thread through (matches block-surface.js's own default lineHeight).
+const LABEL_LINE_HEIGHT = 28;
+const SNAKE_STROKE = '#5f8a41';
+const SNAKE_FILL = 'rgba(122, 163, 88, .12)';
+const SNAKE_TONGUE = '#c23b3b';
+
+// A puzzle-piece connector, opt in via layoutOptions.tabConnector: a notch
+// dipping into a block's top edge and a matching tab protruding from its
+// bottom edge at the same offset, so a stack of blocks reads as physically
+// interlocked. Geometry matches the legacy CoffeeScript/Ace editor's own
+// tabOffset/tabWidth/tabHeight/tabSideWidth (src/view.coffee).
+const TAB_OFFSET = 10;
+const TAB_WIDTH = 15;
+const TAB_HEIGHT = 5;
+const TAB_SIDE = TAB_WIDTH * 0.125;
+
+function hasConnectorWidth(width) {
+  return width >= TAB_OFFSET + TAB_WIDTH + 8;
+}
+
+// A notch cut into a top edge, traversed left-to-right starting at `left`.
+function notchCommands(left, top) {
+  return [
+    `L ${left + TAB_OFFSET} ${top}`,
+    `L ${left + TAB_OFFSET + TAB_SIDE} ${top + TAB_HEIGHT}`,
+    `L ${left + TAB_OFFSET + TAB_WIDTH - TAB_SIDE} ${top + TAB_HEIGHT}`,
+    `L ${left + TAB_OFFSET + TAB_WIDTH} ${top}`
+  ];
+}
+
+// A tab protruding from a bottom edge, traversed right-to-left, its far end
+// at `left` - the mirror image of notchCommands, offset from the same edge.
+function tabCommands(left, bottom) {
+  return [
+    `L ${left + TAB_OFFSET + TAB_WIDTH} ${bottom}`,
+    `L ${left + TAB_OFFSET + TAB_WIDTH - TAB_SIDE} ${bottom + TAB_HEIGHT}`,
+    `L ${left + TAB_OFFSET + TAB_SIDE} ${bottom + TAB_HEIGHT}`,
+    `L ${left + TAB_OFFSET} ${bottom}`
+  ];
+}
+
+function tabConnectorAtomicPath(left, top, right, bottom, radius) {
+  return [
+    `M ${left} ${top + radius}`,
+    `Q ${left} ${top} ${left + radius} ${top}`,
+    ...notchCommands(left, top),
+    `H ${right - radius}`,
+    `Q ${right} ${top} ${right} ${top + radius}`,
+    `V ${bottom - radius}`,
+    `Q ${right} ${bottom} ${right - radius} ${bottom}`,
+    ...tabCommands(left, bottom),
+    `L ${left + radius} ${bottom}`,
+    `Q ${left} ${bottom} ${left} ${bottom - radius}`,
+    'Z'
+  ].join(' ');
+}
+
+// A container's header is typically a different width than its body/footer
+// (e.g. "if (x) {" vs. a wider or narrower nested statement), so the two
+// share only their left edge - traced with a plain sharp inner corner, the
+// same way the existing bulge/spine construction below does.
+// `bulges` is the primary header followed by zero or more clause headers
+// (an else-if/else chain) - one header, right side, and left-spine run per
+// bulge, stacked top to bottom, all sharing the one footer at the end. The
+// notch is on the very first (topmost) header only; the tab is on the
+// footer's bottom only - matching the legacy renderer's own convention that
+// an elif/else clause is a fresh head of the same one continuous body, not
+// a separate connector of its own.
+function tabConnectorContainerPath(bulges, footer, bodyLeft, radius) {
+  const left = bulges[0].left;
+  // The run connecting one bulge to the next (or to the footer) is a solid
+  // bar, not a hairline, traced down its inner edge and back up its outer
+  // edge (at `left`) after the footer - the same way the body's left edge is
+  // a filled rail in the legacy renderer rather than a 1px outline. Its
+  // inner edge meets the body's own left edge exactly, so nested statements
+  // sit flush against it instead of leaving a gap.
+  const spineRight = bodyLeft;
+  const commands = [
+    `M ${left} ${bulges[0].top + radius}`,
+    `Q ${left} ${bulges[0].top} ${left + radius} ${bulges[0].top}`,
+    ...notchCommands(left, bulges[0].top)
+  ];
+  bulges.forEach((bulge, index) => {
+    const nextTop = index + 1 < bulges.length ? bulges[index + 1].top : footer.top;
+    commands.push(
+      `H ${bulge.right - radius}`,
+      `Q ${bulge.right} ${bulge.top} ${bulge.right} ${bulge.top + radius}`,
+      `V ${bulge.bottom - radius}`,
+      `Q ${bulge.right} ${bulge.bottom} ${bulge.right - radius} ${bulge.bottom}`,
+      `H ${spineRight}`,
+      `V ${nextTop}`
+    );
+  });
+  commands.push(
+    `H ${footer.right - radius}`,
+    `Q ${footer.right} ${footer.top} ${footer.right} ${footer.top + radius}`,
+    `V ${footer.bottom - radius}`,
+    `Q ${footer.right} ${footer.bottom} ${footer.right - radius} ${footer.bottom}`,
+    ...tabCommands(left, footer.bottom),
+    `L ${left + radius} ${footer.bottom}`,
+    `Q ${left} ${footer.bottom} ${left} ${footer.bottom - radius}`,
+    `V ${bulges[0].top + radius}`,
+    'Z'
+  );
+  return commands.join(' ');
+}

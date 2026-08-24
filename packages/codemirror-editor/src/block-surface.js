@@ -1,0 +1,644 @@
+/**
+ * Framework-independent geometry for the modern Droplet block surface.
+ *
+ * This module deliberately has no CodeMirror or DOM dependency. A renderer
+ * supplies text measurement, renders the resulting boxes and paths, and sends
+ * the selected source-range intent back through the language adapter.
+ */
+import {canAddElifClause, canAddElseClause} from './clause-add-eligibility.js';
+
+export function createBlockLayout(projection, options = {}) {
+  assertProjection(projection);
+  const settings = normalizeOptions(options);
+  settings.inlineComments = collectInlineComments(projection.root);
+  const root = layoutDocument(projection.root, projection.source, settings);
+  return {
+    source: projection.source,
+    bounds: root.bounds,
+    root,
+    insertionZones: collectInsertionZones(root).sort((left, right) => right.depth - left.depth),
+    nodes: collectLayoutNodes(root)
+  };
+}
+
+/** Returns a translated layout for a floating or placement subtree preview. */
+export function createSubtreePreview(layout, nodeId) {
+  const node = layout?.nodes?.find((candidate) => candidate.id === nodeId);
+  if (!node) throw new RangeError('A layout node with the requested id is required');
+  return translateLayoutNode(node, -node.bounds.left, -node.bounds.top);
+}
+
+/**
+ * Resolves a block-surface target without DOM overlap or text-layout heuristics.
+ * Children always win over their containing block; insertion zones are used only
+ * when no rendered child/header owns the pointer.
+ */
+export function hitTestBlockLayout(layout, point) {
+  if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) {
+    throw new TypeError('Hit testing requires finite x and y coordinates');
+  }
+  const node = hitTestNode(layout?.root, point);
+  if (node) return {kind: node.kind === 'container' ? 'container-header' : node.kind, node};
+  const zone = (layout?.insertionZones ?? []).find((candidate) => contains(candidate.bounds, point));
+  return zone ? {kind: 'insertion', zone} : undefined;
+}
+
+function layoutDocument(node, source, settings) {
+  const children = structuralChildren(node);
+  const content = layoutChildren(children, source, settings, 0, 0, node.to, {indentation: ''});
+  const bounds = {
+    left: 0, top: 0,
+    right: Math.max(settings.minimumWidth, content.right),
+    bottom: Math.max(settings.lineHeight, content.bottom)
+  };
+  // An empty document's sole body-end zone (see layoutChildren) is a thin
+  // band centered on the empty cursor position, not the document's whole
+  // visible empty row - a drop anywhere below that band would silently miss
+  // every zone. Widen it to the document's own bounds, the way
+  // layoutContainer widens its body-end zone to its footer's drawn bounds.
+  const insertionZones = children.length
+    ? content.insertionZones
+    : content.insertionZones.map((zone) => zone.role === 'body-end' ? {...zone, bounds} : zone);
+  return {
+    id: node.id,
+    kind: 'document',
+    source: rangeOf(node),
+    bounds,
+    children: content.children,
+    insertionZones
+  };
+}
+
+function layoutChildren(nodes, source, settings, left, top, bodyEnd, destination = {}) {
+  let cursor = top;
+  let right = left + settings.minimumWidth;
+  const children = [];
+  const insertionZones = [];
+  for (const [index, node] of nodes.entries()) {
+    insertionZones.push(insertionZone(node.from, left, cursor, right - left, settings, 'before-sibling', destination));
+    // A bare statement's own label text is capped at its own physical line's
+    // end (see layoutAtomic) - but valid, semicolon-separated source can
+    // legitimately put more than one statement on that same physical line
+    // ("first(); second();"). Without also capping at the next sibling's own
+    // start, the first statement's label swallowed the second's text too
+    // (rendering it twice), and inlineCommentFor's own line-end-bounded
+    // search attached one trailing comment on that line to every preceding
+    // statement sharing it, not just the nearest one.
+    const nextFrom = nodes[index + 1]?.from ?? bodyEnd;
+    const child = layoutNode(node, source, settings, left, cursor, nextFrom);
+    children.push(child);
+    cursor = child.bounds.bottom + settings.rowGap;
+    right = Math.max(right, layoutRight(child));
+  }
+  insertionZones.push(insertionZone(bodyEnd, left, cursor, right - left, settings, 'body-end', destination));
+  return {children, insertionZones, right, bottom: Math.max(top + settings.lineHeight, cursor)};
+}
+
+function layoutNode(node, source, settings, left, top, nextFrom = Infinity) {
+  if (node.kind === 'whitespace') return layoutWhitespace(node, settings, left, top);
+  if (isContainer(node)) return layoutContainer(node, source, settings, left, top);
+  return layoutAtomic(node, source, settings, left, top, nextFrom);
+}
+
+function layoutAtomic(node, source, settings, left, top, nextFrom = Infinity) {
+  const inlineComment = node.kind === 'statement' ? inlineCommentFor(node, source, settings.inlineComments, nextFrom) : undefined;
+  const textEnd = inlineComment ? inlineComment.from : node.kind === 'statement' ? Math.min(lineEnd(source, node.to), nextFrom) : node.to;
+  const text = source.slice(node.from, textEnd).trimEnd();
+  const sockets = node.kind === 'statement' ? layoutSockets(sourceSockets(node), node, source, settings, left, top) : [];
+  // A statement/comment's own text is always one physical line (textEnd
+  // above caps a statement at its own line, and a comment never spans more
+  // than one) - but an opaque node (parse recovery keeping a whole malformed
+  // document as one snapshot, most commonly) can legitimately span many.
+  // Measuring/sizing by the single widest line, and growing the box to fit
+  // every line, is what lets renderSourceLabels show all of it instead of
+  // silently dropping every line after the first.
+  const lines = text.split(/\r\n|\r|\n/);
+  const width = Math.max(
+    settings.minimumWidth,
+    Math.max(...lines.map((line) => settings.measureText(line))) + settings.horizontalPadding * 2,
+    socketContentWidth(sockets, node, textEnd, source, settings, left)
+  );
+  const children = [
+    ...(inlineComment ? [layoutAtomic(inlineComment, source, settings, left + width + settings.inlineCommentGap, top)] : []),
+    ...sockets,
+    ...(node.children ?? [])
+    .filter((child) => child.kind?.startsWith('opaque-'))
+    .map((child) => layoutAtomic(child, source, settings, left + 4, top + 4))
+  ];
+  return {
+    id: node.id,
+    kind: node.kind === 'comment' ? 'comment' : node.kind.startsWith('opaque-') ? node.kind : 'statement',
+    source: rangeOf(node),
+    metadata: node.metadata,
+    text,
+    bounds: box(left, top, width, settings.lineHeight * lines.length),
+    children,
+    insertionZones: []
+  };
+}
+
+function layoutSockets(nodes, statement, source, settings, left, top, initialPadding = settings.horizontalPadding) {
+  let sourceCursor = statement.from;
+  let visualCursor = left + initialPadding;
+  return nodes.sort(compareSourceRanges).map((node) => {
+    const gap = source.slice(sourceCursor, node.from);
+    visualCursor += settings.measureText(gap);
+    // The socket's rounded rect pads its own text on the left by pulling its
+    // edge back before textLeft. That pullback is meant to land in blank
+    // space; without a trailing-whitespace source gap (e.g. `x=1`, no space
+    // before the value), it would instead cut into the preceding glyph.
+    const leftPadding = Math.min(settings.socketHorizontalPadding, settings.measureText(/[\t ]*$/.exec(gap)[0]));
+    const socket = layoutSocket(node, source, settings, visualCursor, top, leftPadding);
+    sourceCursor = node.to;
+    visualCursor = socket.bounds.right + settings.socketTextGap;
+    return socket;
+  });
+}
+
+function layoutSocket(node, source, settings, textLeft, top, leftPadding = settings.socketHorizontalPadding) {
+  // A compound socket (e.g. `value + value`, `not value`) should only let
+  // the user edit its own operand sockets, not rewrite the operator/keyword
+  // structure that makes it that expression - so it lays out its own inner
+  // sockets and the surrounding text between them, instead of rendering as
+  // one flat, freely-editable string.
+  const innerSockets = sourceSockets(node);
+  if (innerSockets.length) return layoutCompoundSocket(node, innerSockets, source, settings, textLeft, top, leftPadding);
+  const text = source.slice(node.from, node.to);
+  const socketLeft = textLeft - leftPadding;
+  const width = Math.max(settings.socketMinimumWidth, settings.measureText(text) + leftPadding + settings.socketHorizontalPadding);
+  return {
+    id: node.id,
+    kind: node.kind,
+    source: rangeOf(node),
+    metadata: node.metadata,
+    text,
+    textLeft,
+    bounds: box(socketLeft, top + 2, width, settings.lineHeight - 4),
+    children: [],
+    insertionZones: []
+  };
+}
+
+function layoutCompoundSocket(node, innerSockets, source, settings, textLeft, top, leftPadding) {
+  const sockets = layoutSockets(innerSockets, node, source, settings, textLeft, top, 0);
+  const last = sockets.at(-1);
+  const suffix = source.slice(last.source.to, node.to);
+  const contentRight = suffix ? last.bounds.right + settings.socketTextGap + settings.measureText(suffix) : last.bounds.right;
+  const socketLeft = textLeft - leftPadding;
+  const width = Math.max(settings.socketMinimumWidth, contentRight - socketLeft + settings.socketHorizontalPadding);
+  return {
+    id: node.id,
+    kind: node.kind,
+    source: rangeOf(node),
+    metadata: node.metadata,
+    text: source.slice(node.from, node.to),
+    textLeft,
+    bounds: box(socketLeft, top + 2, width, settings.lineHeight - 4),
+    children: sockets,
+    insertionZones: []
+  };
+}
+
+function socketContentWidth(sockets, node, textEnd, source, settings, left) {
+  if (!sockets.length) return 0;
+  const last = sockets.at(-1);
+  const suffix = source.slice(last.source.to, textEnd).trimEnd();
+  const labelRight = suffix
+    ? last.bounds.right + settings.socketTextGap + settings.measureText(suffix)
+    : last.textLeft + settings.measureText(last.text);
+  return Math.max(last.bounds.right, labelRight) - left + settings.horizontalPadding;
+}
+
+function layoutWhitespace(node, settings, left, top) {
+  return {
+    id: node.id,
+    kind: 'whitespace',
+    source: rangeOf(node),
+    text: node.metadata?.text ?? '',
+    bounds: box(left, top, settings.whitespaceWidth, settings.lineHeight),
+    children: [],
+    insertionZones: []
+  };
+}
+
+function layoutContainer(node, source, settings, left, top) {
+  const rawHeaderTo = validHeaderTo(node, source);
+  // An inline comment attached to the header line (`if x:  # note`) is a
+  // direct child of the container node, not the body. Exclude its range from
+  // the header text and lay it out as its own block, the way layoutAtomic
+  // does for a statement's own trailing comment.
+  const inlineComment = (node.children ?? [])
+    .find((child) => child.kind === 'comment' && child.metadata?.inline && child.from < rawHeaderTo);
+  const headerTo = inlineComment ? inlineComment.from : rawHeaderTo;
+  const headerText = source.slice(node.from, headerTo).trimEnd();
+  const headerSockets = layoutSockets(sourceSockets(node), node, source, settings, left, top);
+  const headerWidth = Math.max(
+    settings.minimumWidth,
+    settings.measureText(headerText) + settings.horizontalPadding * 2,
+    socketContentWidth(headerSockets, node, headerTo, source, settings, left)
+  );
+  const bodyLeft = left + settings.indentWidth;
+  const bodyTop = top + settings.lineHeight + settings.containerGap;
+  const bodyEnd = Number.isInteger(node.metadata?.bodyEnd) ? node.metadata.bodyEnd : node.to;
+  const body = layoutChildren(structuralChildren(node, source), source, settings, bodyLeft, bodyTop, bodyEnd, {
+    ...(node.metadata?.bodyIndentation === undefined ? {} : {indentation: node.metadata.bodyIndentation}),
+    ...(node.metadata?.emptySuitePass ? {emptySuitePass: node.metadata.emptySuitePass} : {})
+  });
+  const commentChild = inlineComment
+    ? [layoutAtomic(inlineComment, source, settings, left + headerWidth + settings.inlineCommentGap, top)]
+    : [];
+  // An if/elif/else chain (or a for/while's own else) is one construct with
+  // several branches, not several containers - each elif/else is a 'clause'
+  // child laid out as its own header+body section, stacked after the
+  // primary branch's body and before the one shared footer at the very end.
+  const clauses = (node.children ?? []).filter((child) => child.kind === 'clause').sort(compareSourceRanges);
+  const clauseSections = layoutClauses(clauses, source, settings, left, bodyLeft, body.bottom);
+  const right = Math.max(
+    left + headerWidth, body.right + settings.horizontalPadding, clauseSections.right,
+    canAddClause(node, clauses) ? left + settings.clauseControlsWidth : 0
+  );
+  const footerTop = Math.max(bodyTop, body.bottom, clauseSections.bottom);
+  // A brace-bodied language's closing token (JavaScript's "}") sits after the
+  // last body/clause statement and before the container's own end - a colon
+  // header's suite (Python) has no such trailing token, so this is empty
+  // there and the footer stays its plain closing bar. The last branch's own
+  // bodyEnd (an else/elif clause's if one exists, the container's own
+  // otherwise) is the reliable anchor for this, not a scan for the last
+  // piece of actual body content - an empty branch (e.g. `else {\n}`) has
+  // none to find, which left this pointed at the primary header instead,
+  // swallowing every later branch's text into what should be just "}".
+  const lastBranch = clauses.at(-1) ?? node;
+  const structuralEnd = Number.isInteger(lastBranch.metadata?.bodyEnd) ? lastBranch.metadata.bodyEnd : headerTo;
+  const footerText = source.slice(structuralEnd, node.to).replace(/^\s+/, '');
+  // "Add elif"/"add else" render inside the footer, beside its own closing-
+  // token text (JavaScript's "}") when it has one - a full text line already
+  // has room for both side by side. A footer with no such text (Python has
+  // none) is only its own thin closing-bar height, too short to hold the
+  // controls at all, so it reserves a dedicated extra row for them instead,
+  // only while they can actually show (never once an else exists).
+  const footerHeight = footerText
+    ? settings.lineHeight
+    : settings.footerHeight + (canAddClause(node, clauses) ? settings.clauseControlsHeight : 0);
+  const footer = box(left, footerTop, right - left, footerHeight);
+  const bounds = {left, top, right, bottom: footer.bottom};
+  // The body-end zone (see layoutChildren) is sized before the footer's own
+  // height is known here, as a thin band right under the last statement (or
+  // right under the header, for an empty body) - too small to reliably hit
+  // once the footer bar itself is taller than that band, as it is whenever
+  // footerText is shown. Widen it to the footer's actual drawn bounds so a
+  // drop anywhere on the visible footer bar is recognized as "insert inside
+  // this container" - but the shared footer visually sits right after the
+  // *last branch* (the last clause, when any exist), not the primary body,
+  // so only the primary body's own zone gets widened when there is no
+  // clause to claim the footer instead.
+  const insertionZones = clauses.length
+    ? body.insertionZones
+    : body.insertionZones.map((zone) => zone.role === 'body-end' ? {...zone, bounds: footer} : zone);
+  const clauseChildren = clauses.length
+    ? clauseSections.children.map((section, index) => index < clauseSections.children.length - 1 ? section : {
+        ...section,
+        insertionZones: section.insertionZones.map((zone) => zone.role === 'body-end' ? {...zone, bounds: footer} : zone)
+      })
+    : clauseSections.children;
+  return {
+    id: node.id,
+    kind: 'container',
+    source: rangeOf(node),
+    metadata: node.metadata,
+    text: headerText,
+    footerText,
+    bounds,
+    regions: {
+      header: box(left, top, headerWidth, settings.lineHeight),
+      body: {left: bodyLeft, top: bodyTop, right, bottom: footer.top},
+      footer
+    },
+    children: [...headerSockets, ...commentChild, ...body.children, ...clauseChildren],
+    insertionZones
+  };
+}
+
+// Lays out zero or more elif/else (or for/while else) branches, each its own
+// header+body section stacked below the primary branch's body. Each
+// returned clause carries its own insertionZones so the recursive
+// collectInsertionZones walk finds them the same way it already finds any
+// other nested node's zones - the caller does not need to merge them into
+// its own flat insertionZones field.
+function layoutClauses(clauses, source, settings, left, bodyLeft, cursorTop) {
+  let cursor = cursorTop;
+  let right = left;
+  const children = [];
+  for (const clause of clauses) {
+    const clauseTop = cursor + settings.containerGap;
+    const headerSockets = layoutSockets(sourceSockets(clause), clause, source, settings, left, clauseTop);
+    // Guarded the same way a primary container's own header is (validHeaderTo):
+    // metadata.headerTo is trusted adapter output, not validated by
+    // assertProjection - an incomplete/malformed projection with it absent or
+    // out of range would otherwise throw here, or (source.slice's own
+    // behavior when its end argument is undefined) silently consume the rest
+    // of the document as this clause's "header".
+    const rawClauseHeaderTo = validHeaderTo(clause, source);
+    // An inline comment attached to the clause's own header line
+    // ("elif retry:  # note") is a direct child of the clause, not its body -
+    // exclude its range from the header text and lay it out as its own
+    // block, the same way layoutContainer does for the primary header.
+    const inlineComment = (clause.children ?? [])
+      .find((child) => child.kind === 'comment' && child.metadata?.inline && child.from < rawClauseHeaderTo);
+    const clauseHeaderTo = inlineComment ? inlineComment.from : rawClauseHeaderTo;
+    const headerText = source.slice(clause.from, clauseHeaderTo).trimEnd();
+    const headerWidth = Math.max(
+      settings.minimumWidth,
+      settings.measureText(headerText) + settings.horizontalPadding * 2,
+      socketContentWidth(headerSockets, clause, clauseHeaderTo, source, settings, left)
+    );
+    const clauseBodyTop = clauseTop + settings.lineHeight + settings.containerGap;
+    const clauseBodyEnd = Number.isInteger(clause.metadata?.bodyEnd) ? clause.metadata.bodyEnd : clause.to;
+    const body = layoutChildren(structuralChildren(clause, source), source, settings, bodyLeft, clauseBodyTop, clauseBodyEnd, {
+      ...(clause.metadata?.bodyIndentation === undefined ? {} : {indentation: clause.metadata.bodyIndentation}),
+      ...(clause.metadata?.emptySuitePass ? {emptySuitePass: clause.metadata.emptySuitePass} : {})
+    });
+    const commentChild = inlineComment
+      ? [layoutAtomic(inlineComment, source, settings, left + headerWidth + settings.inlineCommentGap, clauseTop)]
+      : [];
+    const clauseRight = Math.max(left + headerWidth, body.right + settings.horizontalPadding);
+    const clauseBottom = Math.max(clauseBodyTop, body.bottom);
+    children.push({
+      id: clause.id,
+      kind: 'clause',
+      source: rangeOf(clause),
+      metadata: clause.metadata,
+      text: headerText,
+      bounds: {left, top: clauseTop, right: clauseRight, bottom: clauseBottom},
+      regions: {
+        header: box(left, clauseTop, headerWidth, settings.lineHeight),
+        body: {left: bodyLeft, top: clauseBodyTop, right: clauseRight, bottom: clauseBottom}
+      },
+      children: [...headerSockets, ...commentChild, ...body.children],
+      insertionZones: body.insertionZones
+    });
+    cursor = clauseBottom;
+    right = Math.max(right, clauseRight);
+  }
+  return {children, right, bottom: cursor};
+}
+
+function structuralChildren(node, source) {
+  const children = (node.children ?? []).filter((child) =>
+    child.kind === 'statement' || (child.kind === 'comment' && !child.metadata?.inline) || child.kind === 'whitespace' || child.kind?.startsWith('opaque-'));
+  if (source && typeof node.metadata?.bodyIndentation === 'string') {
+    // Brython can retain an outer-scope statement beneath an earlier suite in
+    // its object tree, so a real statement needs the indentation check below:
+    // source indentation, not AST nesting, is the authoritative suite
+    // boundary there. A blank line or standalone comment isn't subject to
+    // that same quirk - it reaches this node's children at all only because
+    // the adapter's own triviaParent walk (a separate, range-based search
+    // over the already-projected tree, not Brython's raw AST) already found
+    // no more specific clause/statement to attach it to. A blank line also
+    // has no indentation of its own to check in the first place - the
+    // indentation filter would always exclude it, and it would silently
+    // disappear from every branch's rendering instead of staying visibly
+    // ordered in the one triviaParent already chose for it.
+    return descendantStructuralNodes(node)
+      .filter((child) => child.kind !== 'statement' || leadingIndentation(source, child.from) === node.metadata.bodyIndentation)
+      .sort(compareSourceRanges);
+  }
+  // Acorn represents a JavaScript braced body as a BlockStatement child. It is
+  // structural syntax, not a second user-visible C block inside an if/for -
+  // flatten it into this container's own body. A branch-boundary comment or
+  // blank line between that block's own closing brace and a following
+  // elif/else clause (see ifClauses) rides alongside it here as another
+  // direct child, not inside the block itself; requiring it to be the only
+  // child before flattening at all used to render the block as a spurious
+  // second nested container whenever such trivia was present. Only the
+  // statement itself needs to be alone - any such trivia becomes a trailing
+  // sibling of the flattened body instead.
+  const statementChildren = children.filter((child) => child.kind === 'statement');
+  const blockStatement = statementChildren.length === 1 && statementChildren[0].metadata?.type === 'BlockStatement'
+    ? statementChildren[0]
+    : undefined;
+  if (isContainer(node) && blockStatement) {
+    const trivia = children.filter((child) => child !== blockStatement);
+    return [...structuralChildren(blockStatement, source), ...trivia].sort(compareSourceRanges);
+  }
+  return children.sort(compareSourceRanges);
+}
+
+function sourceSockets(node) {
+  return (node.children ?? []).flatMap((child) => {
+    if (child.kind === 'socket' || child.kind === 'recovery-socket') return [child];
+    // JavaScript expression wrappers (for example VariableDeclarator and
+    // AssignmentExpression) are structural AST detail, not visible blocks.
+    // Their directly projected sockets still belong on the enclosing statement.
+    return child.kind === 'expression' ? sourceSockets(child) : [];
+  });
+}
+
+function descendantStructuralNodes(node, depth = 0) {
+  return (node.children ?? []).flatMap((child) => [
+    // A statement can legitimately need to be found below a direct child
+    // (Brython can retain an outer-scope statement beneath an earlier
+    // suite in its object tree - see structuralChildren's bodyIndentation
+    // check, which is what actually filters a wrongly-deep one back out).
+    // A standalone comment or blank line has no such quirk, and no
+    // indentation-based filter catches it afterward: the adapter's own
+    // triviaParent walk already attached it to the one specific
+    // statement/clause that owns it, so collecting it again from an
+    // ancestor here would render the same trivia twice - once (wrongly)
+    // as this ancestor's own child, and once (correctly) inside the
+    // nested container triviaParent actually chose.
+    ...(child.kind === 'statement' || (depth === 0 && (child.kind === 'comment' && !child.metadata?.inline || child.kind === 'whitespace')) ? [child] : []),
+    // A clause (an elif/else or for/while else branch) owns its own body -
+    // structuralChildren, called directly on the clause itself, is how its
+    // statements are reached. Descending into it here too would duplicate
+    // them into the primary body's own list, since branches typically share
+    // the primary body's indentation.
+    ...(child.kind === 'clause' ? [] : descendantStructuralNodes(child, depth + 1))
+  ]);
+}
+
+function leadingIndentation(source, from) {
+  // A raw lastIndexOf('\n', ...) ignores a bare "\r" line ending (Python
+  // adapters and the shared physicalLines API support all three - "\r\n",
+  // "\r", and "\n"): in a CR-only document, no "\n" exists anywhere, so this
+  // always resolved to the document's own start - every nested statement's
+  // indentation then measured from position 0 instead of its own line,
+  // reading as empty and filtering it out of its container (see
+  // structuralChildren's bodyIndentation check above).
+  let start = from;
+  while (start > 0) {
+    const before = source[start - 1];
+    if (before === '\n') break;
+    // A "\r" immediately followed by "\n" is one CRLF line ending, not a
+    // standalone one - stopping right after it would split the pair and land
+    // mid-terminator, not at a real line start.
+    if (before === '\r' && source[start] !== '\n') break;
+    start -= 1;
+  }
+  return /^[\t \f]*/.exec(source.slice(start, from))?.[0] ?? '';
+}
+
+function compareSourceRanges(left, right) {
+  return left.from - right.from || left.to - right.to || left.id.localeCompare(right.id);
+}
+
+function lineEnd(source, offset) {
+  const ending = source.slice(offset).search(/[\r\n]/);
+  return ending === -1 ? source.length : offset + ending;
+}
+
+function isContainer(node) {
+  return node.kind === 'statement' && node.metadata?.blockRole === 'container';
+}
+
+function validHeaderTo(node, source) {
+  const headerTo = node.metadata?.headerTo;
+  if (Number.isInteger(headerTo) && headerTo >= node.from && headerTo <= node.to) return headerTo;
+  // A raw indexOf('\n', ...) ignores a bare "\r" or a lone "\r\n" pair - in a
+  // CR-only (or malformed-headerTo) document this fallback could run past
+  // the node's own end looking for a "\n" that never comes, or find an
+  // unrelated later one past node.to entirely. lineEnd already recognizes
+  // all three line endings; bounding it by node.to keeps this fallback
+  // inside the node's own range the same way the old "not found" branch did.
+  return Math.min(lineEnd(source, node.from), node.to);
+}
+
+function insertionZone(destination, left, top, width, settings, role, details) {
+  const bodyEnd = role === 'body-end';
+  return {
+    kind: 'insertion-zone', role, destination: {from: destination, to: destination, ...details},
+    // A container footer is a drop region, not a one-pixel separator. Its
+    // interior must accept a drop at the end of the suite.
+    bounds: box(
+      left,
+      top - (bodyEnd ? settings.insertionHeight : settings.insertionHeight / 2),
+      Math.max(settings.minimumWidth, width),
+      bodyEnd ? settings.insertionHeight * 2 : settings.insertionHeight
+    )
+  };
+}
+
+function hitTestNode(node, point) {
+  if (!node) return undefined;
+  // An inline comment renders to the right of its statement's own text, so
+  // its bounds sit outside its statement's bounds. Try children before
+  // gating on the node's own box, or an inline comment could never be hit.
+  for (const child of node.children ?? []) {
+    const result = hitTestNode(child, point);
+    if (result) return result;
+  }
+  if (!contains(node.bounds, point)) return undefined;
+  if (node.kind === 'container' && !contains(node.regions.header, point)) return undefined;
+  if (node.kind === 'clause' && !contains(node.regions.header, point)) return undefined;
+  return node.kind === 'document' ? undefined : node;
+}
+
+function collectInsertionZones(node, depth = 0) {
+  return [
+    ...(node.insertionZones ?? []).map((zone) => ({...zone, depth})),
+    ...(node.children ?? []).flatMap((child) => collectInsertionZones(child, depth + 1))
+  ];
+}
+
+function collectLayoutNodes(node) {
+  return [node, ...(node.children ?? []).flatMap(collectLayoutNodes)];
+}
+
+function layoutRight(node) {
+  return Math.max(node.bounds.right, ...(node.children ?? []).map(layoutRight));
+}
+
+function collectInlineComments(node) {
+  return [
+    ...(node.kind === 'comment' && node.metadata?.inline ? [node] : []),
+    ...(node.children ?? []).flatMap(collectInlineComments)
+  ];
+}
+
+function inlineCommentFor(statement, source, comments, nextFrom = Infinity) {
+  // The search bound must come from statement.to's own physical line, not
+  // statement.from's - for a multi-line statement those are different lines,
+  // and bounding by the first line put lineEndOffset before statement.to
+  // itself, so comment.from <= lineEndOffset could never hold and a real
+  // trailing comment on the statement's last line was never found (see
+  // layoutAtomic's own textEnd, which already uses statement.to here).
+  const lineEndOffset = Math.min(lineEnd(source, statement.to), nextFrom);
+  return comments.find((comment) => comment.from >= statement.to && comment.from <= lineEndOffset);
+}
+
+function translateLayoutNode(node, x, y) {
+  return {
+    ...node,
+    ...(Number.isFinite(node.textLeft) ? {textLeft: node.textLeft + x} : {}),
+    bounds: translateBox(node.bounds, x, y),
+    regions: node.regions && Object.fromEntries(Object.entries(node.regions).map(([key, value]) => [key, translateBox(value, x, y)])),
+    insertionZones: (node.insertionZones ?? []).map((zone) => ({...zone, bounds: translateBox(zone.bounds, x, y)})),
+    children: (node.children ?? []).map((child) => translateLayoutNode(child, x, y))
+  };
+}
+
+function box(left, top, width, height) {
+  return {left, top, right: left + width, bottom: top + height};
+}
+
+function translateBox(bounds, x, y) {
+  return {left: bounds.left + x, top: bounds.top + y, right: bounds.right + x, bottom: bounds.bottom + y};
+}
+
+function contains(bounds, point) {
+  return point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom;
+}
+
+function rangeOf(node) {
+  return {from: node.from, to: node.to};
+}
+
+function normalizeOptions(options) {
+  const measureText = options.measureText ?? ((text) => text.length * 10);
+  if (typeof measureText !== 'function') throw new TypeError('measureText must be a function');
+  return {
+    measureText,
+    lineHeight: positiveNumber(options.lineHeight, 28),
+    indentWidth: positiveNumber(options.indentWidth, 24),
+    horizontalPadding: positiveNumber(options.horizontalPadding, 8),
+    footerHeight: positiveNumber(options.footerHeight, 10),
+    containerGap: nonNegativeNumber(options.containerGap, 4),
+    rowGap: nonNegativeNumber(options.rowGap, 4),
+    insertionHeight: positiveNumber(options.insertionHeight, 12),
+    minimumWidth: positiveNumber(options.minimumWidth, 56),
+    whitespaceWidth: positiveNumber(options.whitespaceWidth, 72),
+    inlineCommentGap: positiveNumber(options.inlineCommentGap, 6),
+    socketMinimumWidth: positiveNumber(options.socketMinimumWidth, 16),
+    socketHorizontalPadding: nonNegativeNumber(options.socketHorizontalPadding, 3),
+    socketTextGap: nonNegativeNumber(options.socketTextGap, 4),
+    // Room reserved in an if/for/while's footer for its "add elif"/"add
+    // else" buttons - a plain footer's own curve is too short to hold them.
+    clauseControlsHeight: positiveNumber(options.clauseControlsHeight, 22),
+    clauseControlsWidth: positiveNumber(options.clauseControlsWidth, 130)
+  };
+}
+
+// Reserves extra footer room exactly when, and only when, the DOM renderer's
+// own "add elif"/"add else" buttons (see canAddElifClause/canAddElseClause
+// in clause-add-eligibility.js, the single source of truth both share) will
+// actually render there.
+function canAddClause(node, clauses) {
+  return canAddElifClause(node, clauses) || canAddElseClause(node, clauses);
+}
+
+function positiveNumber(value, fallback) {
+  if (value === undefined) return fallback;
+  if (!Number.isFinite(value) || value <= 0) throw new TypeError('Layout dimensions must be positive finite numbers');
+  return value;
+}
+
+function nonNegativeNumber(value, fallback) {
+  if (value === undefined) return fallback;
+  if (!Number.isFinite(value) || value < 0) throw new TypeError('Layout dimensions must be non-negative finite numbers');
+  return value;
+}
+
+function assertProjection(projection) {
+  if (typeof projection?.source !== 'string' || !projection.root || projection.root.kind !== 'document') {
+    throw new TypeError('A source-backed document projection is required');
+  }
+}

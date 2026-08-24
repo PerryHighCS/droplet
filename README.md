@@ -19,12 +19,34 @@ runtime. Future Code.org changes are reviewed and selectively reimplemented as
 compatibility work. See [the modernization decision](docs/decisions/0001-full-modernization.md)
 and [the upstream review log](docs/upstream-codeorg.md).
 
+For manual modern-editor checks, first install the two workspaces these
+unbundled pages import directly - a plain root `npm ci` does not populate
+either one: `npm --prefix playwright ci` (both playgrounds' import maps pull
+CodeMirror from there) and `npm --prefix packages/javascript-adapter ci` (the
+JavaScript playground also imports Acorn from there). Skipping either leaves
+that playground stuck at "Loading modern editor…". Then start `npm run dev`
+and open [`example/modern-python.html`](example/modern-python.html) or
+[`example/modern-javascript.html`](example/modern-javascript.html) on port
+8001. Each playground exposes the live source snapshot and parsed projection
+alongside CodeMirror text/block mode, a starter-block palette, and
+representative block operations. The JavaScript playground's palette and
+rendered blocks reproduce App Lab's own toolbox category colors (control,
+math, variables, functions - approximated from App Lab's own UI, not the
+standalone library's generic category defaults), applied as a post-render
+pass since block category is a language-specific concept the modern block
+surface has no opinion on. Its notched, interlocking block silhouette
+(`src/view.coffee`'s tab/bevel geometry) is instead an opt-in
+`layoutOptions.tabConnector` rendering mode built into
+`packages/codemirror-editor` itself, off by default for other consumers.
+
 The first framework-independent editor package is
 [`packages/codemirror-editor`](packages/codemirror-editor/): it wraps one
 CodeMirror 6 document with controlled value synchronization and extension
 compartments. Its `@droplet/codemirror-editor/droplet` subpath adds the
-source-range Droplet projection adapter, including block-mode decorations and
-source-backed selection and drag/drop intents.
+source-range Droplet projection adapter and an early DOM/SVG BlockSurface.
+CodeMirror remains the source and history authority; the surface renders the
+current projection and maps block selections back to source ranges. Structural
+drag/drop parity is still in progress.
 
 The initial modern language path is
 [`packages/javascript-adapter`](packages/javascript-adapter/). It projects
@@ -35,7 +57,15 @@ Droplet adapter.
 [`packages/python-adapter`](packages/python-adapter/) is the initial modern
 Python parsing path. It maps Brython browser-AST source ranges while retaining
 the original source snapshot; syntax failures are represented as opaque source
-ranges. Comment-aware structural edits remain future work.
+ranges. `createBrythonPythonTransformer` adds source-range socket replacement,
+statement insertion, and statement movement with Brython validation. These
+operations preserve untouched source exactly, including comments, blank lines,
+and tabs; moved statements adopt only the target line's existing indentation.
+When Brython's tokenizer is supplied, standalone comments are rendered as
+independent gray blocks and can move without moving their containing suite. A
+comment dropped anywhere to the right of a statement's rendered line becomes
+that line's inline comment; drops elsewhere use normal statement-boundary
+insertion.
 
 How to Embed
 ------------
@@ -127,7 +157,12 @@ directories for recompilation. It listens on port **8001**: visit
 or `http://localhost:8001/example/test.html` for the view debugger.
 
 Run `npx grunt mochaTest` for the parser/model unit suite. Switch to Node 24
-before running `npm run test:browser` for the QUnit browser suite.
+before running `npm run test:browser` for the full Playwright browser suite,
+which covers the legacy QUnit pages and both modern playgrounds' (Python and
+JavaScript) own browser tests. `npm run test:browser:legacy` and
+`npm run test:browser:modern` run just one or the other; CI runs them as
+separate jobs under the `Legacy verification` and `Modern verification`
+checks, respectively.
 
 ### Current legacy baseline
 

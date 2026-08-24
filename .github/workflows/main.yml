@@ -23,8 +23,8 @@ jobs:
       - run: npm ci
       - run: npx grunt dist
 
-  legacy-and-browser:
-    name: Legacy parser and browser suite (Node 24)
+  legacy-browser:
+    name: Legacy parser and QUnit browser suite (Node 24)
     runs-on: ubuntu-latest
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'
@@ -38,12 +38,46 @@ jobs:
       - run: npm --prefix playwright ci
       - run: npm --prefix playwright exec -- playwright install --with-deps chromium
       - run: npx grunt mochaTest
-      - run: npm run test:browser
+      # tests/qunit-pages.spec.mjs only - the modern Python and JavaScript
+      # playgrounds' own browser suites (tests/brython-ast.spec.mjs and
+      # tests/javascript-playground.spec.mjs) run as their own job below,
+      # under Modern verification, not here.
+      - run: npm run test:browser:legacy
       - name: Upload Playwright failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v5
         with:
-          name: playwright-failure-diagnostics
+          name: playwright-legacy-failure-diagnostics
+          path: |
+            playwright/test-results
+            playwright/playwright-report
+          if-no-files-found: ignore
+
+  modern-playground:
+    name: Modern playground (browser)
+    runs-on: ubuntu-latest
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix playwright ci
+      - run: npm --prefix playwright exec -- playwright install --with-deps chromium
+      # modern-javascript.html's import map resolves "acorn" straight off
+      # disk (see playwright/serve.mjs) from this package's own node_modules
+      # - install it, or that import 404s and the JS playground never gets
+      # past "Loading modern editor...".
+      - run: npm --prefix packages/javascript-adapter ci
+      - run: npm run test:browser:modern
+      - name: Upload Playwright failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-modern-failure-diagnostics
           path: |
             playwright/test-results
             playwright/playwright-report
@@ -108,13 +142,13 @@ jobs:
     if: ${{ always() }}
     needs:
       - legacy-build
-      - legacy-and-browser
+      - legacy-browser
     runs-on: ubuntu-latest
     steps:
       - name: Require every legacy check to pass
         env:
           LEGACY_BUILD: ${{ needs.legacy-build.result }}
-          LEGACY_BROWSER: ${{ needs.legacy-and-browser.result }}
+          LEGACY_BROWSER: ${{ needs.legacy-browser.result }}
         run: |
           test "$LEGACY_BUILD" = success
           test "$LEGACY_BROWSER" = success
@@ -127,6 +161,7 @@ jobs:
       - codemirror-editor
       - javascript-adapter
       - python-adapter
+      - modern-playground
     runs-on: ubuntu-latest
     steps:
       - name: Require every modern check to pass
@@ -135,8 +170,10 @@ jobs:
           CODEMIRROR_EDITOR: ${{ needs.codemirror-editor.result }}
           JAVASCRIPT_ADAPTER: ${{ needs.javascript-adapter.result }}
           PYTHON_ADAPTER: ${{ needs.python-adapter.result }}
+          MODERN_PLAYGROUND: ${{ needs.modern-playground.result }}
         run: |
           test "$MODERN_CORE" = success
           test "$CODEMIRROR_EDITOR" = success
           test "$JAVASCRIPT_ADAPTER" = success
           test "$PYTHON_ADAPTER" = success
+          test "$MODERN_PLAYGROUND" = success

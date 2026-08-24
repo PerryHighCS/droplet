@@ -33,16 +33,45 @@ extensions through CodeMirror compartments without recreating the view.
 The `@droplet/codemirror-editor/droplet` subpath adds
 `createDropletCodeMirrorEditor`. Supply a structured language parser and,
 optionally, a block-operation transformer. It reparses after every CodeMirror
-document transaction, decorates structured statements, expressions, sockets,
-and opaque parser failures in block mode, and keeps opaque internal text
-read-only. External source updates remain permitted, so a repaired program
-automatically returns to a structured projection.
+document transaction and, in block mode, renders structured statements,
+expressions, sockets, and opaque parser failures through a `BlockSurface`
+(see below) instead of the CodeMirror view, keeping opaque content read-only
+from within that surface. External source updates remain permitted, so a
+repaired program automatically returns to a structured projection.
 
 Clicking a rendered range selects its exact source range in CodeMirror.
 Dragging one rendered statement onto another produces a `move-statement`
 intent; dropping an expression or socket onto a socket produces a
 `replace-socket` intent. The language adapter remains responsible for deciding
 whether that exact source transformation is valid.
+
+Select a statement or comment block and press Delete or Backspace to emit a
+`delete-node` intent. Releasing a dragged block outside the BlockSurface does
+not always delete it: releasing above or below the rendered document moves it
+to the first or last insertion zone instead, matching a drop just past that
+edge; only a release past the surface's left or right edge emits `delete-node`.
+Socket deletion clears the exact socket range through the normal
+editable/recovery path instead of introducing a separate block value.
+Ctrl-drag (or Cmd-drag) a block to emit a `copy-node` intent at the indicated
+insertion destination.
+
+### Block surface
+
+`createDropletCodeMirrorEditor`'s block mode renders through `BlockSurface`,
+exposed as two subpaths:
+
+- `@droplet/codemirror-editor/block-surface` exports `createBlockLayout`,
+  `createSubtreePreview`, and `hitTestBlockLayout` - framework-independent
+  geometry functions with no DOM or CodeMirror dependency. A caller supplies
+  text measurement through `options.measureText`.
+- `@droplet/codemirror-editor/block-surface/dom` exports the `BlockSurface`
+  class itself. It renders a layout as SVG and reports selection, socket
+  edits, and block operations through the `onSelect`, `onSocketEdit`, and
+  `onOperation` callbacks.
+
+Most consumers only need `createDropletCodeMirrorEditor`, which already wires
+a `BlockSurface` up to CodeMirror; these subpaths are for building an
+alternative host around the same layout/rendering primitives.
 
 ```js
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
@@ -58,4 +87,28 @@ const editor = createDropletCodeMirrorEditor({
 
 `applyBlockOperation(operation)` validates the adapter's minimal source changes
 and dispatches them as one CodeMirror transaction, preserving ordinary undo and
-redo behavior.
+redo behavior. A call site invoking it directly can catch a rejection (an
+invalid destination, a transform the adapter refuses) the ordinary synchronous
+way.
+
+An operation the `BlockSurface` itself originates - drag/drop, Delete, and the
+add/remove-clause and add/remove-sequence-item buttons - has no such call site
+of its own to catch a rejection from; left unhandled, it would throw straight
+out of a DOM event handler as an uncaught exception. Pass `onOperationError`
+to `createDropletCodeMirrorEditor`'s options to receive `(error, operation)`
+for exactly those surface-originated failures instead - it does not run for a
+direct `applyBlockOperation` call, which still throws synchronously to its own
+caller:
+
+```js
+const editor = createDropletCodeMirrorEditor({
+  parent: document.querySelector('#editor'),
+  value: 'if score >',
+  blockMode: true,
+  parse: parseStructuredLanguage,
+  transform: transformBlockOperation,
+  onOperationError(error, operation) {
+    console.warn(`Couldn't apply ${operation.type}: ${error.message}`);
+  }
+});
+```

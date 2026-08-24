@@ -17,17 +17,25 @@ packages and a thin React wrapper.
 2. Preserve the legacy file layout, CoffeeScript sources, Grunt/Browserify
    build path, QUnit pages, and baseline fixtures unless a task explicitly
    changes the reference implementation.
-3. When a Code.org upstream change matters, first identify its observable
-   behavior, capture it in a modern regression test, then selectively
-   reimplement it. Do not assume upstream patches can be merged mechanically
-   after modernization.
+3. During initial modernization, use the legacy editor as the behavioral
+   specification for the agreed compatibility scope. Do not package or call
+   the modern editor production-ready while required block rendering and
+   interaction behaviors are still only source-range prototypes. For a future
+   Code.org upstream change, first identify its observable behavior, capture
+   it in a modern regression test, then selectively reimplement it; do not
+   assume upstream patches can be merged mechanically after modernization.
 4. Keep CodeMirror 6 as the modern text source of truth. Block actions must be
    expressed as source-range transformations and normal editor transactions;
    do not maintain competing mutable legacy and CodeMirror documents.
-5. Preserve exact source representation by default. Any intentional source
+5. Treat CodeMirror decoration or SVG-over-text rendering only as a prototype,
+   not the production block UI. Production block mode must use a modern
+   projection-derived Droplet surface with its own recursive geometry, hit
+   testing, insertion zones, and subtree previews; it still emits only normal
+   CodeMirror source transactions.
+6. Preserve exact source representation by default. Any intentional source
    rewrite must be narrow, test-covered, and attributable to an explicit block
    operation.
-6. Introduce TypeScript, modern packages, or a new build system only in the
+7. Introduce TypeScript, modern packages, or a new build system only in the
    modern implementation area or when the task explicitly calls for it. Do not
    migrate legacy modules opportunistically.
 
@@ -43,16 +51,8 @@ Before changing code, read the relevant material:
 
 ## Repository layout
 
-- `src/`: editor implementation. `main.coffee` is the Browserify entry point;
-  `model.coffee`, `view.coffee`, `draw.coffee`, `controller.coffee`, and
-  `parser.coffee` are the central editor layers.
 - `src/languages/`: language-specific parsers and block definitions. Register
   modes in `src/modes.coffee`.
-- `test/src/`: CoffeeScript unit and browser-test sources.
-- `test/*.html`: QUnit browser-test entry pages.
-- `example/`: runnable embedding examples.
-- `css/`: source stylesheet.
-- `antlr/`: checked-in grammar sources and generated parser artifacts.
 - `vendor/`: checked-in third-party browser assets; do not hand-edit them.
 - `packages/core/`: dependency-free modern source-range and opaque-projection
   foundation. It is ESM and tested independently with Node's test runner.

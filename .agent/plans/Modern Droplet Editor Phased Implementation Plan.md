@@ -878,10 +878,36 @@ instead be read from the original leading line slice. This prevents tabs from
 being silently converted or assigned the wrong source range.
 
 `@droplet/python-adapter` exposes `collectPythonTrivia` for exact standalone
-and inline comment ranges plus raw indentation slices. Structural comment
-association and indentation-changing operations remain future work.
+and inline comment ranges plus raw indentation slices. Broader structural
+comment association remains future work.
 It determines an inline comment from non-whitespace source preceding `#` on
 the same line, so indented standalone comments remain standalone.
+
+### Phase 8 implementation — 2026-08-22
+
+`@droplet/python-adapter` now provides a Brython-bound source-range transformer
+for socket replacement, statement insertion, and statement movement. It leaves
+every untouched character intact, including blank lines, tabs, inline comments,
+and standalone comments. Insertions use the target line's existing indentation;
+statement movement reindents only the moved nonblank lines and validates the
+result with Brython. `createEmptyPythonSuite` emits an explicitly indented
+`pass` statement for a new empty suite.
+
+The Chromium integration test drives these operations through
+`DropletCodeMirrorEditor.applyBlockOperation`: it moves a nested compound suite
+to module scope while retaining inline and standalone comments plus a blank
+line, then inserts a new empty suite before a sibling statement.
+
+The Code.org JavaScript mode remains the interaction reference: it marks each
+AST statement independently, represents comments as separate comment blocks,
+and allows drops into statement containers. The modern Python adapter follows
+that model when supplied Brython's tokenizer: standalone comments are projected
+as independently movable `comment` nodes, while nested statements retain their
+own source ranges rather than inheriting the enclosing suite's drag behavior.
+Statement drops resolve to insertion boundaries, with both a floating block and
+a translucent placement preview. A comment released anywhere to the right of a
+statement is instead attached as that statement's inline comment; a comment
+released elsewhere moves between statement boundaries.
 
 ## Newly generated indentation
 
@@ -918,18 +944,465 @@ and:
 x = 5
 ```
 
-Standalone comments may eventually become draggable comment blocks.
+Standalone comments are draggable comment blocks. Dropping one anywhere to a
+statement's right makes it that statement's inline comment.
 
 Inline comments should normally remain associated with their containing statement.
 
 ### Phase 8 acceptance criteria
 
-- [ ] Tabs and spaces are not globally normalized.
-- [ ] New indentation follows local convention.
-- [ ] Blank lines survive block toggling.
-- [ ] Inline comments survive edits.
-- [ ] Standalone comments survive edits.
-- [ ] Empty suites remain valid Python.
+- [x] Tabs and spaces are not globally normalized.
+- [x] New indentation follows local convention.
+- [x] Blank lines survive block toggling.
+- [x] Inline comments survive edits.
+- [x] Standalone comments survive edits.
+- [x] Empty suites remain valid Python.
+
+---
+
+# Phase 8.5: Reach Block Rendering and Drag Parity Before Packaging
+
+The source-range projection established in Phases 4–8 is a foundation, not the
+finished block editor. Before public packaging, the modern CodeMirror 6 editor
+must match the agreed observable block behavior of Code.org Droplet's
+JavaScript editor. The legacy renderer/controller remains the specification;
+the modern implementation remains independent and source-authoritative.
+`example/example-python.html` is also a concrete visual fixture: its `for`
+container wraps `print(item)` through an indent container.
+For broad JavaScript coverage, use the legacy Code.org-derived renderer with
+`test/data/javascript-compatibility.js`; its `if`, `for`, `while`, function,
+call, value, and inline-comment blocks are the primary modern-renderer parity
+corpus. The relevant legacy behavior lives in `src/languages/javascript.coffee`
+(projection), `src/view.coffee` (geometry), and `src/controller.coffee`
+(innermost hit testing and subtree drag rendering).
+`docs/architecture/codeorg-javascript-parity.md` directly compares those
+implementations with the modern Acorn/CodeMirror path and is the detailed
+acceptance specification for the BlockSurface work.
+
+## Rendering decision — 2026-08-22
+
+The initial CodeMirror decoration/SVG-overlay experiment established that the
+projection and source-range transforms can drive visible block affordances. It
+does **not** provide a production block editor: CodeMirror's text-line layout
+cannot own C-container geometry, physical blank-line blocks, structural
+insertion gaps, or subtree drag previews. Do not extend that experiment with
+additional coordinate heuristics.
+
+Block mode will instead present a modern Droplet block surface. CodeMirror
+remains the sole source, transaction, selection-mapping, and history authority;
+the block surface reads its current document/projection and emits only
+source-range operation intents. In text mode the CodeMirror text surface is
+visible. In block mode the modern block surface is visible and CodeMirror's
+text surface is inactive or hidden. This is a reimplementation of the legacy
+renderer/controller behavior, not reuse of the legacy CoffeeScript/Ace runtime.
+
+The first renderer should use DOM/SVG layout rather than Canvas so source labels,
+hit regions, accessibility semantics, and screenshot tests remain inspectable.
+Canvas is a later performance option, not an architectural requirement.
+
+## Replanned implementation sequence
+
+1. [x] Define framework-independent block-layout types: measured block bounds,
+   container header/body/footer regions, physical whitespace blocks, sibling
+   insertion zones, and subtree preview geometry.
+2. [x] Build a `BlockSurface` lifecycle owned by the modern adapter. It subscribes
+   to CodeMirror document/projection updates but owns no editable source copy.
+3. Implement recursive layout from the projection tree. A container owns its
+   header and child layout; blank lines and comments have explicit measured
+   nodes. Geometry must not be inferred from CodeMirror mark rectangles.
+4. Implement hit testing against layout nodes and insertion zones. Child,
+   container, socket, comment-line-end, and sibling-gap targets must be
+   mutually explicit and precedence-tested.
+5. Implement one subtree renderer for the on-surface block, floating drag
+   preview, and stationary placement preview.
+6. Connect accepted block intents to existing language-adapter transforms and
+   one CodeMirror transaction. Reparse and relayout after every transaction.
+7. Use the legacy JavaScript corpus and the Python playground as browser
+   parity fixtures before resuming packaging work.
+
+## Socket editing and expression replacement
+
+Statement drag parity alone is not sufficient for a usable Droplet editor.
+Before packaging, the BlockSurface must support direct editing and source-range
+replacement of expression sockets. This remains source-authoritative: a socket
+does not own a second mutable expression tree or document.
+
+### Initial socket vertical slice
+
+Implement and test these independently editable expression ranges first:
+
+- [x] Assignment target (left-value) socket.
+- [x] Assignment value (right-value) socket.
+- [x] `if` condition socket.
+
+The assignment target is not merely a label. It must accept direct text edits
+and expression-block replacement, then let the language parser validate that
+the resulting expression is assignable. Initial adapters should support the
+common assignable forms they can project (names, attributes, subscripts, and
+supported unpacking) without making the target visually or behaviorally
+read-only. The assignment value and `if` condition accept general expressions.
+
+### Direct-edit lifecycle
+
+1. Selecting a socket opens a focused text editor scoped to that exact source
+   range; its initial value is the exact source slice.
+2. Enter or focus loss commits the edited value through one normal CodeMirror
+   transaction, maps the source range through that transaction, and reparses.
+   Escape may explicitly cancel a still-uncommitted draft.
+3. A successful parse replaces the editor with the newly projected structured
+   socket/block geometry while preserving the document's exact surrounding
+   source representation.
+4. Dragging a compatible expression block onto a socket uses the same
+   source-range replacement transaction and reparse path as a committed text
+   edit.
+
+### Incomplete and invalid expression recovery
+
+An incomplete expression must never turn a user-editable socket into a
+non-editable opaque block. When a committed socket edit prevents a full parse,
+the renderer must retain the last known structural layout outside the affected
+range and render that range as an **editable recovery socket**. It displays the
+exact committed source text and a lightweight invalid/incomplete state; it
+continues to accept direct edits and attempts reparse after each commit. Once
+valid, it returns to ordinary structured socket rendering.
+
+Generic opaque source recovery remains appropriate for malformed pasted text,
+unsupported syntax, or a parse failure whose editable range cannot be
+attributed. It must still offer an explicit text-edit route; opaque rendering
+is never an interaction dead end. CodeMirror remains the canonical document,
+selection mapping, transaction history, and undo/redo authority in every
+recovery state.
+
+### Socket verification
+
+- [x] Browser tests cover Enter and focus-loss commits for assignment target,
+  assignment value, and `if` condition sockets.
+- [ ] Browser tests cover compatible expression drag replacement for each
+  initial socket kind. Only one combination has a Playwright regression
+  (`manual modern Python playground replaces a value socket by dragging an
+  expression socket`, an assignment-value target) - assignment-target and
+  `if`-condition are untested at the browser level for Python, and the
+  JavaScript adapter has no browser socket-drag coverage at all (see the
+  JavaScript playground gap under "Verification and acceptance criteria"
+  below).
+- [x] Tests prove an incomplete committed socket edit remains directly editable
+  and re-structures after correction, without changing unrelated blocks.
+- [x] Tests reject or visibly recover an invalid assignment target without
+  making its source inaccessible.
+- [x] Source-range and undo/redo tests prove socket edits and dragged
+  replacements are normal CodeMirror transactions. Verified by
+  `editing a rendered socket commits one CodeMirror source change on Enter`
+  (asserts undo restores the pre-edit source) and the general
+  `block operations use one CodeMirror source transaction and its existing
+  undo history` in `packages/codemirror-editor/test/droplet.test.js`.
+
+### Initial Python implementation — 2026-08-22
+
+The modern Python path now projects explicit `assignment-target`,
+`assignment-value`, and `if-condition` socket roles. The DOM/SVG BlockSurface
+renders each as a source-backed hit region, including condition sockets in a
+container header. Selecting one opens a scoped direct-edit field; Enter and
+focus loss dispatch an ordinary CodeMirror source transaction and reparse the
+current document.
+
+If a committed socket edit is incomplete, the editor retains the last
+structured projection outside that range and renders an editable
+`recovery-socket` instead of a non-editable opaque block. Correcting it
+restructures the projection. Browser regressions cover both assignment sides,
+an `if` condition, focus-loss commit, and the incomplete-to-structured
+recovery path, including an invalid assignment target.
+
+Socket-to-socket expression dragging is now also wired through
+`replace-socket`: dragging the source-backed expression from one socket onto
+another emits a source-range replacement operation, uses the existing language
+transform and CodeMirror transaction, and reparses. Its floating and placement
+previews include the expression text. The first browser regression covers an
+assignment target expression replacing an assignment value; compatibility
+coverage for every socket role and richer nested expression block rendering
+remain outstanding.
+
+The modern JavaScript adapter now emits the same explicit roles for variable
+declaration and assignment sides plus `if` conditions. The shared BlockSurface
+flattens non-visible JavaScript AST expression wrappers so these sockets render
+on their enclosing statement or container header; JavaScript-specific browser
+playground and interaction parity coverage remains outstanding.
+
+The modern Python playground includes a small starter palette (`print`, an
+assignment, `if`, and `for`). Palette blocks are native drag sources: dropping
+one on a BlockSurface insertion target uses the existing Python statement
+transformer and its placement guide. Click activation remains an accessible
+shortcut that appends by default or inserts before the currently selected
+block. It is a development/playground affordance, not a second mutable block
+document.
+
+### Print call sockets — 2026-08-22
+
+The Python playground's `print` starter is `print()`, not a pre-filled opaque
+call expression. A standalone `print()` exposes one source-backed empty
+argument socket between its parentheses. Editing that socket with an expression
+commits one normal source transaction; comma-separated arguments reparse into
+individually addressable argument sockets. This is the initial expandable-call
+pattern: no secondary block document and no source normalization.
+
+### Source-backed deletion — 2026-08-22
+
+Selected statement and comment blocks can be deleted with Delete or Backspace,
+and a dragged block can be deleted by releasing it outside the BlockSurface.
+Deletion is expressed as a source operation and stays in CodeMirror history.
+Deleting a Python suite's final statement replaces only that line with the
+locally-indented `pass` placeholder. Socket deletion follows the existing
+editable recovery path: its exact range becomes empty source and remains
+directly repairable if that intermediate text is incomplete.
+
+The currently selected block has a high-contrast SVG outline. This selection is
+the target of keyboard deletion and remains visually distinct from ordinary
+blue structural borders.
+
+Ctrl-drag (Cmd-drag on macOS) copies a block to its insertion target rather
+than moving it. Copy operations retain the same local indentation and
+empty-suite handling as source-backed insertion; modifier drags released
+outside the surface cancel rather than delete.
+
+## Expandable conditional containers
+
+An `if` chain is one conditional construct with multiple branches, not several
+unrelated C blocks. The BlockSurface should render `if`, zero or more `elif`,
+and an optional `else` as connected branch headers with their own C-shaped
+suite bodies. The original `if` condition and each `elif` condition use the
+same direct-edit/recovery socket model; `else` has no condition socket.
+
+### Initial conditional controls
+
+- [x] Render an `if` container's branch structure explicitly in projection
+  metadata and DOM/SVG layout.
+- [x] Show an `Add elif` affordance while an additional conditional branch is
+  syntactically legal.
+- [x] Show an `Add else` affordance only when no `else` branch exists.
+- [x] Adding `else` inserts a valid empty suite using local indentation and
+  the language's valid placeholder (`pass` for Python).
+- [x] Adding `elif` inserts a valid default condition and empty suite. The
+  first Python default is `True`; it is explicit source, never a hidden
+  secondary document value. (Auto-selecting the new condition socket for
+  immediate replacement, as originally scoped here, was not built - a
+  reasonable v2 addition, not required for the feature to be usable.)
+
+The affordances belong at the conditional's final branch/footer, so a beginner
+sees that they extend the same decision rather than create a nested statement.
+They must generate narrow source-range transformations and one CodeMirror
+transaction, followed by reparse and relayout.
+
+### Removing a branch
+
+- [x] Shipped as a direct one-click remove control on every `elif`/`else`
+  branch, including non-empty ones - a deliberate deviation from this
+  section's original caution. The reasoning: every other destructive block
+  operation in this editor (deleting a selected statement or comment,
+  clearing a socket) is already a direct, undo-covered action with no
+  confirmation step; gating only branch removal behind a narrower
+  synthetic-only rule or a confirmation dialog would be an inconsistent
+  interaction model for one specific operation. Ordinary CodeMirror undo
+  (Ctrl-Z) covers the "clear user-visible outcome" concern this section
+  raised. Re-adding an `else` after a removal is still the normal `Add else`
+  transformation - no hidden branch state.
+
+### Conditional verification
+
+- [x] Tests cover `if` → `if/else` and `if` → `if/elif/else`, including
+  multiple chained `elif` branches, at the projection, layout, and DOM
+  operation-emission levels (`python.test.js`, `block-surface.test.js`,
+  `block-surface-dom.test.js`); comment/blank-line preservation is covered
+  indirectly via `triviaParent`'s existing suite-attachment behavior, now
+  extended to clause bodies.
+- [ ] No dedicated test covers direct editing/recovery of an inserted `elif`
+  condition specifically - it reuses the same `if-condition` socket role and
+  recovery-socket machinery already covered for the primary `if`, but that
+  reuse itself isn't asserted by a test yet.
+- [x] Tests prove the add controls are unavailable once `else` exists.
+  Undo/redo round-tripping was not tested directly (removal is a normal
+  CodeMirror transaction like every other block operation, not special-cased
+  for undo) - not verified by a dedicated test.
+
+### Expandable call arguments, def parameters, and list items — 2026-08-23
+
+Generalized the `print()`-only empty-argument-socket pattern (see "Print call
+sockets" above) to any zero-argument `Call`, and extended the same
+add/remove-item model to function/def parameters and list-literal elements.
+A def's parameters and a call's/list's own items each get a `+` button
+(hidden until at least one real, non-synthetic item exists - appending
+before that would need a leading comma before any content, which is invalid
+Python) and each individual item gets a `×` remove button that splices out
+its own separating comma using only the already-known positions of its
+sibling items, independent of surrounding whitespace style. Both directions
+are ordinary single-range CodeMirror source edits, same as every other block
+operation here.
+
+### Expandable if/elif/else and for/while else — 2026-08-23
+
+Implemented the branch-chain rendering and controls scoped above, for `If`
+(full `elif*` + optional `else` chain, detected via source-text sniffing at
+each nested-If's position to distinguish a real `elif` from a literal
+`else:` followed by a nested `if` statement) and `For`/`AsyncFor`/`While`
+(one optional `else` only - Python has no loop `elif`). `Try`/`TryStar`
+were explicitly left out of scope; their `handlers`/`finalbody`/`orelse`
+structure was already unmodeled before this change and remains so.
+
+`+ elif` stays available even once an `else` exists (Python's actual
+constraint is elif-before-else, not "no else yet") - adding one inserts it
+right before the existing `else`, never after; `+ else` is the one that
+hides once an else already exists, since a statement can only have one.
+The first pass wrongly hid both once `else` existed; corrected the same day
+after review.
+
+`renderContainerFrame`'s single outline path (previously one header bulge,
+one footer) now loops over the primary header plus every clause header in
+top-to-bottom order, drawing the same bulge-then-narrow-to-spine shape at
+each one before continuing the wavy spine descent to the next. The result
+is one continuous outlined silhouette for the whole if/elif/else chain -
+each branch protrudes with its own bordered "head," rather than a separate
+unbordered box per branch competing with the body's own spine. (Two earlier
+attempts got this wrong first: a bordered rect per clause drew a second,
+competing border across the spine; removing the border entirely then left
+each branch with no defining edge where it protrudes past the body's own
+indent. The real fix was extending the one shared path, not styling a
+separate box.) `+ elif`/`+ else` are centered (both axes) in the footer/tail
+area, which was widened to hold them.
+
+## Required rendering model
+
+- [x] Distinguish atomic statement blocks from container statement blocks in
+  language projections.
+- [x] Render a container as one multi-line block outline that wraps its header
+  and nested child statement blocks, rather than as a rectangular decoration
+  over one source range. `renderContainerFrame` in `block-surface-dom.js`
+  draws one continuous outlined silhouette across the header, body, and
+  footer, including every clause header in an if/elif/else chain.
+- [x] Preserve nested block ownership: dragging a child statement moves only
+  that child; dragging the container header moves the container and its body.
+  `hitTestNode` in `block-surface.js` recurses into children before testing a
+  node's own bounds (innermost wins), so a drag always starts from the
+  narrowest node under the pointer - covered indirectly by
+  `uses the same subtree geometry for a drag preview and gives a nested child
+  hit priority` in `block-surface.test.js`. No test names the specific
+  scenario ("dragging the header moves the whole container") as its own
+  acceptance case; see "Verification and acceptance criteria" below.
+- [x] Represent every blank or whitespace-only physical line as a distinct,
+  source-preserving `whitespace` projection node and visible block-mode line.
+  `addWhitespaceNodes` (both adapters) and `layoutWhitespace`.
+- [x] Keep standalone and inline comments as independent source-range nodes;
+  moving an inline comment to a gap must not move its statement.
+  `addCommentNodes`/`moveInlineCommentChanges` (Python) plus inline-comment
+  layout in `block-surface.js`/`block-surface-dom.js`.
+
+## Required rendering and interaction work
+
+- [x] Introduce a modern `BlockSurface` renderer, using DOM/SVG, that derives
+  geometry from the projection tree and its own recursive layout—not CodeMirror
+  line-layout decorations. It must not reuse the legacy Ace view at runtime.
+  `packages/codemirror-editor/src/block-surface.js` (geometry) and
+  `block-surface-dom.js` (DOM/SVG rendering); no legacy import anywhere in
+  `packages/`.
+- [x] Give the renderer one subtree layout path used for the editor, the drag
+  preview, and placement previews, so a container drag preview retains its
+  header, nested children, indentation, comments, and whitespace lines.
+  `createSubtreePreview` in `block-surface.js`.
+- [x] Render insertion affordances between sibling statements and whitespace
+  lines; do not model a statement drop as dropping "onto" another statement.
+  `insertionZones`/`collectInsertionZones` throughout `block-surface.js`.
+- [x] Expose the lower interior edge of every container C shape as a body-end
+  insertion target. Its operation must retain the container's suite/body
+  indentation (or JavaScript brace position), rather than borrowing indentation
+  from the following sibling statement. `bodyEnd` metadata and the body-end
+  zone widening in `layoutContainer`/`layoutClauses`; the destination
+  indentation itself is threaded explicitly through every Python insert/copy/
+  move-comment path as of `59e59ea`/`ac04c22`.
+- [x] Treat a Python suite containing only `pass`, comments, and blank lines
+  as an empty container for an explicit first block insertion. Replace `pass`,
+  preserve standalone comments and whitespace, and carry an inline `pass`
+  comment to the inserted statement. A suite with any other executable
+  statement is not empty and retains its `pass`. `emptySuitePass`/
+  `replaceEmptySuitePass`/`moveStatementIntoEmptySuite` in the Python adapter.
+- [x] Retain the explicit comment-line-end gesture: the horizontal area to a
+  statement's right attaches a dragged comment inline, while all other comment
+  drops use insertion boundaries. Covered by the `drags a comment to the
+  right of a bare statement/container header to attach it inline` tests in
+  `block-surface-dom.test.js`.
+- [x] Make hit testing select the innermost rendered block, matching the
+  legacy controller's tree walk rather than relying on overlapping text marks.
+  `hitTestNode` in `block-surface.js`.
+
+## Verification and acceptance criteria
+
+- [x] A nested JavaScript container visually wraps its child statement blocks
+  in the modern renderer. Covered by `flattens a JavaScript body block even
+  when a branch-boundary blank line sits alongside it` and the general
+  container-layout tests in `block-surface.test.js`.
+- [x] A nested Python suite visually wraps its child statement blocks in the
+  modern renderer. Covered by `lays out a nested container with a header,
+  independently addressable child, footer, and body-end zone` and the
+  if/elif/else chain tests in `block-surface.test.js`.
+- [x] Blank and whitespace-only lines survive a block/text round trip and are
+  individually visible in block mode. Covered by `keeps whitespace as a
+  measured sibling and exposes insertion zones around it` and
+  `renders suite containers and blank-line placeholders` (Playwright).
+- [x] Browser tests verify inner-statement versus container drag ownership,
+  comment-only movement, and insertion placement. Comment-only movement and
+  insertion placement are covered at the browser level (the Python
+  playground's drag/drop Playwright tests). Inner-statement-versus-container
+  drag *ownership* is now covered too, by `javascript-playground.spec.mjs`'s
+  "moves a container together with its nested statement, then the statement
+  alone" - dragging the whole container (with its child still inside) onto a
+  new location, then dragging that same nested statement out on its own.
+- [ ] Browser screenshot or geometry tests verify that a dragged container
+  preview has the same nested structure as its on-canvas block. No screenshot
+  or geometry-diff tests exist anywhere in `playwright/tests/` yet.
+- [ ] Provide a modern JavaScript manual playground based on
+  `test/data/javascript-compatibility.js`. It must be a beginner-friendly
+  drag/drop example: users can visibly move an inner loop statement, a sibling
+  statement, and an entire `if` or `for` container with the same structural
+  preview and insertion affordances used by production block mode.
+  `example/modern-javascript.mjs` exists and supports palette insertion,
+  moving, and socket editing, but uses its own bespoke sample programs rather
+  than `test/data/javascript-compatibility.js`. It now has Playwright smoke
+  and interaction coverage (`playwright/tests/javascript-playground.spec.mjs`,
+  closing [#5](https://github.com/PerryHighCS/droplet/issues/5)) for page
+  load, palette-click insertion, mode switching, a palette drag, the
+  category-color pass, and moving an existing nested statement independently
+  of, then together with, its enclosing container.
+
+Also still open, found while auditing this phase but not previously listed
+here:
+
+- [ ] No dedicated test covers direct editing/recovery of an inserted `elif`
+  condition socket specifically - it reuses the same `if-condition` socket
+  role and recovery-socket machinery already covered for the primary `if`,
+  but that reuse itself is unverified (same gap already noted under
+  "Conditional verification" above).
+- [ ] No undo/redo round-trip test exists for `add-clause`/`remove-clause`
+  specifically (same gap already noted under "Conditional verification").
+- [x] Opaque multi-line source snapshots (e.g. a whole malformed multi-line
+  document recovered as one `opaque-statement`) used to truncate to their
+  first line in `block-surface-dom.js`'s `createLabel`. Fixed with real
+  multi-line layout and `<tspan>`-based rendering, closing
+  [#8](https://github.com/PerryHighCS/droplet/issues/8).
+
+### Phase 8.5 status — 2026-08-23
+
+Re-audited against current code rather than these checkboxes, which had
+drifted well behind actual progress: the BlockSurface renderer, subtree
+preview sharing, insertion zones, body-end targeting, empty-suite handling,
+comment/whitespace nodes, and innermost hit testing are all implemented and
+tested, closing out essentially all of "Required rendering model" and
+"Required rendering and interaction work" above. What remains before Phase 9
+packaging is almost entirely test-coverage, not new architecture: JavaScript
+playground Playwright coverage landed (#5, closed), including a
+container-drag-ownership acceptance test moving a nested statement
+independently of, then together with, its enclosing container; what remains
+is broader expression-drag-to-socket browser coverage, screenshot/geometry
+drag-preview parity tests, and two narrow undo/redo and elif-condition test
+gaps. The opaque multi-line label truncation (#8) is fixed and closed.
+
+Only after these criteria are complete should Phase 9 package the editor's
+public browser API.
 
 ---
 
@@ -965,6 +1438,15 @@ packages/
 ```
 
 Final package names can be chosen later.
+
+### Manual playground — 2026-08-22
+
+`example/modern-python.html` is an intentionally unbundled development page
+for the modern Python path. It runs from the normal port-8001 dev server and
+shows the authoritative source snapshot and current projection beside the
+CodeMirror editor. It is not a replacement for automated tests: Playwright
+smoke-tests that the page loads, while the page provides hands-on inspection of
+mode switching, opaque recovery, and representative block operations.
 
 ## Browser API
 

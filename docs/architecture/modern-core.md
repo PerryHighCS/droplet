@@ -21,6 +21,13 @@ or normalize its source.
 | CodeMirror integration | Canonical text document, transactions, selections, history, extensions | Block-specific grammar policy |
 | Framework integration | Mounting, lifecycle, and framework-specific bindings | Core editing behavior |
 
+In text mode, CodeMirror is the visible text surface. In block mode, a modern
+Droplet `BlockSurface` is the visible surface while CodeMirror continues to own
+the canonical document, transaction history, and source-to-selection mapping.
+The `BlockSurface` has its own projection-derived recursive layout, hit testing,
+insertion zones, and subtree previews. It must not infer block geometry from
+CodeMirror text-mark rectangles or retain a mutable copy of source.
+
 ## Core types
 
 ```ts
@@ -123,10 +130,10 @@ without recreating the view, so later Droplet, collaboration, and framework
 extensions remain attached to the same canonical document.
 
 The package's `droplet` subpath adds the projection adapter. It reparses with
-`parseWithOpaqueRecovery` after every CodeMirror document change, renders
-structured statements, expressions, sockets, and opaque ranges with CodeMirror
-decorations in block mode, and filters direct changes that touch opaque internal
-source. Externally synchronized source and
+`parseWithOpaqueRecovery` after every CodeMirror document change and gives the
+modern DOM/SVG BlockSurface the current projection in block mode; CodeMirror's
+text surface is inactive while that surface is visible. It filters direct
+changes that touch opaque internal source. Externally synchronized source and
 explicit block-operation transactions are allowed through that filter, so
 repairing source automatically replaces the opaque projection. A language
 adapter's `transform` result is range-validated and dispatched as one ordinary

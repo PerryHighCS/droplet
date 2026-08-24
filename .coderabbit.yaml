@@ -28,6 +28,13 @@ reviews:
     # overrides CodeRabbit's default exclusion of nested package lockfiles.
     - "packages/**"
     - "packages/**/package-lock.json"
+    # CI workflow and Playwright test source are also reviewable - without
+    # explicit inclusion here, CodeRabbit's own default exclusions skip
+    # .github/workflows/** and playwright/tests/** entirely (generated
+    # artifacts under playwright/playwright-report/** and
+    # playwright/test-results/** stay excluded above).
+    - ".github/workflows/**"
+    - "playwright/tests/**"
   path_instructions:
     - path: "src/**/*.coffee"
       instructions: |

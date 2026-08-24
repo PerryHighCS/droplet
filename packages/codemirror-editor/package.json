@@ -4,7 +4,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.js",
-    "./droplet": "./src/droplet.js"
+    "./droplet": "./src/droplet.js",
+    "./block-surface": "./src/block-surface.js",
+    "./block-surface/dom": "./src/block-surface-dom.js"
   },
   "engines": {
     "node": ">=22"
