@@ -169,8 +169,11 @@ export function transformJavaScript(operation, parsed) {
       const index = siblings.findIndex((sibling) => sibling.from === item.from && sibling.to === item.to);
       const next = siblings[index + 1];
       const previous = siblings[index - 1];
-      const range = next ? {from: item.from, to: next.from} : previous ? {from: previous.to, to: item.to} : {from: item.from, to: item.to};
-      changes = [{from: range.from, to: range.to, insert: ''}];
+      changes = next
+        ? [{from: item.from, to: next.from, insert: ''}]
+        : previous
+          ? removeLastSequenceItem(parsed.source, previous, item)
+          : [{from: item.from, to: item.to, insert: ''}];
       break;
     }
     case 'delete-node': {
@@ -568,6 +571,42 @@ function matchingCloseParen(source, openParen) {
     // project either way.
   }
   return -1;
+}
+
+// Removing the last remaining sequence item must not blindly delete
+// everything from the *previous*, kept item's own end through this item's
+// own end - that whole span can hold trivia (most commonly a trailing line
+// comment, "f(a, // keep a\n  b)") that belongs to the previous item, not to
+// the one being removed. Only the separating "," itself is structurally
+// tied to the removed item. When nothing but whitespace sits between the
+// comma and the item, one contiguous deletion (matching a comma with no
+// trivia after it) stays tidy; when a comment sits there, only the comma and
+// the item's own text are removed as two disjoint changes, leaving the
+// comment (and its own surrounding whitespace/indentation) completely alone.
+function removeLastSequenceItem(source, previous, item) {
+  const comma = commaAfter(source, previous.to);
+  if (comma === -1) return [{from: item.from, to: item.to, insert: ''}];
+  const commaEnd = comma + 1;
+  if (/^\s*$/.test(source.slice(commaEnd, item.from))) {
+    return [{from: previous.to, to: item.to, insert: ''}];
+  }
+  return [
+    {from: previous.to, to: commaEnd, insert: ''},
+    {from: item.from, to: item.to, insert: ''}
+  ];
+}
+
+// Finds the real "," separating `previous` from the item now being removed -
+// retokenizing from previous.to reliably skips past a comment sitting
+// between them (a plain indexOf could match a "," inside one instead), the
+// same way elseKeywordStart/openParenStart already do above.
+function commaAfter(source, from) {
+  try {
+    const token = tokenizer(source.slice(from), {ecmaVersion: 'latest'}).getToken();
+    return token.type.label === ',' ? from + token.start : -1;
+  } catch {
+    return -1;
+  }
 }
 
 // A bare `return;` - a valid, argument-less return - gets the same empty

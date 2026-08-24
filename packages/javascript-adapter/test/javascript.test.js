@@ -487,6 +487,21 @@ test('the "," insert-sequence-item leaves behind still has an editable, removabl
   assert.equal(applySourceChanges(source, changes), 'myFunction();\n');
 });
 
+test('removing the last call argument does not delete a trailing comment that belongs to the one before it', () => {
+  // remove-sequence-item's last-item branch used to delete everything from
+  // the *previous*, kept argument's own end through the removed item's own
+  // end - a trailing line comment between them (visually attached to the
+  // previous, surviving argument) was swept away along with the separating
+  // comma and the removed item, even though it describes a() completely
+  // untouched by this edit.
+  const source = 'f(a, // keep a\n  b);\n';
+  const parsed = parseJavaScript(source);
+  const b = findFirst(parsed.root, (node) => node.kind === 'socket' && source.slice(node.from, node.to) === 'b');
+
+  const changes = transformJavaScript({type: 'remove-sequence-item', target: {from: b.from, to: b.to}}, parsed);
+  assert.equal(applySourceChanges(source, changes), 'f(a // keep a\n  );\n');
+});
+
 test('labels JavaScript assignment sides and if conditions as distinct sockets', () => {
   const source = 'let target = value;\ntarget = next;\nif (ready) { run(); }\n';
   const sockets = collectNodes(parseJavaScript(source).root).filter((node) => node.kind === 'socket')
