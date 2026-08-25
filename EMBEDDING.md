@@ -43,6 +43,24 @@ deployable Pages artifact at `http://localhost:8001/` and watches the modern
 package sources plus `pages/`. Use `npm run dev:legacy` for the preserved
 CoffeeScript/Ace examples instead.
 
+React embedding
+---------------
+
+`@droplet/react` is a thin controlled wrapper around the same public editor.
+It accepts `language`, `value`, `filename`, `mode`, `readOnly`, `theme`,
+`extensions`, `layoutOptions`, `onChange`, `onUpdate`, and `onOperationError`.
+Its ref exposes `focus()`, `getValue()`, `setValue()`, `setMode()`,
+`toggleMode()`, `undo()`, and `redo()`.
+
+```jsx
+import {DropletEditor} from '@droplet/react';
+import {javascript} from '@droplet/javascript';
+
+function Editor({value, setValue}) {
+  return <DropletEditor language={javascript} value={value} onChange={setValue} />;
+}
+```
+
 Loading the code
 ----------------
 

@@ -1,0 +1,25 @@
+{
+  "name": "@droplet/react",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "@droplet/editor": "file:../editor"
+  },
+  "devDependencies": {
+    "jsdom": "30.0.1",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  }
+}

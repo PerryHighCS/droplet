@@ -69,8 +69,10 @@ it contains calls, values, inline comments, `if`/`else`, `for`, `while`, and a
 function. It should be expanded with fixtures for nested containers, standalone
 comments, blank/whitespace-only lines, unbraced bodies, and empty blocks.
 
-Before public packaging, browser tests and the manual JavaScript playground
-must prove at least:
+Phase 8.5 completed the structural BlockSurface acceptance coverage. Phase 9
+delivered the public `@droplet/editor` package, package-consumer demo, and
+Pages deployment workflow. The browser tests and manual JavaScript playground
+now cover these release guarantees:
 
 1. drag an inner statement without moving its parent container;
 2. drag a whole `if` or `for` with a structurally identical preview;
@@ -78,6 +80,12 @@ must prove at least:
    end;
 4. retain exact comments and blank lines through these operations; and
 5. reject incompatible socket/opaque drops without modifying CodeMirror.
+
+The next compatibility increment is JavaScript comment trivia: project
+standalone and inline `//` comments as exact source ranges, then extend the
+fixture and browser coverage for comment editing and drag/drop. After that,
+define the narrow socket/category policy required by the supported palette;
+full legacy option parity remains a separate compatibility decision.
 
 The modern surface does not need to reproduce every legacy option on day one
 (palette dropdowns, every known-function catalogue entry, or floating blocks).
