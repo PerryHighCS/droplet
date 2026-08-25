@@ -1,4 +1,4 @@
-# @droplet/javascript-adapter
+# @droplet/javascript
 
 The initial modern JavaScript language adapter for Droplet. It uses current
 Acorn, returns a source-range projection, and never serializes or normalizes
@@ -8,7 +8,7 @@ the source text it receives.
 import {
   parseJavaScript,
   transformJavaScript
-} from '@droplet/javascript-adapter';
+} from '@droplet/javascript';
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
 
 const editor = createDropletCodeMirrorEditor({

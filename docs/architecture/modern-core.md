@@ -147,7 +147,7 @@ The language adapter validates the resulting source transformation.
 
 ## Initial modern JavaScript adapter
 
-`@droplet/javascript-adapter` is the first language implementation for this
+`@droplet/javascript` is the first language implementation for this
 boundary. It uses current Acorn independently of the legacy Acorn 1 runtime,
 projects JavaScript AST nodes onto their original source ranges, and exposes
 call arguments plus selected expression positions as sockets. Its supported
