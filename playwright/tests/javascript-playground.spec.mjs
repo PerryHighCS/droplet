@@ -30,6 +30,16 @@ test('manual modern JavaScript playground loads with its source and projection p
   await expect(page.locator('#modern-javascript-projection')).toContainText('Program');
 });
 
+test('manual modern JavaScript playground exposes the exact compatibility corpus as a block-mode fixture', async ({page}) => {
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+
+  await page.locator('#modern-javascript-sample').selectOption('Compatibility corpus');
+  await expect(page.locator('#modern-javascript-source')).toHaveText(/var total = answer \+ 2 \* \(3 \+ 4\);/);
+  await expect(page.locator('#modern-javascript-source')).toContainText('var note = "double"; // inline comment');
+  await expect(await locateByExactSource(page, 'container', 'for (var i = 0; i < 3; i++) {\n  items.push(i);\n}')).toBeVisible();
+});
+
 test('manual modern JavaScript playground inserts a palette block through the source transformer', async ({page}) => {
   await page.goto('/example/modern-javascript.html');
   await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
@@ -89,6 +99,62 @@ test('manual modern JavaScript playground accepts a palette block drag at an ins
   await expect(page.locator('#modern-javascript-source')).toContainText('var value = 1;\nscore = score + 1;');
 });
 
+test('manual modern JavaScript playground replaces assignment-target and if-condition sockets by dragging compatible expressions', async ({page}) => {
+  const dragSocket = async ({sourceText, sourceFrom, targetText, expectedSource, targetEdge = false}) => {
+    const ranges = await page.evaluate(({sourceText, sourceFrom, targetText}) => {
+      const source = document.querySelector('#modern-javascript-source').textContent;
+      const sockets = [...document.querySelectorAll('[data-droplet-kind="socket"]')];
+      const range = (element) => ({from: element.dataset.dropletFrom, to: element.dataset.dropletTo});
+      const matching = (text) => sockets.filter((candidate) => source.slice(
+        Number(candidate.dataset.dropletFrom), Number(candidate.dataset.dropletTo)
+      ) === text);
+      const sourceSocket = matching(sourceText).find((candidate) => Number(candidate.dataset.dropletFrom) === sourceFrom);
+      const targetSocket = matching(targetText)[0];
+      if (!sourceSocket) throw new Error(`Source socket ${JSON.stringify(sourceText)} at ${sourceFrom} was not rendered`);
+      if (!targetSocket) throw new Error(`Target socket ${JSON.stringify(targetText)} was not rendered`);
+      return {source: range(sourceSocket), target: range(targetSocket)};
+    }, {sourceText, sourceFrom, targetText});
+    const socket = (range) => page.locator(
+      `[data-droplet-kind="socket"][data-droplet-from="${range.from}"][data-droplet-to="${range.to}"]`
+    );
+    const sourceSocket = socket(ranges.source);
+    const targetSocket = socket(ranges.target);
+    await Promise.all([expect(sourceSocket).toBeVisible(), expect(targetSocket).toBeVisible()]);
+    const [sourceBox, targetBox] = await Promise.all([sourceSocket.boundingBox(), targetSocket.boundingBox()]);
+    if (!sourceBox || !targetBox) throw new Error('A rendered JavaScript drag socket has no bounding box');
+    await page.mouse.move(sourceBox.x + 3, sourceBox.y + 3);
+    await page.mouse.down();
+    await page.mouse.move(sourceBox.x + 12, sourceBox.y + 12);
+    // A compound condition owns nested sockets for its operands. Its right
+    // frame edge is inside the outer if-condition socket but outside those
+    // descendants, so this intentionally tests replacement of the condition
+    // itself rather than its left operand.
+    const targetX = targetEdge ? targetBox.x + targetBox.width - 3 : targetBox.x + 3;
+    await page.mouse.move(targetX, targetBox.y + 3, {steps: 8});
+    await expect(page.locator('.droplet-drop-preview')).toBeVisible();
+    await page.mouse.up();
+    await expect(page.locator('#modern-javascript-source')).toContainText(expectedSource);
+  };
+
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+  await page.locator('#modern-javascript-sample').selectOption('Compatibility corpus');
+  const source = await page.locator('#modern-javascript-source').textContent();
+  await dragSocket({
+    sourceText: 'answer', sourceFrom: source.indexOf('answer'), targetText: 'total',
+    expectedSource: 'var answer = answer + 2 * (3 + 4);'
+  });
+
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+  await page.locator('#modern-javascript-sample').selectOption('Compatibility corpus');
+  const conditionSource = await page.locator('#modern-javascript-source').textContent();
+  await dragSocket({
+    sourceText: 'answer', sourceFrom: conditionSource.indexOf('answer'), targetText: 'total > 10',
+    expectedSource: 'if (answer) {', targetEdge: true
+  });
+});
+
 test('manual modern JavaScript playground moves a container together with its nested statement, then the statement alone', async ({page}) => {
   // Dragging an existing rendered block (not a palette block - no
   // DataTransfer involved, just the surface's own pointerdown/pointermove/
@@ -113,6 +179,13 @@ test('manual modern JavaScript playground moves a container together with its ne
   await page.mouse.move(containerBox.x + 8, containerBox.y + 8);
   await page.mouse.down();
   await page.mouse.move(containerBox.x + 20, containerBox.y + 8, {steps: 8});
+  // The preview is rendered from the same recursive subtree layout as the
+  // on-canvas block.  Checking the projected descendants in the real browser
+  // catches a regression where the floating preview falls back to a flat
+  // label/rectangle while the stationary container remains structured.
+  await expect(page.locator('.droplet-drag-preview [data-droplet-kind="container"]')).toHaveCount(1);
+  await expect(page.locator('.droplet-drag-preview [data-droplet-kind="statement"]')).toHaveCount(1);
+  await expect(page.locator('.droplet-drag-preview')).toContainText('console.log(score);');
   await page.mouse.move(tailBox.x + 8, tailBox.y + tailBox.height - 2, {steps: 8});
   await page.mouse.up();
 
