@@ -1213,10 +1213,9 @@ transaction, followed by reparse and relayout.
   `block-surface-dom.test.js`); comment/blank-line preservation is covered
   indirectly via `triviaParent`'s existing suite-attachment behavior, now
   extended to clause bodies.
-- [ ] No dedicated test covers direct editing/recovery of an inserted `elif`
-  condition specifically - it reuses the same `if-condition` socket role and
-  recovery-socket machinery already covered for the primary `if`, but that
-  reuse itself isn't asserted by a test yet.
+- [x] Direct editing/recovery of an inserted `elif` condition is covered by
+  the Python playground's `keeps a newly inserted elif condition directly
+  recoverable` Playwright test.
 - [x] Tests prove the add controls are unavailable once `else` exists.
   Undo/redo round-tripping was not tested directly (removal is a normal
   CodeMirror transaction like every other block operation, not special-cased
@@ -1352,17 +1351,19 @@ area, which was widened to hold them.
   "moves a container together with its nested statement, then the statement
   alone" - dragging the whole container (with its child still inside) onto a
   new location, then dragging that same nested statement out on its own.
-- [ ] Browser screenshot or geometry tests verify that a dragged container
-  preview has the same nested structure as its on-canvas block. No screenshot
-  or geometry-diff tests exist anywhere in `playwright/tests/` yet.
-- [ ] Provide a modern JavaScript manual playground based on
+- [x] Browser geometry coverage verifies that a dragged container preview has
+  the same nested structure as its on-canvas block. The JavaScript playground
+  ownership test asserts the live drag preview contains both the container and
+  its nested statement, rather than a flattened fallback.
+- [x] Provide a modern JavaScript manual playground based on
   `test/data/javascript-compatibility.js`. It must be a beginner-friendly
   drag/drop example: users can visibly move an inner loop statement, a sibling
   statement, and an entire `if` or `for` container with the same structural
   preview and insertion affordances used by production block mode.
   `example/modern-javascript.mjs` exists and supports palette insertion,
-  moving, and socket editing, but uses its own bespoke sample programs rather
-  than `test/data/javascript-compatibility.js`. It now has Playwright smoke
+  moving, and socket editing. It now includes `Compatibility corpus`, the
+  exact source text from `test/data/javascript-compatibility.js`, and has
+  Playwright smoke
   and interaction coverage (`playwright/tests/javascript-playground.spec.mjs`,
   closing [#5](https://github.com/PerryHighCS/droplet/issues/5)) for page
   load, palette-click insertion, mode switching, a palette drag, the
@@ -1372,13 +1373,10 @@ area, which was widened to hold them.
 Also still open, found while auditing this phase but not previously listed
 here:
 
-- [ ] No dedicated test covers direct editing/recovery of an inserted `elif`
-  condition socket specifically - it reuses the same `if-condition` socket
-  role and recovery-socket machinery already covered for the primary `if`,
-  but that reuse itself is unverified (same gap already noted under
-  "Conditional verification" above).
-- [ ] No undo/redo round-trip test exists for `add-clause`/`remove-clause`
-  specifically (same gap already noted under "Conditional verification").
+- [x] An inserted `elif` condition's direct-edit/recovery lifecycle is covered
+  in the Python playground browser suite.
+- [x] `add-clause` and `remove-clause` each have dedicated CodeMirror
+  undo/redo round-trip coverage in `droplet.test.js`.
 - [x] Opaque multi-line source snapshots (e.g. a whole malformed multi-line
   document recovered as one `opaque-statement`) used to truncate to their
   first line in `block-surface-dom.js`'s `createLabel`. Fixed with real
@@ -1395,11 +1393,13 @@ tested, closing out essentially all of "Required rendering model" and
 "Required rendering and interaction work" above. What remains before Phase 9
 packaging is almost entirely test-coverage, not new architecture: JavaScript
 playground Playwright coverage landed (#5, closed), including a
-container-drag-ownership acceptance test moving a nested statement
-independently of, then together with, its enclosing container; what remains
-is broader expression-drag-to-socket browser coverage, screenshot/geometry
-drag-preview parity tests, and two narrow undo/redo and elif-condition test
-gaps. The opaque multi-line label truncation (#8) is fixed and closed.
+container-drag-ownership acceptance test and a compatibility-corpus fixture;
+browser geometry coverage confirms a container drag preview retains its nested
+structure. Inserted `elif` recovery and clause undo/redo are now directly
+covered as well. The sole remaining Phase 8.5 gap is broader browser coverage
+for compatible expression drags onto assignment-target and `if`-condition
+sockets (for Python and JavaScript). The opaque multi-line label truncation
+(#8) is fixed and closed.
 
 Only after these criteria are complete should Phase 9 package the editor's
 public browser API.

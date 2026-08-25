@@ -658,6 +658,35 @@ test('manual modern Python playground keeps an incomplete socket editable', asyn
   await expect(page.locator('[data-droplet-kind="recovery-socket"]')).toHaveCount(0);
 });
 
+test('manual modern Python playground keeps a newly inserted elif condition directly recoverable', async ({page}) => {
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+
+  await page.locator('[data-droplet-action="add-clause"][data-droplet-role="elif"]').first().click();
+  await expect(page.locator('#modern-python-source')).toContainText('elif True:\n  pass');
+
+  const condition = await page.evaluate(() => {
+    const source = document.querySelector('#modern-python-source').textContent;
+    const socket = [...document.querySelectorAll('[data-droplet-kind="socket"]')].find((candidate) =>
+      source.slice(Number(candidate.dataset.dropletFrom), Number(candidate.dataset.dropletTo)) === 'True');
+    return {from: socket.dataset.dropletFrom, to: socket.dataset.dropletTo};
+  });
+  const socket = page.locator(`[data-droplet-kind="socket"][data-droplet-from="${condition.from}"][data-droplet-to="${condition.to}"]`);
+  const box = await socket.boundingBox();
+  await page.mouse.click(box.x + 3, box.y + 3);
+  await page.locator('.droplet-socket-editor').fill('(');
+  await page.locator('.droplet-socket-editor').press('Enter');
+  const recovery = page.locator('[data-droplet-kind="recovery-socket"]');
+  await expect(recovery).toBeVisible();
+
+  const recoveryBox = await recovery.boundingBox();
+  await page.mouse.click(recoveryBox.x + 3, recoveryBox.y + 3);
+  await page.locator('.droplet-socket-editor').fill('retry');
+  await page.locator('.droplet-socket-editor').press('Enter');
+  await expect(page.locator('#modern-python-source')).toContainText('elif retry:\n  pass');
+  await expect(recovery).toHaveCount(0);
+});
+
 test('manual modern Python playground replaces a value socket by dragging an expression socket', async ({page}) => {
   await page.goto('/example/modern-python.html');
   await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);

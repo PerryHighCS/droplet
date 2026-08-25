@@ -30,6 +30,16 @@ test('manual modern JavaScript playground loads with its source and projection p
   await expect(page.locator('#modern-javascript-projection')).toContainText('Program');
 });
 
+test('manual modern JavaScript playground exposes the exact compatibility corpus as a block-mode fixture', async ({page}) => {
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+
+  await page.locator('#modern-javascript-sample').selectOption('Compatibility corpus');
+  await expect(page.locator('#modern-javascript-source')).toHaveText(/var total = answer \+ 2 \* \(3 \+ 4\);/);
+  await expect(page.locator('#modern-javascript-source')).toContainText('var note = "double"; // inline comment');
+  await expect(await locateByExactSource(page, 'container', 'for (var i = 0; i < 3; i++) {\n  items.push(i);\n}')).toBeVisible();
+});
+
 test('manual modern JavaScript playground inserts a palette block through the source transformer', async ({page}) => {
   await page.goto('/example/modern-javascript.html');
   await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
@@ -113,6 +123,13 @@ test('manual modern JavaScript playground moves a container together with its ne
   await page.mouse.move(containerBox.x + 8, containerBox.y + 8);
   await page.mouse.down();
   await page.mouse.move(containerBox.x + 20, containerBox.y + 8, {steps: 8});
+  // The preview is rendered from the same recursive subtree layout as the
+  // on-canvas block.  Checking the projected descendants in the real browser
+  // catches a regression where the floating preview falls back to a flat
+  // label/rectangle while the stationary container remains structured.
+  await expect(page.locator('.droplet-drag-preview [data-droplet-kind="container"]')).toHaveCount(1);
+  await expect(page.locator('.droplet-drag-preview [data-droplet-kind="statement"]')).toHaveCount(1);
+  await expect(page.locator('.droplet-drag-preview')).toContainText('console.log(score);');
   await page.mouse.move(tailBox.x + 8, tailBox.y + tailBox.height - 2, {steps: 8});
   await page.mouse.up();
 

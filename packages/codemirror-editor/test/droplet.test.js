@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {undo} from '@codemirror/commands';
+import {redo, undo} from '@codemirror/commands';
 import {EditorView} from '@codemirror/view';
 import {JSDOM} from 'jsdom';
 
@@ -701,6 +701,41 @@ test('block operations use one CodeMirror source transaction and its existing un
   assert.equal(editor.getValue(), 'score = 2 + 3\n');
   assert.equal(undo(editor.editor.view), true);
   assert.equal(editor.getValue(), 'score = 1\n');
+  editor.destroy();
+});
+
+test('add-clause and remove-clause operations each round-trip through CodeMirror undo and redo', () => {
+  // Clause controls are emitted by BlockSurface rather than typed into the
+  // editor, so keep their history contract explicit: each narrow source
+  // transformation must remain an ordinary CodeMirror transaction.
+  const parent = appendParent();
+  const original = 'if ready:\n  pass\n';
+  const withElif = 'if ready:\n  pass\nelif True:\n  pass\n';
+  const editor = createDropletCodeMirrorEditor({
+    parent, value: original, blockMode: true, parse: parseExample,
+    transform: (operation, parsed) => {
+      if (operation.type === 'add-clause') {
+        assert.deepEqual(operation, {type: 'add-clause', target: {from: 0, to: original.length}, role: 'elif'});
+        return [{from: parsed.source.length, to: parsed.source.length, insert: 'elif True:\n  pass\n'}];
+      }
+      assert.deepEqual(operation, {type: 'remove-clause', target: {from: original.length, to: withElif.length}});
+      return [{from: original.length, to: parsed.source.length, insert: ''}];
+    }
+  });
+
+  editor.applyBlockOperation({type: 'add-clause', target: {from: 0, to: original.length}, role: 'elif'});
+  assert.equal(editor.getValue(), withElif);
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), original);
+  assert.equal(redo(editor.editor.view), true);
+  assert.equal(editor.getValue(), withElif);
+
+  editor.applyBlockOperation({type: 'remove-clause', target: {from: original.length, to: withElif.length}});
+  assert.equal(editor.getValue(), original);
+  assert.equal(undo(editor.editor.view), true);
+  assert.equal(editor.getValue(), withElif);
+  assert.equal(redo(editor.editor.view), true);
+  assert.equal(editor.getValue(), original);
   editor.destroy();
 });
 
