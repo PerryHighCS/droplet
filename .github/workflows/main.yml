@@ -74,7 +74,6 @@ jobs:
       - run: npm --prefix packages/javascript-adapter ci
       - run: npm --prefix packages/python-adapter ci
       - run: npm --prefix packages/editor ci
-      - run: npm run build:pages
       - run: npm run test:browser:modern
       - name: Upload Playwright failure diagnostics
         if: failure()

@@ -15,6 +15,9 @@ export class DropletEditor {
   constructor(parent, options = {}) {
     if (!parent?.appendChild) throw new TypeError('A parent element is required');
     this.#language = assertLanguage(options.language);
+    if (options.mode !== undefined && options.mode !== 'text' && options.mode !== 'blocks') {
+      throw new TypeError('Mode must be "text" or "blocks"');
+    }
     this.#filename = options.filename ?? '';
     assertString(this.#filename, 'Filename');
     this.#editor = createDropletCodeMirrorEditor({

@@ -45,6 +45,11 @@ test('updates language and filename without replacing its editor instance', () =
   editor.destroy();
 });
 
+test('rejects an invalid initial mode', () => {
+  const parent = document.body.appendChild(document.createElement('div'));
+  assert.throws(() => new DropletEditor(parent, {language, mode: 'block'}), /Mode must be "text" or "blocks"/);
+});
+
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {pretendToBeVisual: true});
   globalThis.window = dom.window;
