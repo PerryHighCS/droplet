@@ -1077,14 +1077,10 @@ recovery state.
 
 - [x] Browser tests cover Enter and focus-loss commits for assignment target,
   assignment value, and `if` condition sockets.
-- [ ] Browser tests cover compatible expression drag replacement for each
-  initial socket kind. Only one combination has a Playwright regression
-  (`manual modern Python playground replaces a value socket by dragging an
-  expression socket`, an assignment-value target) - assignment-target and
-  `if`-condition are untested at the browser level for Python, and the
-  JavaScript adapter has no browser socket-drag coverage at all (see the
-  JavaScript playground gap under "Verification and acceptance criteria"
-  below).
+- [x] Browser tests cover compatible expression drag replacement for every
+  initial socket kind in both initial adapters. The Python and JavaScript
+  playground suites each cover assignment-target and `if`-condition targets;
+  the existing Python regression covers assignment-value replacement.
 - [x] Tests prove an incomplete committed socket edit remains directly editable
   and re-structures after correction, without changing unrelated blocks.
 - [x] Tests reject or visibly recover an invalid assignment target without
@@ -1396,10 +1392,10 @@ playground Playwright coverage landed (#5, closed), including a
 container-drag-ownership acceptance test and a compatibility-corpus fixture;
 browser geometry coverage confirms a container drag preview retains its nested
 structure. Inserted `elif` recovery and clause undo/redo are now directly
-covered as well. The sole remaining Phase 8.5 gap is broader browser coverage
-for compatible expression drags onto assignment-target and `if`-condition
-sockets (for Python and JavaScript). The opaque multi-line label truncation
-(#8) is fixed and closed.
+covered as well. Browser expression-drag coverage now spans assignment target,
+assignment value, and `if` condition sockets across the initial Python and
+JavaScript adapters. Phase 8.5 is complete; the opaque multi-line label
+truncation (#8) is fixed and closed.
 
 Only after these criteria are complete should Phase 9 package the editor's
 public browser API.

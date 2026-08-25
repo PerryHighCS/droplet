@@ -669,10 +669,13 @@ test('manual modern Python playground keeps a newly inserted elif condition dire
     const source = document.querySelector('#modern-python-source').textContent;
     const socket = [...document.querySelectorAll('[data-droplet-kind="socket"]')].find((candidate) =>
       source.slice(Number(candidate.dataset.dropletFrom), Number(candidate.dataset.dropletTo)) === 'True');
+    if (!socket) throw new Error('Inserted elif condition socket was not rendered');
     return {from: socket.dataset.dropletFrom, to: socket.dataset.dropletTo};
   });
   const socket = page.locator(`[data-droplet-kind="socket"][data-droplet-from="${condition.from}"][data-droplet-to="${condition.to}"]`);
+  await expect(socket).toBeVisible();
   const box = await socket.boundingBox();
+  if (!box) throw new Error('Inserted elif condition socket has no bounding box');
   await page.mouse.click(box.x + 3, box.y + 3);
   await page.locator('.droplet-socket-editor').fill('(');
   await page.locator('.droplet-socket-editor').press('Enter');
@@ -680,6 +683,7 @@ test('manual modern Python playground keeps a newly inserted elif condition dire
   await expect(recovery).toBeVisible();
 
   const recoveryBox = await recovery.boundingBox();
+  if (!recoveryBox) throw new Error('Inserted elif recovery socket has no bounding box');
   await page.mouse.click(recoveryBox.x + 3, recoveryBox.y + 3);
   await page.locator('.droplet-socket-editor').fill('retry');
   await page.locator('.droplet-socket-editor').press('Enter');
@@ -711,6 +715,39 @@ test('manual modern Python playground replaces a value socket by dragging an exp
   await page.mouse.up();
 
   await expect(page.locator('#modern-python-source')).toContainText('first = first  # inline note');
+});
+
+test('manual modern Python playground replaces assignment-target and if-condition sockets by dragging compatible expressions', async ({page}) => {
+  const dragSocket = async (sourceText, targetText, expectedSource) => {
+    const ranges = await page.evaluate(({sourceText, targetText}) => {
+      const source = document.querySelector('#modern-python-source').textContent;
+      const sockets = [...document.querySelectorAll('[data-droplet-kind="socket"]')];
+      const range = (element) => ({from: element.dataset.dropletFrom, to: element.dataset.dropletTo});
+      const socket = (text) => sockets.find((candidate) => source.slice(
+        Number(candidate.dataset.dropletFrom), Number(candidate.dataset.dropletTo)
+      ) === text);
+      return {source: range(socket(sourceText)), target: range(socket(targetText))};
+    }, {sourceText, targetText});
+    const socket = (range) => page.locator(
+      `[data-droplet-kind="socket"][data-droplet-from="${range.from}"][data-droplet-to="${range.to}"]`
+    );
+    const [sourceBox, targetBox] = await Promise.all([socket(ranges.source).boundingBox(), socket(ranges.target).boundingBox()]);
+    await page.mouse.move(sourceBox.x + 3, sourceBox.y + 3);
+    await page.mouse.down();
+    await page.mouse.move(sourceBox.x + 12, sourceBox.y + 12);
+    await page.mouse.move(targetBox.x + 3, targetBox.y + 3, {steps: 8});
+    await expect(page.locator('.droplet-drop-preview')).toBeVisible();
+    await page.mouse.up();
+    await expect(page.locator('#modern-python-source')).toContainText(expectedSource);
+  };
+
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  await dragSocket('second', 'first', 'second = 1  # inline note');
+
+  await page.goto('/example/modern-python.html');
+  await expect(page.locator('#modern-python-status')).toHaveText(/Ready/);
+  await dragSocket('second', 'ready', 'if second:');
 });
 
 test('manual modern Python playground keeps an invalid assignment target editable', async ({page}) => {

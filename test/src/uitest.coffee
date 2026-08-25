@@ -1123,11 +1123,10 @@ asyncTest 'Controller: Random drag undo test', ->
       op = getRandomTextOp(editor, rng)
       performTextOperation editor, op, cb
 
-  # A hundred randomized edits retains every serialized editor state while
-  # rendering each intermediate tree. In headless Chromium that can exhaust
-  # the renderer before the subsequent undo assertions run. Forty exercises
-  # both randomized edit paths and history restoration without turning this
-  # legacy interaction regression into a browser-memory stress test.
+  # Keep this at forty randomized edits: the prior hundred-edit variant
+  # retained every serialized editor state while rendering each intermediate
+  # tree, which could exhaust headless Chromium before undo assertions ran.
+  # Forty still exercises both randomized edit paths and history restoration.
   tick 40
 
 asyncTest 'Controller: ANTLR random drag reparse test', ->

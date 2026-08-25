@@ -6,10 +6,10 @@ const samples = {
   'Loop and total': 'var total = 0;\nfor (var i = 0; i < 4; i++) {\n  total = total + i;\n}\nconsole.log(total);\n',
   // Keep the compatibility corpus available as a real block-mode program,
   // rather than treating the small starter examples as the only manual
-  // parity fixture.  This is deliberately the exact text in
-  // test/data/javascript-compatibility.js (including its comment and blank
-  // lines), so users can inspect and move its nested containers directly.
-  'Compatibility corpus': 'var answer = 1;\nvar total = answer + 2 * (3 + 4);\nannounce("total", total);\nouter(inner(1));\n\nif (total > 10) {\n  announce("large");\n} else {\n  announce(\'small\');\n}\n\nfor (var i = 0; i < 3; i++) {\n  items.push(i);\n}\nwhile (items.length > 0) {\n  items.pop();\n}\nfunction add(left, right) {\n  return left + right;\n}\nvar values = [1, 2, 3];\nvar options = {enabled: true, label: "demo"};\nvar note = "double"; // inline comment\n',
+  // parity fixture. This is deliberately the exact text in
+  // test/data/javascript-compatibility.js, so users can inspect and move its
+  // nested containers directly.
+  'Compatibility corpus': '// A representative JavaScript compatibility corpus.\nvar answer = 1;\nvar total = answer + 2 * (3 + 4);\nannounce("total", total);\nouter(inner(1));\n\nif (total > 10) {\n  announce("large");\n} else {\n  announce(\'small\');\n}\n\nfor (var i = 0; i < 3; i++) {\n  items.push(i);\n}\nwhile (items.length > 0) {\n  items.pop();\n}\nfunction add(left, right) {\n  return left + right;\n}\nvar values = [1, 2, 3];\nvar options = {enabled: true, label: "demo"};\nvar note = "double"; // inline comment\n',
   'Broken syntax': 'if (score >\n'
 };
 

@@ -99,6 +99,55 @@ test('manual modern JavaScript playground accepts a palette block drag at an ins
   await expect(page.locator('#modern-javascript-source')).toContainText('var value = 1;\nscore = score + 1;');
 });
 
+test('manual modern JavaScript playground replaces assignment-target and if-condition sockets by dragging compatible expressions', async ({page}) => {
+  const dragSocket = async ({sourceText, sourceFrom, targetText, expectedSource, targetEdge = false}) => {
+    const ranges = await page.evaluate(({sourceText, sourceFrom, targetText}) => {
+      const source = document.querySelector('#modern-javascript-source').textContent;
+      const sockets = [...document.querySelectorAll('[data-droplet-kind="socket"]')];
+      const range = (element) => ({from: element.dataset.dropletFrom, to: element.dataset.dropletTo});
+      const matching = (text) => sockets.filter((candidate) => source.slice(
+        Number(candidate.dataset.dropletFrom), Number(candidate.dataset.dropletTo)
+      ) === text);
+      const sourceSocket = matching(sourceText).find((candidate) => Number(candidate.dataset.dropletFrom) === sourceFrom);
+      return {source: range(sourceSocket), target: range(matching(targetText)[0])};
+    }, {sourceText, sourceFrom, targetText});
+    const socket = (range) => page.locator(
+      `[data-droplet-kind="socket"][data-droplet-from="${range.from}"][data-droplet-to="${range.to}"]`
+    );
+    const [sourceBox, targetBox] = await Promise.all([socket(ranges.source).boundingBox(), socket(ranges.target).boundingBox()]);
+    await page.mouse.move(sourceBox.x + 3, sourceBox.y + 3);
+    await page.mouse.down();
+    await page.mouse.move(sourceBox.x + 12, sourceBox.y + 12);
+    // A compound condition owns nested sockets for its operands. Its right
+    // frame edge is inside the outer if-condition socket but outside those
+    // descendants, so this intentionally tests replacement of the condition
+    // itself rather than its left operand.
+    const targetX = targetEdge ? targetBox.x + targetBox.width - 3 : targetBox.x + 3;
+    await page.mouse.move(targetX, targetBox.y + 3, {steps: 8});
+    await expect(page.locator('.droplet-drop-preview')).toBeVisible();
+    await page.mouse.up();
+    await expect(page.locator('#modern-javascript-source')).toContainText(expectedSource);
+  };
+
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+  await page.locator('#modern-javascript-sample').selectOption('Compatibility corpus');
+  const source = await page.locator('#modern-javascript-source').textContent();
+  await dragSocket({
+    sourceText: 'answer', sourceFrom: source.indexOf('answer'), targetText: 'total',
+    expectedSource: 'var answer = answer + 2 * (3 + 4);'
+  });
+
+  await page.goto('/example/modern-javascript.html');
+  await expect(page.locator('#modern-javascript-status')).toHaveText(/Ready/);
+  await page.locator('#modern-javascript-sample').selectOption('Compatibility corpus');
+  const conditionSource = await page.locator('#modern-javascript-source').textContent();
+  await dragSocket({
+    sourceText: 'answer', sourceFrom: conditionSource.indexOf('answer'), targetText: 'total > 10',
+    expectedSource: 'if (answer) {', targetEdge: true
+  });
+});
+
 test('manual modern JavaScript playground moves a container together with its nested statement, then the statement alone', async ({page}) => {
   // Dragging an existing rendered block (not a palette block - no
   // DataTransfer involved, just the surface's own pointerdown/pointermove/

@@ -2,10 +2,6 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  // The legacy QUnit UI page runs a long chain of timer-driven interaction
-  // tests. Its completion signal can legitimately take over 30 seconds, so
-  // the runner-wide deadline must exceed that page's 110-second expectation.
-  timeout: 120_000,
   fullyParallel: false,
   reporter: process.env.CI
     ? [['list'], ['html', {open: 'never'}]]
