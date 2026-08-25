@@ -7,8 +7,12 @@ test('the generated package demo mounts JavaScript and Python editors', async ({
 
   await expect(page.locator('#javascript-editor .droplet-block-surface')).toBeVisible();
   await expect(page.locator('#python-editor .droplet-block-surface')).toBeVisible();
-  await expect(page.locator('#javascript-source')).toContainText('let score = 0');
+  await expect(page.locator('#javascript-source')).toContainText('var score = 0');
   await expect(page.locator('#python-source')).toContainText('score = 0');
+  await expect(page.locator('#javascript-palette .cat-control')).toBeVisible();
+  await expect(page.locator('#javascript-palette')).toContainText('Variables');
+  await expect(page.locator('#python-palette .cat-python').first()).toBeVisible();
+  await expect(page.locator('#python-palette')).toContainText('Conditionals & loops');
 
   await page.getByRole('button', {name: 'Use text mode'}).first().click();
   await expect(page.getByRole('button', {name: 'Use block mode'}).first()).toBeVisible();
