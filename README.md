@@ -180,6 +180,7 @@ npx grunt dist
 
 For the modern package demo, run:
 ```shell
+nvm use 24
 npm run dev
 ```
 

@@ -2,6 +2,7 @@ import {watch} from 'node:fs';
 import {createReadStream} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {createServer} from 'node:http';
+import {pipeline} from 'node:stream';
 import {extname, resolve, sep} from 'node:path';
 
 import {buildPages, output, root} from './build-pages.mjs';
@@ -17,7 +18,7 @@ const mimeTypes = {
 
 await buildPages();
 createServer(async (request, response) => {
-  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+  const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
   // Match the legacy server's policy: generated output must never make a
   // dotfile (including a future accidental .env) available over HTTP.
   if (pathname.includes('/.')) return response.writeHead(404).end('Not found');
@@ -27,7 +28,9 @@ createServer(async (request, response) => {
   try {
     if (!(await stat(filename)).isFile()) throw new Error('Not a file');
     response.writeHead(200, {'Content-Type': mimeTypes[extname(filename)] ?? 'application/octet-stream'});
-    createReadStream(filename).pipe(response);
+    pipeline(createReadStream(filename), response, (error) => {
+      if (error && !response.destroyed) response.destroy(error);
+    });
   } catch {
     response.writeHead(404).end('Not found');
   }

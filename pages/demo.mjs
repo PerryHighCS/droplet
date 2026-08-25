@@ -37,18 +37,18 @@ function mount(id, language, value, options = {}) {
   return editor;
 }
 
-function renderPalette(editor, selector, entries) {
+function renderPalette(editor, selector, paletteEntries) {
   const target = document.querySelector(selector);
-  for (const [name, category, blocks] of entries) {
+  for (const [name, category, blocks] of paletteEntries) {
     const section = document.createElement('details'); section.className = `palette-category cat-${category}`; section.open = category === 'control';
     const summary = document.createElement('summary'); summary.textContent = name;
-    const entries = document.createElement('div'); entries.className = 'palette-blocks';
+    const blockEntries = document.createElement('div'); blockEntries.className = 'palette-blocks';
     for (const [label, source, kind] of blocks) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'palette-block'; button.draggable = true; button.textContent = label;
       button.addEventListener('dragstart', (event) => { event.dataTransfer.setData(kind === 'expression' ? 'application/x-droplet-expression' : 'application/x-droplet-statement', source); });
-      button.addEventListener('click', () => insert(editor, source, kind)); entries.append(button);
+      button.addEventListener('click', () => insert(editor, source, kind)); blockEntries.append(button);
     }
-    section.append(summary, entries); target.append(section);
+    section.append(summary, blockEntries); target.append(section);
   }
 }
 

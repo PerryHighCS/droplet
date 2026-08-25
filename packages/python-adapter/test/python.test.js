@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   collectPythonTrivia,
+  createPythonLanguage,
   createEmptyPythonSuite,
   transformPython,
   parsePython
@@ -25,6 +26,15 @@ test('maps Brython line and column locations to exact source ranges', () => {
     }],
     metadata: {type: 'Call', socketRole: 'assignment-value'}
   });
+});
+
+test('creates a public Python language descriptor from Brython functions', () => {
+  const pythonToAST = () => ({type: 'Module', body: []});
+  const language = createPythonLanguage({pythonToAST});
+  assert.equal(language.id, 'python');
+  assert.equal(language.parse('').source, '');
+  assert.deepEqual(language.transform({type: 'insert-statement', destination: {from: 0, to: 0}, source: 'pass\n'}, language.parse('')), [{from: 0, to: 0, insert: 'pass\n'}]);
+  assert.throws(() => createPythonLanguage(), /Brython pythonToAST is required/);
 });
 
 test('sockets a function\'s name and individual parameters instead of its whole header and body', () => {
