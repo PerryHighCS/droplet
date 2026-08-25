@@ -1,4 +1,4 @@
-import {createElement, forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef} from 'react';
+import {createElement, forwardRef, useImperativeHandle, useLayoutEffect, useRef} from 'react';
 import {DropletEditor as Editor} from '@droplet/editor';
 
 /**
@@ -12,21 +12,38 @@ export const DropletEditor = forwardRef(function DropletEditor(props, ref) {
   const editorRef = useRef(null);
   const latestProps = useRef(props);
   latestProps.current = props;
+  const {
+    language,
+    filename,
+    mode,
+    readOnly,
+    theme,
+    extensions,
+    layoutOptions,
+    onChange,
+    onUpdate,
+    onOperationError,
+    value
+  } = props;
 
   useLayoutEffect(() => {
-    editorRef.current = new Editor(hostRef.current, editorOptions(latestProps.current));
+    editorRef.current = new Editor(hostRef.current, initialEditorOptions(latestProps.current));
     return () => {
       editorRef.current?.destroy();
       editorRef.current = null;
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    editor.update(editorOptions(props));
-    if (props.value !== undefined && editor.value !== props.value) editor.setValue(props.value);
-  }, [props]);
+    editor.update(updateOptions(props));
+  }, [language, filename, mode, readOnly, theme, extensions, layoutOptions, onChange, onUpdate, onOperationError]);
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (editor && value !== undefined && editor.value !== value) editor.setValue(value);
+  }, [value]);
 
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
@@ -42,6 +59,10 @@ export const DropletEditor = forwardRef(function DropletEditor(props, ref) {
   return createElement('div', {ref: hostRef, className: props.className, style: props.style});
 });
 
-function editorOptions({className, style, ...options}) {
+function initialEditorOptions({className, style, ...options}) {
+  return options;
+}
+
+function updateOptions({className, style, value, ...options}) {
   return options;
 }
