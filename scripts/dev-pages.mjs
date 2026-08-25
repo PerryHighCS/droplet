@@ -41,16 +41,16 @@ const watchedDirectories = [
   'packages/javascript-adapter/src', 'packages/python-adapter/src'
 ];
 let rebuildTimer;
+let rebuildQueue = Promise.resolve();
 for (const directory of watchedDirectories) {
   const rebuild = () => {
     clearTimeout(rebuildTimer);
-    rebuildTimer = setTimeout(async () => {
-      try {
-        await buildPages();
+    rebuildTimer = setTimeout(() => {
+      rebuildQueue = rebuildQueue.then(buildPages).then(() => {
         console.log('Rebuilt Pages demo.');
-      } catch (error) {
+      }).catch((error) => {
         console.error('Pages rebuild failed:', error);
-      }
+      });
     }, 80);
   };
   try {

@@ -23,7 +23,6 @@ export async function buildPages() {
   }
   await copy('packages/javascript-adapter/node_modules/acorn', 'vendor/acorn');
   await copy('playwright/node_modules/brython/brython.js', 'vendor/brython.js');
-  await copy('playwright/node_modules/brython/brython_stdlib.js', 'vendor/brython_stdlib.js');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await buildPages();
