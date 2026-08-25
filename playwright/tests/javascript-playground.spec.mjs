@@ -109,12 +109,19 @@ test('manual modern JavaScript playground replaces assignment-target and if-cond
         Number(candidate.dataset.dropletFrom), Number(candidate.dataset.dropletTo)
       ) === text);
       const sourceSocket = matching(sourceText).find((candidate) => Number(candidate.dataset.dropletFrom) === sourceFrom);
-      return {source: range(sourceSocket), target: range(matching(targetText)[0])};
+      const targetSocket = matching(targetText)[0];
+      if (!sourceSocket) throw new Error(`Source socket ${JSON.stringify(sourceText)} at ${sourceFrom} was not rendered`);
+      if (!targetSocket) throw new Error(`Target socket ${JSON.stringify(targetText)} was not rendered`);
+      return {source: range(sourceSocket), target: range(targetSocket)};
     }, {sourceText, sourceFrom, targetText});
     const socket = (range) => page.locator(
       `[data-droplet-kind="socket"][data-droplet-from="${range.from}"][data-droplet-to="${range.to}"]`
     );
-    const [sourceBox, targetBox] = await Promise.all([socket(ranges.source).boundingBox(), socket(ranges.target).boundingBox()]);
+    const sourceSocket = socket(ranges.source);
+    const targetSocket = socket(ranges.target);
+    await Promise.all([expect(sourceSocket).toBeVisible(), expect(targetSocket).toBeVisible()]);
+    const [sourceBox, targetBox] = await Promise.all([sourceSocket.boundingBox(), targetSocket.boundingBox()]);
+    if (!sourceBox || !targetBox) throw new Error('A rendered JavaScript drag socket has no bounding box');
     await page.mouse.move(sourceBox.x + 3, sourceBox.y + 3);
     await page.mouse.down();
     await page.mouse.move(sourceBox.x + 12, sourceBox.y + 12);
