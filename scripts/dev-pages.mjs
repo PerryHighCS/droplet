@@ -18,6 +18,9 @@ const mimeTypes = {
 await buildPages();
 createServer(async (request, response) => {
   const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+  // Match the legacy server's policy: generated output must never make a
+  // dotfile (including a future accidental .env) available over HTTP.
+  if (pathname.includes('/.')) return response.writeHead(404).end('Not found');
   const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
   const filename = resolve(output, requested);
   if (!filename.startsWith(`${output}${sep}`)) return response.writeHead(403).end('Forbidden');
