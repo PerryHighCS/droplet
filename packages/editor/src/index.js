@@ -15,9 +15,7 @@ export class DropletEditor {
   constructor(parent, options = {}) {
     if (!parent?.appendChild) throw new TypeError('A parent element is required');
     this.#language = assertLanguage(options.language);
-    if (options.mode !== undefined && options.mode !== 'text' && options.mode !== 'blocks') {
-      throw new TypeError('Mode must be "text" or "blocks"');
-    }
+    if (options.mode !== undefined) assertMode(options.mode);
     this.#filename = options.filename ?? '';
     assertString(this.#filename, 'Filename');
     this.#editor = createDropletCodeMirrorEditor({
@@ -52,19 +50,25 @@ export class DropletEditor {
   undo() { return undo(this.#editor.editor.view); }
   redo() { return redo(this.#editor.editor.view); }
   setMode(mode) {
-    if (mode !== 'text' && mode !== 'blocks') throw new TypeError('Mode must be "text" or "blocks"');
+    assertMode(mode);
     this.#editor.setBlockMode(mode === 'blocks');
   }
   toggleMode() { this.setMode(this.mode === 'blocks' ? 'text' : 'blocks'); }
   applyBlockOperation(operation) { return this.#editor.applyBlockOperation(operation); }
 
   update(options = {}) {
-    if (Object.hasOwn(options, 'language')) {
-      this.#language = assertLanguage(options.language);
+    // Validate the whole public configuration before reconfiguring either the
+    // wrapper or CodeMirror. A rejected later option must not leave a new
+    // parser/projection or filename behind from an earlier one.
+    const nextLanguage = Object.hasOwn(options, 'language') ? assertLanguage(options.language) : this.#language;
+    if (Object.hasOwn(options, 'filename')) assertString(options.filename, 'Filename');
+    if (Object.hasOwn(options, 'mode')) assertMode(options.mode);
+
+    if (nextLanguage !== this.#language) {
+      this.#language = nextLanguage;
       this.#editor.update({parse: this.#language.parse, transform: this.#language.transform});
     }
     if (Object.hasOwn(options, 'filename')) {
-      assertString(options.filename, 'Filename');
       this.#filename = options.filename;
     }
     const editorOptions = {...options};
@@ -93,4 +97,8 @@ function assertLanguage(language) {
 
 function assertString(value, label) {
   if (typeof value !== 'string') throw new TypeError(`${label} must be a string`);
+}
+
+function assertMode(mode) {
+  if (mode !== 'text' && mode !== 'blocks') throw new TypeError('Mode must be "text" or "blocks"');
 }

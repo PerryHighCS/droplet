@@ -50,6 +50,18 @@ test('rejects an invalid initial mode', () => {
   assert.throws(() => new DropletEditor(parent, {language, mode: 'block'}), /Mode must be "text" or "blocks"/);
 });
 
+test('rejects an invalid update mode without changing language or projection', () => {
+  const parent = document.body.appendChild(document.createElement('div'));
+  const editor = new DropletEditor(parent, {language, value: 'source'});
+  const projection = editor.getProjection();
+  const replacement = {...language, id: 'replacement'};
+
+  assert.throws(() => editor.update({language: replacement, mode: 'block'}), /Mode must be "text" or "blocks"/);
+  assert.equal(editor.language, language);
+  assert.equal(editor.getProjection(), projection);
+  editor.destroy();
+});
+
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {pretendToBeVisual: true});
   globalThis.window = dom.window;
