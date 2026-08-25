@@ -19,18 +19,17 @@ runtime. Future Code.org changes are reviewed and selectively reimplemented as
 compatibility work. See [the modernization decision](docs/decisions/0001-full-modernization.md)
 and [the upstream review log](docs/upstream-codeorg.md).
 
-For manual modern-editor checks, first install the two workspaces these
-unbundled pages import directly - a plain root `npm ci` does not populate
-either one: `npm --prefix playwright ci` (both playgrounds' import maps pull
-CodeMirror from there) and `npm --prefix packages/javascript-adapter ci` (the
-JavaScript playground also imports Acorn from there). Skipping either leaves
-that playground stuck at "Loading modern editor…". Then start `npm run dev`
-and open [`example/modern-python.html`](example/modern-python.html) or
-[`example/modern-javascript.html`](example/modern-javascript.html) on port
-8001. Each playground exposes the live source snapshot and parsed projection
-alongside CodeMirror text/block mode, a starter-block palette, and
-representative block operations. The JavaScript playground's palette and
-rendered blocks reproduce App Lab's own toolbox category colors (control,
+For manual modern-editor checks, install the package workspaces that the
+Pages artifact copies: `npm --prefix playwright ci`,
+`npm --prefix packages/javascript-adapter ci`, and
+`npm --prefix packages/editor ci`. Then start `npm run dev` and open
+`http://localhost:8001/`. It mounts the JavaScript and Python public packages
+in one deployable demo. The older, fuller playgrounds remain available through
+`npm run dev:legacy` at [`example/modern-python.html`](example/modern-python.html)
+and [`example/modern-javascript.html`](example/modern-javascript.html). Each
+playground exposes the live source snapshot and parsed projection alongside
+CodeMirror text/block mode, a starter-block palette, and representative block
+operations. The JavaScript playground's palette and rendered blocks reproduce App Lab's own toolbox category colors (control,
 math, variables, functions - approximated from App Lab's own UI, not the
 standalone library's generic category defaults), applied as a post-render
 pass since block category is a language-specific concept the modern block
@@ -179,15 +178,20 @@ PUPPETEER_SKIP_DOWNLOAD=true npm ci
 npx grunt dist
 ```
 
-When developing, run:
+For the modern package demo, run:
 ```shell
 npm run dev
 ```
 
-This runs the development server and watches the `src/` and `example/`
-directories for recompilation. It listens on port **8001**: visit
-`http://localhost:8001/example/example.html` for a simple running environment
-or `http://localhost:8001/example/test.html` for the view debugger.
+This builds and watches the deployable `site/` artifact, serving it at port
+**8001**. Visit `http://localhost:8001/` to use the JavaScript and Python
+package demo. It rebuilds when the demo page or modern package source changes;
+refresh the browser after a rebuild.
+
+The legacy CoffeeScript/Ace reference remains independently runnable with
+`npm run dev:legacy`. It serves the repository root on port **8001** for the
+historical example pages, such as `example/example.html` and
+`example/test.html`.
 
 Run `npx grunt mochaTest` for the parser/model unit suite. Switch to Node 24
 before running `npm run test:browser` for the full Playwright browser suite,

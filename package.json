@@ -36,7 +36,8 @@
   },
   "scripts": {
     "test": "grunt all",
-    "dev": "grunt testserver",
+    "dev": "node scripts/dev-pages.mjs",
+    "dev:legacy": "grunt testserver",
     "build:pages": "node scripts/build-pages.mjs",
     "test:browser": "npm run test:browser:legacy && npm run test:browser:modern",
     "test:browser:legacy": "npm --prefix playwright test -- tests/qunit-pages.spec.mjs",

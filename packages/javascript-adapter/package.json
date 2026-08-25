@@ -1,5 +1,6 @@
 {
   "name": "@droplet/javascript",
+  "private": true,
   "type": "module",
   "exports": "./src/index.js",
   "engines": {

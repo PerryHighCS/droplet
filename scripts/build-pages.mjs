@@ -2,10 +2,11 @@ import {cp, mkdir, rm} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const output = resolve(root, 'site');
-const copy = (from, to) => cp(resolve(root, from), resolve(output, to), {recursive: true, dereference: true});
+export const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+export const output = resolve(root, 'site');
 
+export async function buildPages() {
+  const copy = (from, to) => cp(resolve(root, from), resolve(output, to), {recursive: true, dereference: true});
 await rm(output, {recursive: true, force: true});
 await mkdir(output, {recursive: true});
 await copy('pages', '.');
@@ -23,3 +24,6 @@ for (const dependency of [
 await copy('packages/javascript-adapter/node_modules/acorn', 'vendor/acorn');
 await copy('playwright/node_modules/brython/brython.js', 'vendor/brython.js');
 await copy('playwright/node_modules/brython/brython_stdlib.js', 'vendor/brython_stdlib.js');
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) await buildPages();

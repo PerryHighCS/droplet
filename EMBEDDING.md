@@ -38,6 +38,11 @@ recreating the instance. The modern packages are source ESM today, so an
 application must use an ESM-aware bundler or an import map that resolves their
 dependencies; a standalone browser distribution is not yet emitted.
 
+For local package-demo development, `npm run dev` builds and serves only the
+deployable Pages artifact at `http://localhost:8001/` and watches the modern
+package sources plus `pages/`. Use `npm run dev:legacy` for the preserved
+CoffeeScript/Ace examples instead.
+
 Loading the code
 ----------------
 
