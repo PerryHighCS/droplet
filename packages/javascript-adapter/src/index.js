@@ -48,6 +48,13 @@ export function parseJavaScript(source, options = {}) {
   };
 }
 
+/** A ready-to-use language descriptor for @droplet/editor. */
+export const javascript = Object.freeze({
+  id: 'javascript',
+  parse: parseJavaScript,
+  transform: transformJavaScript
+});
+
 /** Returns minimal source changes for supported JavaScript block intents. */
 export function transformJavaScript(operation, parsed) {
   assertParsedSource(parsed, 'JavaScript');

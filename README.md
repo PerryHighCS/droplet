@@ -54,6 +54,39 @@ current-Acorn JavaScript ranges and supports source-preserving socket
 replacement, statement insertion, and statement movement through the CodeMirror
 Droplet adapter.
 
+## Modern ESM API
+
+The first Phase 9 package is [`packages/editor`](packages/editor/). It is
+framework-independent: give it a DOM element and a language descriptor, then
+use its text/block mode, selection, focus, update, and history APIs. CodeMirror
+remains the only source document and undo history in either mode.
+
+```js
+import {DropletEditor} from '@droplet/editor';
+import {javascript} from '@droplet/javascript';
+
+const editor = new DropletEditor(document.querySelector('#editor'), {
+  language: javascript,
+  value: 'const greeting = "hello";\n',
+  mode: 'blocks',
+  onChange(value) {
+    console.log(value);
+  }
+});
+
+editor.setMode('text');
+editor.undo();
+```
+
+For Python, use `createPythonLanguage({pythonToAST, tokenize})` from
+`@droplet/python`; the host supplies Brython's AST/tokenizer functions so a
+JavaScript-only application does not download a Python runtime. The packages
+are currently source ESM workspace packages; use a normal ESM-aware bundler or
+an import map that resolves their dependencies when embedding an application.
+The repository deploys a package-consumer demo (one JavaScript and one Python
+editor) to GitHub Pages whenever `main` changes; enable GitHub Pages with the
+repository's GitHub Actions source to publish it.
+
 [`packages/python-adapter`](packages/python-adapter/) is the initial modern
 Python parsing path. It maps Brython browser-AST source ranges while retaining
 the original source snapshot; syntax failures are represented as opaque source

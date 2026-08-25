@@ -1,6 +1,5 @@
 {
-  "name": "@droplet/python-adapter",
-  "private": true,
+  "name": "@droplet/python",
   "type": "module",
   "exports": "./src/index.js",
   "engines": {"node": ">=22"},

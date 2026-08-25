@@ -37,9 +37,10 @@
   "scripts": {
     "test": "grunt all",
     "dev": "grunt testserver",
+    "build:pages": "node scripts/build-pages.mjs",
     "test:browser": "npm run test:browser:legacy && npm run test:browser:modern",
     "test:browser:legacy": "npm --prefix playwright test -- tests/qunit-pages.spec.mjs",
-    "test:browser:modern": "npm --prefix playwright test -- tests/brython-ast.spec.mjs tests/javascript-playground.spec.mjs"
+    "test:browser:modern": "npm --prefix playwright test -- tests/brython-ast.spec.mjs tests/javascript-playground.spec.mjs tests/package-demo.spec.mjs"
   },
   "repository": {
     "type": "git",

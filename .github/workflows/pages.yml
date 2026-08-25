@@ -1,0 +1,47 @@
+name: Deploy package demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: |
+            packages/editor/package-lock.json
+            packages/javascript-adapter/package-lock.json
+            packages/python-adapter/package-lock.json
+            playwright/package-lock.json
+      - run: npm --prefix packages/editor ci
+      - run: npm --prefix packages/javascript-adapter ci
+      - run: npm --prefix packages/python-adapter ci
+      - run: npm --prefix playwright ci
+      - run: npm run build:pages
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
