@@ -31,7 +31,7 @@ function mount(id, language, value, options = {}) {
   const button = document.querySelector(`[data-mode="${id}"]`);
   let editor;
   editor = new DropletEditor(document.querySelector(`#${id}-editor`), {...options, language, value, mode: 'blocks', onUpdate: refresh});
-  function refresh() { source.textContent = editor.value; if (id === 'javascript' && editor.mode === 'blocks') colorJavaScript(editor); }
+  function refresh() { if (!editor) return; source.textContent = editor.value; if (id === 'javascript' && editor.mode === 'blocks') colorJavaScript(editor); }
   refresh();
   button.addEventListener('click', () => { editor.toggleMode(); button.textContent = editor.mode === 'blocks' ? 'Use text mode' : 'Use block mode'; refresh(); });
   return editor;

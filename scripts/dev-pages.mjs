@@ -42,7 +42,7 @@ const watchedDirectories = [
 ];
 let rebuildTimer;
 for (const directory of watchedDirectories) {
-  watch(resolve(root, directory), {recursive: true}, () => {
+  const rebuild = () => {
     clearTimeout(rebuildTimer);
     rebuildTimer = setTimeout(async () => {
       try {
@@ -52,5 +52,11 @@ for (const directory of watchedDirectories) {
         console.error('Pages rebuild failed:', error);
       }
     }, 80);
-  });
+  };
+  try {
+    watch(resolve(root, directory), {recursive: true}, rebuild);
+  } catch (error) {
+    if (error?.code !== 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM') throw error;
+    watch(resolve(root, directory), rebuild);
+  }
 }
