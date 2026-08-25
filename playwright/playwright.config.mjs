@@ -18,7 +18,10 @@ export default defineConfig({
     }
   },
   webServer: {
-    command: 'npm run build:pages && npx grunt build buildtests && node playwright/serve.mjs',
+    // The legacy browser lane intentionally installs only its historical
+    // dependencies. The modern lane builds site/ explicitly after installing
+    // its package workspaces, before running the Pages smoke test.
+    command: 'npx grunt build buildtests && node playwright/serve.mjs',
     cwd: '..',
     url: 'http://127.0.0.1:8942/test/test.html',
     reuseExistingServer: !process.env.CI,
