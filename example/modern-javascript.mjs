@@ -1,5 +1,5 @@
 import {createDropletCodeMirrorEditor} from '@droplet/codemirror-editor/droplet';
-import {parseJavaScript, transformJavaScript} from '@droplet/javascript-adapter';
+import {parseJavaScript, transformJavaScript} from '@droplet/javascript';
 
 const samples = {
   'Score tracker': 'var score = 0;\nif (score > 0) {\n  console.log(score);\n}\nscore = score + 1;\n',

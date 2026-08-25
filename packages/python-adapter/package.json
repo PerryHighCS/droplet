@@ -1,5 +1,5 @@
 {
-  "name": "@droplet/python-adapter",
+  "name": "@droplet/python",
   "private": true,
   "type": "module",
   "exports": "./src/index.js",

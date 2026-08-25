@@ -35,6 +35,11 @@ reviews:
     # playwright/test-results/** stay excluded above).
     - ".github/workflows/**"
     - "playwright/tests/**"
+    # The published package demo and its artifact builder are hand-authored
+    # production sources, not generated Pages output. Keep site/ excluded via
+    # the normal generated-artifact filters, but review their inputs.
+    - "pages/**"
+    - "scripts/build-pages.mjs"
   path_instructions:
     - path: "src/**/*.coffee"
       instructions: |
@@ -62,6 +67,16 @@ reviews:
         Keep the CI lanes intact: Node 14 legacy distribution, Node 24 legacy
         parser plus Playwright browser tests, and modern-core tests. Do not
         reintroduce the historical Puppeteer QUnit runner.
+    - path: "pages/**"
+      instructions: |
+        This is the hand-authored GitHub Pages package-consumer demo. It must
+        import the public modern package APIs, not adapter internals, and must
+        preserve the source-authoritative text/block model.
+    - path: "scripts/build-pages.mjs"
+      instructions: |
+        This produces the generated Pages artifact. Review its copied inputs
+        and import-map dependencies so the deployed demo remains self-contained
+        without committing generated site/ output.
     - path: "docs/**/*.md"
       instructions: |
         Keep documentation aligned with the modernization decision: the legacy

@@ -106,8 +106,8 @@ creation; otherwise run `PUPPETEER_SKIP_DOWNLOAD=true npm ci` and
 | Run browser tests on supported ARM64 Chromium | `npm run test:browser` |
 | Run modern core tests | `npm --prefix packages/core test` |
 | Run modern Python adapter tests | `npm --prefix packages/python-adapter test` |
-| Run the legacy development server and watcher | `npm run dev` |
-| Run the development server and watch bundle changes | `npx grunt testserver` |
+| Run the modern Pages demo server and watcher | `npm run dev` |
+| Run the legacy development server and watcher | `npm run dev:legacy` or `npx grunt testserver` |
 
 `testserver` listens on port **8001**. The QUnit server used during tests listens
 on port **8942**. These are the forwarded devcontainer ports; the `8000` values
@@ -123,8 +123,9 @@ in the README are stale.
    GitHub branch protection requires the stable `Legacy verification` and
    `Modern verification` aggregate checks; add new CI jobs to the appropriate
    aggregate job's `needs` list rather than adding a new required check.
-3. For changes to examples or visible interaction, start `npx grunt testserver`
-   and verify the relevant page in `example/` on port 8001.
+3. For modern package-demo changes, start `npm run dev` and verify the Pages
+   site on port 8001. For legacy examples or visible legacy interaction, start
+   `npm run dev:legacy` and verify the relevant `example/` page on port 8001.
 4. If a browser-test failure is caused by the local environment (for example,
    unavailable browser tooling or port binding), report the exact command and
    limitation; do not represent the suite as passing.

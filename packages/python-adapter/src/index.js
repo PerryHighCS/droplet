@@ -48,6 +48,19 @@ export function createBrythonPythonTransformer(pythonToAST) {
 }
 
 /**
+ * Creates a Python language descriptor for @droplet/editor.
+ * Brython remains caller-provided so this package does not bundle a Python
+ * runtime or impose one on applications that only use JavaScript.
+ */
+export function createPythonLanguage({pythonToAST, tokenize} = {}) {
+  return Object.freeze({
+    id: 'python',
+    parse: createBrythonPythonParser(pythonToAST, tokenize),
+    transform: createBrythonPythonTransformer(pythonToAST)
+  });
+}
+
+/**
  * Returns minimal source changes for supported Python block intents.
  * Untouched source, including blank lines, comments, and indentation, remains
  * byte-for-byte intact.

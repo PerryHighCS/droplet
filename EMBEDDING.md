@@ -4,6 +4,45 @@ Embedding Guide
 Basic instructions for embedding droplet are described in the README.
 Some further details and tips on embedding are included here.
 
+Modern ESM embedding
+--------------------
+
+The legacy browser global described below remains available as the executable
+compatibility reference. New applications should use the framework-independent
+modern ESM API instead:
+
+```js
+import {DropletEditor} from '@droplet/editor';
+import {javascript} from '@droplet/javascript';
+
+const editor = new DropletEditor(document.querySelector('#editor'), {
+  language: javascript,
+  value: 'let count = 0;\n',
+  mode: 'blocks',
+  onChange(value) {
+    // Persist the authoritative source snapshot.
+  }
+});
+
+editor.setMode('text');
+editor.setSelection({anchor: 0, head: 3});
+editor.focus();
+editor.destroy();
+```
+
+`value` can be read or assigned, while `setValue()` is intended for externally
+controlled source updates and therefore does not echo through `onChange`.
+`onUpdate` receives every CodeMirror update. `update()` changes language,
+filename, read-only state, theme, callbacks, and CodeMirror extensions without
+recreating the instance. The modern packages are source ESM today, so an
+application must use an ESM-aware bundler or an import map that resolves their
+dependencies; a standalone browser distribution is not yet emitted.
+
+For local package-demo development, `npm run dev` builds and serves only the
+deployable Pages artifact at `http://localhost:8001/` and watches the modern
+package sources plus `pages/`. Use `npm run dev:legacy` for the preserved
+CoffeeScript/Ace examples instead.
+
 Loading the code
 ----------------
 
