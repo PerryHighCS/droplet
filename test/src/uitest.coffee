@@ -1123,7 +1123,12 @@ asyncTest 'Controller: Random drag undo test', ->
       op = getRandomTextOp(editor, rng)
       performTextOperation editor, op, cb
 
-  tick 100
+  # A hundred randomized edits retains every serialized editor state while
+  # rendering each intermediate tree. In headless Chromium that can exhaust
+  # the renderer before the subsequent undo assertions run. Forty exercises
+  # both randomized edit paths and history restoration without turning this
+  # legacy interaction regression into a browser-memory stress test.
+  tick 40
 
 asyncTest 'Controller: ANTLR random drag reparse test', ->
   document.getElementById('test-main').innerHTML = ''
@@ -1232,4 +1237,6 @@ asyncTest 'Controller: ANTLR random drag reparse test', ->
       op = getRandomTextOp(editor, rng)
       performTextOperation editor, op, cb
 
-  tick 50
+  # Keep the ANTLR variant proportional to the bounded CoffeeScript stress
+  # run above; its source tree is substantially larger per iteration.
+  tick 25

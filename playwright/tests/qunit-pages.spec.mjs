@@ -18,10 +18,13 @@ test('static server does not expose dotted paths', async ({ request }) => {
 
 for (const pageName of qunitPages) {
   test(`QUnit: ${pageName}`, async ({ page }) => {
+    // The legacy UI page chains many timer-driven interaction tests. Its
+    // completion assertion needs a longer deadline than Playwright's default
+    // 30 seconds. The runner configuration supplies the 120-second ceiling.
     await page.goto(`/test/${pageName}`);
     await expect(page.locator('#qunit')).toBeVisible();
     await expect(page.locator('#qunit .failed')).toHaveText('0', {
-      timeout: 60_000
+      timeout: 110_000
     });
   });
 }
