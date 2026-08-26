@@ -1464,28 +1464,40 @@ editor.onChange((value) => {
 
 ## Core editor features
 
-- [ ] `value`.
-- [ ] Language.
-- [ ] Filename.
-- [ ] Text or block mode.
-- [ ] Read only.
+- [x] `value`.
+- [x] Language.
+- [x] Filename.
+- [x] Text or block mode.
+- [x] Read only.
 - [ ] Palette.
 - [ ] Function metadata.
-- [ ] Change events.
-- [ ] Update events.
-- [ ] Focus.
-- [ ] Selection.
-- [ ] Undo.
-- [ ] Redo.
-- [ ] Multiple instances.
-- [ ] Extension hooks.
+- [x] Change events.
+- [x] Update events.
+- [x] Focus.
+- [x] Selection.
+- [x] Undo.
+- [x] Redo.
+- [x] Multiple instances.
+- [x] Extension hooks.
 
 ### Phase 9 acceptance criteria
 
-- [ ] A plain HTML application can instantiate Droplet.
-- [ ] React is not required by core packages.
-- [ ] JavaScript and Python can be loaded independently where practical.
-- [ ] Core editor API is documented.
+- [x] A plain HTML application can instantiate Droplet.
+- [x] React is not required by core packages.
+- [x] JavaScript and Python can be loaded independently where practical.
+- [x] Core editor API is documented.
+
+### Phase 9 status — 2026-08-25
+
+Complete. `packages/editor` provides the public framework-independent
+`@droplet/editor` API over the single CodeMirror-owned document, with the
+JavaScript and Python language packages supplied independently. Its API covers
+value, language, filename, text/block mode, read-only state, callbacks,
+selection, focus, history, updates, and CodeMirror extension/layout options.
+The intentionally deferred palette and language-specific function metadata
+remain adapter/application policy, not requirements for packaging the generic
+editor. The package-consumer JavaScript/Python demo is deployed at
+https://perryhighcs.github.io/droplet/.
 
 ---
 
@@ -1509,13 +1521,13 @@ Possible API:
 
 ## React responsibilities
 
-- [ ] Mount editor.
-- [ ] Destroy editor.
-- [ ] Synchronize controlled value.
-- [ ] Update props through editor configuration.
-- [ ] Forward CodeMirror updates.
-- [ ] Support refs for imperative actions.
-- [ ] Avoid unnecessary editor recreation.
+- [x] Mount editor.
+- [x] Destroy editor.
+- [x] Synchronize controlled value.
+- [x] Update props through editor configuration.
+- [x] Forward CodeMirror updates.
+- [x] Support refs for imperative actions.
+- [x] Avoid unnecessary editor recreation.
 
 ## Possible imperative ref
 
@@ -1532,11 +1544,20 @@ interface DropletEditorRef {
 
 ### Phase 10 acceptance criteria
 
-- [ ] React package contains minimal editor logic.
-- [ ] It works with React 19.
-- [ ] Controlled state behaves correctly.
-- [ ] Multiple instances work.
-- [ ] Consumers can supply CodeMirror extensions.
+- [x] React package contains minimal editor logic.
+- [x] It works with React 19.
+- [x] Controlled state behaves correctly.
+- [x] Multiple instances work.
+- [x] Consumers can supply CodeMirror extensions.
+
+### Phase 10 status — 2026-08-25
+
+Complete. `packages/react` exports `@droplet/react`, a React 19 peer-dependent
+wrapper that creates one `@droplet/editor` instance per mounted component,
+forwards configuration through the editor's update API, controls source text
+without feeding external values back through `onChange`, and destroys the
+instance on unmount. Its focused JSDOM tests cover lifecycle, controlled
+updates, an imperative ref, and independent multiple instances.
 
 ---
 

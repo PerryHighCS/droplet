@@ -139,6 +139,26 @@ jobs:
       - run: npm --prefix packages/python-adapter ci
       - run: npm --prefix packages/python-adapter test
 
+  react-editor:
+    name: React editor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: |
+            packages/codemirror-editor/package-lock.json
+            packages/editor/package-lock.json
+            packages/react/package-lock.json
+      - run: npm --prefix packages/codemirror-editor ci
+      - run: npm --prefix packages/editor ci
+      - run: npm --prefix packages/react ci
+      - run: npm --prefix packages/react test
+
   legacy-verification:
     name: Legacy verification
     if: ${{ always() }}
@@ -163,6 +183,7 @@ jobs:
       - codemirror-editor
       - javascript-adapter
       - python-adapter
+      - react-editor
       - modern-playground
     runs-on: ubuntu-latest
     steps:
@@ -172,10 +193,12 @@ jobs:
           CODEMIRROR_EDITOR: ${{ needs.codemirror-editor.result }}
           JAVASCRIPT_ADAPTER: ${{ needs.javascript-adapter.result }}
           PYTHON_ADAPTER: ${{ needs.python-adapter.result }}
+          REACT_EDITOR: ${{ needs.react-editor.result }}
           MODERN_PLAYGROUND: ${{ needs.modern-playground.result }}
         run: |
           test "$MODERN_CORE" = success
           test "$CODEMIRROR_EDITOR" = success
           test "$JAVASCRIPT_ADAPTER" = success
           test "$PYTHON_ADAPTER" = success
+          test "$REACT_EDITOR" = success
           test "$MODERN_PLAYGROUND" = success

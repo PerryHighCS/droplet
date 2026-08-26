@@ -38,8 +38,8 @@ surface has no opinion on. Its notched, interlocking block silhouette
 `layoutOptions.tabConnector` rendering mode built into
 `packages/codemirror-editor` itself, off by default for other consumers.
 
-The first framework-independent editor package is
-[`packages/codemirror-editor`](packages/codemirror-editor/): it wraps one
+Phase 9 is complete: the framework-independent
+[`packages/codemirror-editor`](packages/codemirror-editor/) package wraps one
 CodeMirror 6 document with controlled value synchronization and extension
 compartments. Its `@droplet/codemirror-editor/droplet` subpath adds the
 source-range Droplet projection adapter and an early DOM/SVG BlockSurface.
@@ -55,7 +55,7 @@ Droplet adapter.
 
 ## Modern ESM API
 
-The first Phase 9 package is [`packages/editor`](packages/editor/). It is
+The Phase 9 public package is [`packages/editor`](packages/editor/). It is
 framework-independent: give it a DOM element and a language descriptor, then
 use its text/block mode, selection, focus, update, and history APIs. CodeMirror
 remains the only source document and undo history in either mode.
@@ -83,8 +83,8 @@ JavaScript-only application does not download a Python runtime. The packages
 are currently source ESM workspace packages; use a normal ESM-aware bundler or
 an import map that resolves their dependencies when embedding an application.
 The repository deploys a package-consumer demo (one JavaScript and one Python
-editor) to GitHub Pages whenever `main` changes; enable GitHub Pages with the
-repository's GitHub Actions source to publish it.
+editor) to GitHub Pages whenever `main` changes. The live package demo is
+available at https://perryhighcs.github.io/droplet/.
 
 [`packages/python-adapter`](packages/python-adapter/) is the initial modern
 Python parsing path. It maps Brython browser-AST source ranges while retaining
