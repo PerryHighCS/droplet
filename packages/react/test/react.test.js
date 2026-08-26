@@ -57,6 +57,7 @@ test('mounts one editor, synchronizes controlled value, forwards updates, and ex
 
   await act(() => root.unmount());
   assert.equal(parent.querySelector('.cm-editor'), null, 'unmount destroys the CodeMirror view');
+  parent.remove();
 });
 
 test('mounts independent editor instances', async () => {
@@ -70,6 +71,7 @@ test('mounts independent editor instances', async () => {
 
   assert.equal(parent.querySelectorAll('.cm-editor').length, 2);
   await act(() => root.unmount());
+  parent.remove();
 });
 
 function installDom() {
