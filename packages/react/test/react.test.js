@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import {after, test} from 'node:test';
 import {JSDOM} from 'jsdom';
 import React, {createRef} from 'react';
 import {act} from 'react';
@@ -7,7 +7,7 @@ import {createRoot} from 'react-dom/client';
 
 import {DropletEditor} from '../src/index.js';
 
-installDom();
+after(installDom());
 
 const language = {
   id: 'example',
@@ -101,14 +101,27 @@ test('restores a controlled value after an editor-originated change', async () =
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {pretendToBeVisual: true});
-  globalThis.window = dom.window;
-  globalThis.document = dom.window.document;
-  Object.defineProperty(globalThis, 'navigator', {configurable: true, value: dom.window.navigator});
-  globalThis.MutationObserver = dom.window.MutationObserver;
-  globalThis.HTMLElement = dom.window.HTMLElement;
-  globalThis.Window = dom.window.Window;
-  globalThis.getComputedStyle = dom.window.getComputedStyle;
-  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
-  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const values = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    MutationObserver: dom.window.MutationObserver,
+    HTMLElement: dom.window.HTMLElement,
+    Window: dom.window.Window,
+    getComputedStyle: dom.window.getComputedStyle,
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+    IS_REACT_ACT_ENVIRONMENT: true
+  };
+  const prior = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(values)) {
+    Object.defineProperty(globalThis, key, {configurable: true, writable: true, value});
+  }
+  return () => {
+    for (const [key, descriptor] of prior) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+    dom.window.close();
+  };
 }
