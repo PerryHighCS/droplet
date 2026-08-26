@@ -150,7 +150,10 @@ jobs:
         with:
           node-version: 24.x
           cache: npm
-          cache-dependency-path: packages/react/package-lock.json
+          cache-dependency-path: |
+            packages/editor/package-lock.json
+            packages/react/package-lock.json
+      - run: npm --prefix packages/editor ci
       - run: npm --prefix packages/react ci
       - run: npm --prefix packages/react test
 
