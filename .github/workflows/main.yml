@@ -151,8 +151,10 @@ jobs:
           node-version: 24.x
           cache: npm
           cache-dependency-path: |
+            packages/codemirror-editor/package-lock.json
             packages/editor/package-lock.json
             packages/react/package-lock.json
+      - run: npm --prefix packages/codemirror-editor ci
       - run: npm --prefix packages/editor ci
       - run: npm --prefix packages/react ci
       - run: npm --prefix packages/react test
