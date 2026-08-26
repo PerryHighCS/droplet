@@ -19,7 +19,6 @@ export const DropletEditor = forwardRef(function DropletEditor(props, ref) {
     readOnly,
     theme,
     extensions,
-    layoutOptions,
     onChange,
     onUpdate,
     onOperationError,
@@ -38,7 +37,7 @@ export const DropletEditor = forwardRef(function DropletEditor(props, ref) {
     const editor = editorRef.current;
     if (!editor) return;
     editor.update(updateOptions(props));
-  }, [language, filename, mode, readOnly, theme, extensions, layoutOptions, onChange, onUpdate, onOperationError]);
+  }, [language, filename, mode, readOnly, theme, extensions, onChange, onUpdate, onOperationError]);
 
   useLayoutEffect(() => {
     const editor = editorRef.current;
@@ -63,6 +62,6 @@ function initialEditorOptions({className, style, ...options}) {
   return options;
 }
 
-function updateOptions({className, style, value, ...options}) {
+function updateOptions({className, style, value, layoutOptions, ...options}) {
   return options;
 }

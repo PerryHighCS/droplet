@@ -52,6 +52,10 @@ It accepts `language`, `value`, `filename`, `mode`, `readOnly`, `theme`,
 Its ref exposes `focus()`, `getValue()`, `setValue()`, `setMode()`,
 `toggleMode()`, `undo()`, and `redo()`.
 
+`layoutOptions` are applied when the editor is mounted. To change them, remount
+the component (for example, by changing its React `key`). All other editor
+configuration props update without recreating the editor.
+
 ```jsx
 import {DropletEditor} from '@droplet/react';
 import {javascript} from '@droplet/javascript';
