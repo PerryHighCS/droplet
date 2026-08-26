@@ -1,4 +1,4 @@
-import {createElement, forwardRef, useImperativeHandle, useLayoutEffect, useRef} from 'react';
+import {createElement, forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useRef} from 'react';
 import {DropletEditor as Editor} from '@droplet/editor';
 
 /**
@@ -19,14 +19,19 @@ export const DropletEditor = forwardRef(function DropletEditor(props, ref) {
     readOnly,
     theme,
     extensions,
-    onChange,
     onUpdate,
     onOperationError,
     value
   } = props;
+  const handleChange = useCallback((nextValue, update) => {
+    const current = latestProps.current;
+    current.onChange?.(nextValue, update);
+    const editor = editorRef.current;
+    if (current.value !== undefined && editor?.value !== current.value) editor.setValue(current.value);
+  }, []);
 
   useLayoutEffect(() => {
-    editorRef.current = new Editor(hostRef.current, initialEditorOptions(latestProps.current));
+    editorRef.current = new Editor(hostRef.current, initialEditorOptions(latestProps.current, handleChange));
     return () => {
       editorRef.current?.destroy();
       editorRef.current = null;
@@ -36,8 +41,8 @@ export const DropletEditor = forwardRef(function DropletEditor(props, ref) {
   useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    editor.update(updateOptions(props));
-  }, [language, filename, mode, readOnly, theme, extensions, onChange, onUpdate, onOperationError]);
+    editor.update(updateOptions(props, handleChange));
+  }, [language, filename, mode, readOnly, theme, extensions, onUpdate, onOperationError, handleChange]);
 
   useLayoutEffect(() => {
     const editor = editorRef.current;
@@ -58,10 +63,10 @@ export const DropletEditor = forwardRef(function DropletEditor(props, ref) {
   return createElement('div', {ref: hostRef, className: props.className, style: props.style});
 });
 
-function initialEditorOptions({className, style, ...options}) {
-  return options;
+function initialEditorOptions({className, style, ...options}, onChange) {
+  return {...options, onChange};
 }
 
-function updateOptions({className, style, value, layoutOptions, ...options}) {
-  return options;
+function updateOptions({className, style, value, layoutOptions, ...options}, onChange) {
+  return {...options, onChange};
 }

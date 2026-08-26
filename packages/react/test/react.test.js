@@ -15,6 +15,11 @@ const language = {
   transform: () => []
 };
 
+const changingLanguage = {
+  ...language,
+  transform: () => [{from: 0, to: 3, insert: 'one!'}]
+};
+
 test('mounts one editor, synchronizes controlled value, forwards updates, and exposes the imperative API', async () => {
   const parent = document.body.appendChild(document.createElement('div'));
   const root = createRoot(parent);
@@ -70,6 +75,26 @@ test('mounts independent editor instances', async () => {
   )));
 
   assert.equal(parent.querySelectorAll('.cm-editor').length, 2);
+  await act(() => root.unmount());
+  parent.remove();
+});
+
+test('restores a controlled value after an editor-originated change', async () => {
+  const parent = document.body.appendChild(document.createElement('div'));
+  const root = createRoot(parent);
+  const ref = createRef();
+  const changes = [];
+
+  await act(() => root.render(React.createElement(DropletEditor, {
+    ref,
+    language: changingLanguage,
+    value: 'one',
+    onChange: (value) => changes.push(value)
+  })));
+  await act(() => ref.current.editor.applyBlockOperation({type: 'test'}));
+
+  assert.deepEqual(changes, ['one!']);
+  assert.equal(ref.current.getValue(), 'one');
   await act(() => root.unmount());
   parent.remove();
 });
